@@ -944,6 +944,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		reloadCountB++;
 
 	state.currentFilePath = filePath;
+	state.irSampleRate = reader->sampleRate;
 	state.needsUpdate = false;
 	
 	const int cappedLength = juce::jmin (finalLength, 4096);
@@ -954,6 +955,513 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	     ", pitch=" + juce::String (pitch, 2) +
 	     ", inv=" + juce::String (invert ? 1 : 0) + ", rvs=" + juce::String (reverse ? 1 : 0) +
 	     ", norm=" + juce::String (normalize ? 1 : 0));
+}
+
+//==============================================================================
+// EXPORT COMBINED IR — Offline capture through full processing chain
+// Generates a unit impulse, processes it through both loaders (routing, filters,
+// DIST, PAN, DELAY, ANGLE, mode in/out, mix, gains) except CHAOS.
+// formatType: 0=WAV16, 1=WAV24, 2=WAV32f, 3=AIFF24, 4=FLAC24
+//==============================================================================
+
+// FFT-based linear convolution (for series routing: A output → B convolution)
+static juce::AudioBuffer<float> fftConvolve (const juce::AudioBuffer<float>& signal,
+                                              const juce::AudioBuffer<float>& kernel)
+{
+	const int sigLen = signal.getNumSamples();
+	const int kerLen = kernel.getNumSamples();
+	const int outLen = sigLen + kerLen - 1;
+
+	int fftOrder = 0;
+	while ((1 << fftOrder) < outLen)
+		++fftOrder;
+	const int fftSize = 1 << fftOrder;
+
+	const int numCh = juce::jmin (signal.getNumChannels(), kernel.getNumChannels());
+	juce::AudioBuffer<float> result (numCh, outLen);
+	result.clear();
+
+	juce::dsp::FFT fft (fftOrder);
+
+	std::vector<float> sigBuf (static_cast<size_t> (fftSize) * 2, 0.0f);
+	std::vector<float> kerBuf (static_cast<size_t> (fftSize) * 2, 0.0f);
+	std::vector<float> outBuf (static_cast<size_t> (fftSize) * 2, 0.0f);
+
+	for (int ch = 0; ch < numCh; ++ch)
+	{
+		std::fill (sigBuf.begin(), sigBuf.end(), 0.0f);
+		std::fill (kerBuf.begin(), kerBuf.end(), 0.0f);
+
+		std::memcpy (sigBuf.data(), signal.getReadPointer (ch),
+		             sizeof (float) * static_cast<size_t> (sigLen));
+		const int kerCh = juce::jmin (ch, kernel.getNumChannels() - 1);
+		std::memcpy (kerBuf.data(), kernel.getReadPointer (kerCh),
+		             sizeof (float) * static_cast<size_t> (kerLen));
+
+		fft.performRealOnlyForwardTransform (sigBuf.data());
+		fft.performRealOnlyForwardTransform (kerBuf.data());
+
+		// Complex multiply
+		for (int i = 0; i < fftSize; ++i)
+		{
+			const float sr = sigBuf[static_cast<size_t> (i) * 2];
+			const float si = sigBuf[static_cast<size_t> (i) * 2 + 1];
+			const float kr = kerBuf[static_cast<size_t> (i) * 2];
+			const float ki = kerBuf[static_cast<size_t> (i) * 2 + 1];
+			outBuf[static_cast<size_t> (i) * 2]     = sr * kr - si * ki;
+			outBuf[static_cast<size_t> (i) * 2 + 1] = sr * ki + si * kr;
+		}
+
+		fft.performRealOnlyInverseTransform (outBuf.data());
+
+		std::memcpy (result.getWritePointer (ch), outBuf.data(),
+		             sizeof (float) * static_cast<size_t> (outLen));
+	}
+
+	return result;
+}
+
+bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
+                                             int formatType, double maxLengthSec,
+                                             bool trimSilence,
+                                             const juce::File& outputFile)
+{
+	// Read current global parameters
+	const bool enableA = pEnableA->load() > 0.5f;
+	const bool enableB = pEnableB->load() > 0.5f;
+	const int modeIn = static_cast<int> (pModeIn->load());
+	const int mode = static_cast<int> (pMode->load());
+	const int route = static_cast<int> (pRoute->load());
+	const float globalMix = pMix->load();
+	const float inputGainDb = pInput->load();
+	const float outputGainDb = pOutput->load();
+
+	// Need at least one enabled loader with an IR
+	const bool hasA = enableA && stateA.impulseResponse.getNumSamples() > 0;
+	const bool hasB = enableB && stateB.impulseResponse.getNumSamples() > 0;
+	if (! hasA && ! hasB)
+		return false;
+
+	const double workingSR = currentSampleRate;
+	const int maxWorkingSamples = static_cast<int> (maxLengthSec * workingSR) + 1;
+
+	// Determine output length based on routing
+	int irLenA = hasA ? stateA.impulseResponse.getNumSamples() : 0;
+	int irLenB = hasB ? stateB.impulseResponse.getNumSamples() : 0;
+	int workingLen = 0;
+
+	if (route == 1) // PARALLEL
+		workingLen = juce::jmax (irLenA, irLenB);
+	else // SERIES
+		workingLen = (hasA && hasB) ? (irLenA + irLenB - 1) : juce::jmax (irLenA, irLenB);
+
+	// Add headroom for delay effect (max 1000ms)
+	const float maxDelayMs = juce::jmax (
+		hasA ? std::abs ((pDelayA)->load()) : 0.0f,
+		hasB ? std::abs ((pDelayB)->load()) : 0.0f);
+	workingLen += static_cast<int> (maxDelayMs * 0.001 * workingSR) + 1;
+
+	// Cap to requested max length
+	workingLen = juce::jmin (workingLen, maxWorkingSamples);
+
+	// ── Build the combined IR offline ──
+
+	juce::AudioBuffer<float> result;
+
+	if (route == 1) // PARALLEL
+	{
+		if (hasA && hasB)
+		{
+			// Process A
+			juce::AudioBuffer<float> bufA (2, workingLen);
+			bufA.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateA.impulseResponse.getNumChannels()); ++ch)
+				bufA.copyFrom (ch, 0, stateA.impulseResponse, ch, 0,
+				               juce::jmin (irLenA, workingLen));
+			// Mono IR → duplicate to stereo
+			if (stateA.impulseResponse.getNumChannels() == 1 && bufA.getNumChannels() >= 2)
+				bufA.copyFrom (1, 0, bufA, 0, 0, workingLen);
+			offlineProcessLoaderEffects (bufA, true, workingSR);
+
+			// Process B
+			juce::AudioBuffer<float> bufB (2, workingLen);
+			bufB.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateB.impulseResponse.getNumChannels()); ++ch)
+				bufB.copyFrom (ch, 0, stateB.impulseResponse, ch, 0,
+				               juce::jmin (irLenB, workingLen));
+			if (stateB.impulseResponse.getNumChannels() == 1 && bufB.getNumChannels() >= 2)
+				bufB.copyFrom (1, 0, bufB, 0, 0, workingLen);
+			offlineProcessLoaderEffects (bufB, false, workingSR);
+
+			// Sum with -3dB parallel compensation
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < 2; ++ch)
+				juce::FloatVectorOperations::add (result.getWritePointer (ch),
+				                                   bufA.getReadPointer (ch),
+				                                   bufB.getReadPointer (ch),
+				                                   workingLen);
+			result.applyGain (0.707106781f);
+		}
+		else if (hasA)
+		{
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateA.impulseResponse.getNumChannels()); ++ch)
+				result.copyFrom (ch, 0, stateA.impulseResponse, ch, 0,
+				                 juce::jmin (irLenA, workingLen));
+			if (stateA.impulseResponse.getNumChannels() == 1)
+				result.copyFrom (1, 0, result, 0, 0, workingLen);
+			offlineProcessLoaderEffects (result, true, workingSR);
+		}
+		else // hasB
+		{
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateB.impulseResponse.getNumChannels()); ++ch)
+				result.copyFrom (ch, 0, stateB.impulseResponse, ch, 0,
+				                 juce::jmin (irLenB, workingLen));
+			if (stateB.impulseResponse.getNumChannels() == 1)
+				result.copyFrom (1, 0, result, 0, 0, workingLen);
+			offlineProcessLoaderEffects (result, false, workingSR);
+		}
+	}
+	else // SERIES (A → B)
+	{
+		if (hasA && hasB)
+		{
+			// A: start with IR_A, apply effects
+			juce::AudioBuffer<float> bufA (2, workingLen);
+			bufA.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateA.impulseResponse.getNumChannels()); ++ch)
+				bufA.copyFrom (ch, 0, stateA.impulseResponse, ch, 0,
+				               juce::jmin (irLenA, workingLen));
+			if (stateA.impulseResponse.getNumChannels() == 1)
+				bufA.copyFrom (1, 0, bufA, 0, 0, workingLen);
+			offlineProcessLoaderEffects (bufA, true, workingSR);
+
+			// B: convolve A's output with IR_B (FFT convolution)
+			auto convolved = fftConvolve (bufA, stateB.impulseResponse);
+
+			// Truncate to working length and apply B effects
+			const int convLen = juce::jmin (convolved.getNumSamples(), workingLen);
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < juce::jmin (2, convolved.getNumChannels()); ++ch)
+				result.copyFrom (ch, 0, convolved, ch, 0, convLen);
+			if (convolved.getNumChannels() == 1)
+				result.copyFrom (1, 0, result, 0, 0, workingLen);
+			offlineProcessLoaderEffects (result, false, workingSR);
+		}
+		else if (hasA)
+		{
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateA.impulseResponse.getNumChannels()); ++ch)
+				result.copyFrom (ch, 0, stateA.impulseResponse, ch, 0,
+				                 juce::jmin (irLenA, workingLen));
+			if (stateA.impulseResponse.getNumChannels() == 1)
+				result.copyFrom (1, 0, result, 0, 0, workingLen);
+			offlineProcessLoaderEffects (result, true, workingSR);
+		}
+		else // hasB
+		{
+			result.setSize (2, workingLen);
+			result.clear();
+			for (int ch = 0; ch < juce::jmin (2, stateB.impulseResponse.getNumChannels()); ++ch)
+				result.copyFrom (ch, 0, stateB.impulseResponse, ch, 0,
+				                 juce::jmin (irLenB, workingLen));
+			if (stateB.impulseResponse.getNumChannels() == 1)
+				result.copyFrom (1, 0, result, 0, 0, workingLen);
+			offlineProcessLoaderEffects (result, false, workingSR);
+		}
+	}
+
+	const int numSamples = result.getNumSamples();
+
+	// ── Apply global processing ──
+
+	// Input gain
+	if (std::abs (inputGainDb) > 0.01f)
+		result.applyGain (juce::Decibels::decibelsToGain (inputGainDb));
+
+	// MODE IN → MODE OUT: for IR capture these apply as gain transformations
+	// MID = (L+R)/√2, SIDE = (L-R)/√2 — applied pre and post
+	auto applyModeConversion = [&] (int modeVal)
+	{
+		if ((modeVal == 1 || modeVal == 2) && result.getNumChannels() >= 2)
+		{
+			auto* L = result.getWritePointer (0);
+			auto* R = result.getWritePointer (1);
+			for (int i = 0; i < numSamples; ++i)
+			{
+				const float l = L[i];
+				const float r = R[i];
+				if (modeVal == 1)
+				{
+					const float mid = (l + r) * 0.707106781f;
+					L[i] = R[i] = mid;
+				}
+				else
+				{
+					const float side = (l - r) * 0.707106781f;
+					L[i] = R[i] = side;
+				}
+			}
+		}
+	};
+
+	applyModeConversion (modeIn);
+
+	// Note: the actual processBlock applies mode in BEFORE loaders and mode out AFTER.
+	// For the offline capture, the signal through the loaders IS the IR itself (no mode
+	// applied yet), so we apply both mode conversions to the combined result.
+	applyModeConversion (mode);
+
+	// Global MIX: blend impulse (dry) with processed (wet)
+	if (globalMix < 0.999f)
+	{
+		const float wet = globalMix;
+		const float dry = 1.0f - globalMix;
+
+		// Dry = unit impulse scaled by inputGain (already applied above → just a spike at sample 0)
+		// Build dry signal: impulse at sample 0 with inputGain already baked
+		for (int ch = 0; ch < result.getNumChannels(); ++ch)
+		{
+			auto* data = result.getWritePointer (ch);
+			// The dry path is: inputGain * modeIn(impulse). For L+R mode, impulse stays 1.0.
+			// For MID: (1+1)/√2 = √2, for SIDE: (1-1)/√2 = 0. But the impulse is stereo
+			// identical, so MID preserves it and SIDE zeroes it.
+			// Simplification: dry signal = inputGain * impulse (mode-converted impulse at sample 0)
+			// Since inputGain is already applied to result, the dry reference is simply the
+			// input-gained impulse that was already mode-converted. We reconstruct it.
+			float dryImpulse = (ch == 0) ? 1.0f : 1.0f;
+			if (std::abs (inputGainDb) > 0.01f)
+				dryImpulse *= juce::Decibels::decibelsToGain (inputGainDb);
+			// Apply mode in to dry impulse (stereo L=R=1 initially)
+			if (modeIn == 1) dryImpulse *= 0.707106781f * 2.0f; // (1+1)/√2
+			else if (modeIn == 2) dryImpulse = 0.0f; // (1-1)/√2
+
+			for (int i = 0; i < numSamples; ++i)
+				data[i] *= wet;
+			if (numSamples > 0)
+				data[0] += dry * dryImpulse;
+		}
+	}
+
+	// Output gain
+	if (std::abs (outputGainDb) > 0.01f)
+		result.applyGain (juce::Decibels::decibelsToGain (outputGainDb));
+
+	// ── Resample if target SR differs ──
+	if (std::abs (targetSampleRate - workingSR) > 1.0)
+	{
+		const double ratio = workingSR / targetSampleRate;
+		const int newLength = static_cast<int> (result.getNumSamples() / ratio);
+		if (newLength > 0)
+		{
+			juce::AudioBuffer<float> resampled (result.getNumChannels(), newLength);
+			for (int ch = 0; ch < result.getNumChannels(); ++ch)
+			{
+				juce::LagrangeInterpolator interpolator;
+				interpolator.process (ratio,
+				                      result.getReadPointer (ch),
+				                      resampled.getWritePointer (ch),
+				                      newLength,
+				                      result.getNumSamples(), 0);
+			}
+			result = std::move (resampled);
+		}
+	}
+
+	// Apply max length cap at target rate
+	{
+		const int maxSamples = static_cast<int> (maxLengthSec * targetSampleRate);
+		if (result.getNumSamples() > maxSamples)
+			result.setSize (result.getNumChannels(), maxSamples, true);
+	}
+
+	// Trim trailing silence (-80dBFS threshold)
+	if (trimSilence)
+	{
+		constexpr float silenceThreshold = 0.0001f;
+		int lastNonSilent = 0;
+
+		for (int ch = 0; ch < result.getNumChannels(); ++ch)
+		{
+			const float* data = result.getReadPointer (ch);
+			for (int i = result.getNumSamples() - 1; i >= 0; --i)
+			{
+				if (std::abs (data[i]) > silenceThreshold)
+				{
+					lastNonSilent = juce::jmax (lastNonSilent, i);
+					break;
+				}
+			}
+		}
+
+		const int trimLength = juce::jmax (64, lastNonSilent + 1);
+		if (trimLength < result.getNumSamples())
+			result.setSize (result.getNumChannels(), trimLength, true);
+	}
+
+	// ── Write to file ──
+	std::unique_ptr<juce::AudioFormat> format;
+	int bitsPerSample = 24;
+
+	switch (formatType)
+	{
+		case 0: format = std::make_unique<juce::WavAudioFormat>();  bitsPerSample = 16; break;
+		case 1: format = std::make_unique<juce::WavAudioFormat>();  bitsPerSample = 24; break;
+		case 2: format = std::make_unique<juce::WavAudioFormat>();  bitsPerSample = 32; break;
+		case 3: format = std::make_unique<juce::AiffAudioFormat>(); bitsPerSample = 24; break;
+		case 4: format = std::make_unique<juce::FlacAudioFormat>(); bitsPerSample = 24; break;
+		default: return false;
+	}
+
+	outputFile.deleteFile();
+	auto outputStream = outputFile.createOutputStream();
+	if (outputStream == nullptr)
+		return false;
+
+	auto* rawStream = outputStream.release();
+	std::unique_ptr<juce::AudioFormatWriter> writer (
+		format->createWriterFor (rawStream,
+		                         targetSampleRate,
+		                         static_cast<unsigned int> (result.getNumChannels()),
+		                         bitsPerSample,
+		                         {},
+		                         0));
+
+	if (writer == nullptr)
+	{
+		delete rawStream;
+		return false;
+	}
+
+	writer->writeFromAudioSampleBuffer (result, 0, result.getNumSamples());
+	return true;
+}
+
+//==============================================================================
+// Offline loader effects: HP → LP → DIST → PAN → DELAY → ANGLE → OUT gain
+// Uses temporary filter instances (no audio-thread state mutation).
+// CHAOS is intentionally skipped (non-deterministic modulation).
+//==============================================================================
+void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
+                                                        bool isA, double sampleRate)
+{
+	const int numSamples = buffer.getNumSamples();
+	const int numChannels = buffer.getNumChannels();
+	const float maxFreq = static_cast<float> (sampleRate) * 0.49f;
+
+	const float hpFreq = (isA ? pHpFreqA : pHpFreqB)->load();
+	const float lpFreq = (isA ? pLpFreqA : pLpFreqB)->load();
+	const float delayMs = (isA ? pDelayA : pDelayB)->load();
+	const float pan = (isA ? pPanA : pPanB)->load();
+	const float fred = (isA ? pFredA : pFredB)->load();
+	const float pos = (isA ? pPosA : pPosB)->load();
+	const float outDb = (isA ? pOutA : pOutB)->load();
+
+	juce::dsp::ProcessSpec spec;
+	spec.sampleRate = sampleRate;
+	spec.maximumBlockSize = static_cast<juce::uint32> (numSamples);
+	spec.numChannels = static_cast<juce::uint32> (numChannels);
+
+	// HP filter
+	if (hpFreq >= 21.0f)
+	{
+		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+		                                juce::dsp::IIR::Coefficients<float>> hp;
+		hp.prepare (spec);
+		*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
+			sampleRate, juce::jlimit (20.0f, maxFreq, hpFreq), 0.707f);
+		juce::dsp::AudioBlock<float> block (buffer);
+		juce::dsp::ProcessContextReplacing<float> ctx (block);
+		hp.process (ctx);
+	}
+
+	// LP filter
+	if (lpFreq <= 19900.0f)
+	{
+		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+		                                juce::dsp::IIR::Coefficients<float>> lp;
+		lp.prepare (spec);
+		*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
+			sampleRate, juce::jlimit (20.0f, maxFreq, lpFreq), 0.707f);
+		juce::dsp::AudioBlock<float> block (buffer);
+		juce::dsp::ProcessContextReplacing<float> ctx (block);
+		lp.process (ctx);
+	}
+
+	// DIST (exponential LPF + gain attenuation)
+	if (pos > 0.01f)
+	{
+		const float cutoff = 12000.0f * std::exp (-pos * 2.0794f);
+		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+		                                juce::dsp::IIR::Coefficients<float>> posF;
+		posF.prepare (spec);
+		*posF.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
+			sampleRate, juce::jlimit (200.0f, maxFreq, cutoff), 0.707f);
+		juce::dsp::AudioBlock<float> block (buffer);
+		juce::dsp::ProcessContextReplacing<float> ctx (block);
+		posF.process (ctx);
+
+		buffer.applyGain (1.0f - pos * 0.5f);
+	}
+
+	// PAN (constant-power)
+	if (numChannels >= 2 && std::abs (pan - 0.5f) > 0.001f)
+	{
+		const float panAngle = pan * 1.5707963f;
+		buffer.applyGain (0, 0, numSamples, std::cos (panAngle));
+		buffer.applyGain (1, 0, numSamples, std::sin (panAngle));
+	}
+
+	// DELAY (offline: shift samples right)
+	if (delayMs > 0.1f)
+	{
+		const int delaySamples = static_cast<int> (delayMs * 0.001f * static_cast<float> (sampleRate) + 0.5f);
+		if (delaySamples > 0 && delaySamples < numSamples)
+		{
+			for (int ch = 0; ch < numChannels; ++ch)
+			{
+				auto* data = buffer.getWritePointer (ch);
+				std::memmove (data + delaySamples, data,
+				              sizeof (float) * static_cast<size_t> (numSamples - delaySamples));
+				std::memset (data, 0, sizeof (float) * static_cast<size_t> (delaySamples));
+			}
+		}
+	}
+
+	// ANGLE (7-sample comb filter)
+	if (fred > 0.001f)
+	{
+		constexpr int kFredDelay = IRLoaderState::kFredDelaySamples;
+		float fredBuf[2][kFredDelay] = {};
+		int fredIdx = 0;
+		const float compensate = 1.0f / (1.0f + fred);
+		const int chCount = juce::jmin (numChannels, 2);
+
+		for (int i = 0; i < numSamples; ++i)
+		{
+			for (int ch = 0; ch < chCount; ++ch)
+			{
+				auto* data = buffer.getWritePointer (ch);
+				const float direct = data[i];
+				const float offAxis = fredBuf[ch][fredIdx];
+				fredBuf[ch][fredIdx] = direct;
+				data[i] = (direct + fred * offAxis) * compensate;
+			}
+			fredIdx = (fredIdx + 1) % kFredDelay;
+		}
+	}
+
+	// CHAOS intentionally skipped
+
+	// OUT gain
+	if (std::abs (outDb) > 0.01f)
+		buffer.applyGain (juce::Decibels::decibelsToGain (outDb));
 }
 
 //==============================================================================

@@ -1224,6 +1224,15 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		g.fillEllipse (cachedInfoGearHole);
 	}
 
+	// Draw export icon (download arrow next to title)
+	{
+		if (cachedExportIconPath.isEmpty())
+			updateExportIconCache();
+
+		g.setColour (activeScheme.text);
+		g.fillPath (cachedExportIconPath);
+	}
+
 	// Draw value legends for all bar sliders
 	{
 		g.setFont (kBoldFont40());
@@ -1354,6 +1363,7 @@ void CABTRAudioProcessorEditor::resized()
 	promptOverlay.setBounds (getLocalBounds());
 
 	updateInfoIconCache();
+	updateExportIconCache();
 }
 
 void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, bool isA)
@@ -1939,6 +1949,13 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 		return;
 	}
 
+	// Click on export icon opens export prompt
+	if (getExportIconArea().contains (p))
+	{
+		openExportPrompt();
+		return;
+	}
+
 	// CHAOS display overlay: left-click toggles, right-click opens prompt
 	if (chaosDisplayA.getBounds().contains (p) && enableButtonA.getToggleState())
 	{
@@ -2206,6 +2223,47 @@ void CABTRAudioProcessorEditor::updateInfoIconCache()
 	}
 	cachedInfoGearPath.closeSubPath();
 	cachedInfoGearHole = { center.x - holeR, center.y - holeR, holeR * 2.0f, holeR * 2.0f };
+}
+
+juce::Rectangle<int> CABTRAudioProcessorEditor::getExportIconArea() const
+{
+	constexpr int size = 24;
+	constexpr int x = 134;
+	constexpr int y = 16;
+	return { x, y, size, size };
+}
+
+void CABTRAudioProcessorEditor::updateExportIconCache()
+{
+	const auto area = getExportIconArea().toFloat();
+	cachedExportIconPath.clear();
+
+	const float cx = area.getCentreX();
+	const float top = area.getY();
+	const float w = area.getWidth();
+	const float h = area.getHeight();
+
+	// Downward arrow: shaft + triangular head
+	const float shaftW = w * 0.12f;
+	const float shaftTop = top + h * 0.08f;
+	const float shaftBot = top + h * 0.46f;
+	const float arrowW = w * 0.34f;
+	const float arrowTip = top + h * 0.70f;
+
+	cachedExportIconPath.startNewSubPath (cx - shaftW, shaftTop);
+	cachedExportIconPath.lineTo (cx + shaftW, shaftTop);
+	cachedExportIconPath.lineTo (cx + shaftW, shaftBot);
+	cachedExportIconPath.lineTo (cx + arrowW, shaftBot);
+	cachedExportIconPath.lineTo (cx, arrowTip);
+	cachedExportIconPath.lineTo (cx - arrowW, shaftBot);
+	cachedExportIconPath.lineTo (cx - shaftW, shaftBot);
+	cachedExportIconPath.closeSubPath();
+
+	// Bottom tray
+	const float barY = top + h * 0.80f;
+	const float barH = h * 0.10f;
+	const float barW = w * 0.72f;
+	cachedExportIconPath.addRectangle (cx - barW / 2.0f, barY, barW, barH);
 }
 
 //==============================================================================
@@ -3001,6 +3059,225 @@ void CABTRAudioProcessorEditor::openChaosPrompt (bool forLoaderA)
 			disp.setTooltip (tip);
 		}),
 		false);
+}
+
+//==============================================================================
+//  Export Prompt
+//==============================================================================
+void CABTRAudioProcessorEditor::openExportPrompt()
+{
+	using namespace TR;
+
+	lnf.setScheme (activeScheme);
+	setPromptOverlayActive (true);
+
+	auto* aw = new juce::AlertWindow ("", "", juce::MessageBoxIconType::NoIcon);
+	juce::Component::SafePointer<CABTRAudioProcessorEditor> safeThis (this);
+	aw->setLookAndFeel (&lnf);
+	aw->setColour (juce::AlertWindow::backgroundColourId, activeScheme.bg);
+
+	auto labelFont = lnf.getAlertWindowMessageFont();
+	labelFont.setHeight (labelFont.getHeight() * 1.20f);
+	auto titleFont = labelFont;
+	titleFont.setBold (true);
+	titleFont.setHeight (labelFont.getHeight() * 1.15f);
+
+	// Build form panel — all controls live inside this container
+	// so AlertWindow can correctly size itself via addCustomComponent
+	auto* formPanel = new juce::Component();
+
+	constexpr int formW = 380;
+	constexpr int rowH = 28;
+	constexpr int labelW = 90;
+	constexpr int controlX = labelW + 8;
+	constexpr int controlW = formW - controlX;
+	constexpr int gap = 6;
+	int fy = 0;
+
+	auto addFormLabel = [&] (const juce::String& text, int yPos)
+	{
+		auto* l = new juce::Label ("", text);
+		l->setFont (labelFont);
+		l->setColour (juce::Label::textColourId, activeScheme.text);
+		l->setJustificationType (juce::Justification::centredRight);
+		l->setBounds (0, yPos, labelW, rowH);
+		formPanel->addAndMakeVisible (l);
+		return l;
+	};
+
+	// Title
+	auto* titleLabel = new juce::Label ("title", "EXPORT IR");
+	titleLabel->setFont (titleFont);
+	titleLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	titleLabel->setJustificationType (juce::Justification::centred);
+	titleLabel->setBounds (0, fy, formW, rowH);
+	formPanel->addAndMakeVisible (titleLabel);
+	fy += rowH + gap + 4;
+
+	// RATE
+	addFormLabel ("RATE", fy);
+	auto* rateCombo = new juce::ComboBox ("rate");
+	rateCombo->setLookAndFeel (&lnf);
+	rateCombo->addItem ("44100 Hz", 1);
+	rateCombo->addItem ("48000 Hz", 2);
+	rateCombo->addItem ("88200 Hz", 3);
+	rateCombo->addItem ("96000 Hz", 4);
+	rateCombo->addItem ("176400 Hz", 5);
+	rateCombo->addItem ("192000 Hz", 6);
+	const double hostSR = audioProcessor.getSampleRate();
+	int defaultRateId = 2;
+	if      (std::abs (hostSR - 44100.0)  < 1.0) defaultRateId = 1;
+	else if (std::abs (hostSR - 48000.0)  < 1.0) defaultRateId = 2;
+	else if (std::abs (hostSR - 88200.0)  < 1.0) defaultRateId = 3;
+	else if (std::abs (hostSR - 96000.0)  < 1.0) defaultRateId = 4;
+	else if (std::abs (hostSR - 176400.0) < 1.0) defaultRateId = 5;
+	else if (std::abs (hostSR - 192000.0) < 1.0) defaultRateId = 6;
+	rateCombo->setSelectedId (defaultRateId, juce::dontSendNotification);
+	rateCombo->setBounds (controlX, fy, controlW, rowH);
+	formPanel->addAndMakeVisible (rateCombo);
+	fy += rowH + gap;
+
+	// FORMAT
+	addFormLabel ("FORMAT", fy);
+	auto* formatCombo = new juce::ComboBox ("format");
+	formatCombo->setLookAndFeel (&lnf);
+	formatCombo->addItem ("WAV 16-bit", 1);
+	formatCombo->addItem ("WAV 24-bit", 2);
+	formatCombo->addItem ("WAV 32-bit float", 3);
+	formatCombo->addItem ("AIFF 24-bit", 4);
+	formatCombo->addItem ("FLAC 24-bit", 5);
+	formatCombo->setSelectedId (2, juce::dontSendNotification);
+	formatCombo->setBounds (controlX, fy, controlW, rowH);
+	formPanel->addAndMakeVisible (formatCombo);
+	fy += rowH + gap;
+
+	// LENGTH
+	addFormLabel ("LENGTH", fy);
+	auto* lengthEditor = new juce::TextEditor ("length");
+	lengthEditor->setFont (labelFont);
+	lengthEditor->setJustification (juce::Justification::centred);
+	lengthEditor->setText ("10.0", juce::dontSendNotification);
+	lengthEditor->setInputFilter (new NumericInputFilter (0.01, 10.0, 6, 2), true);
+	lengthEditor->setColour (juce::TextEditor::backgroundColourId, activeScheme.bg);
+	lengthEditor->setColour (juce::TextEditor::textColourId, activeScheme.text);
+	lengthEditor->setColour (juce::TextEditor::outlineColourId, activeScheme.text.withAlpha (0.5f));
+	lengthEditor->setColour (juce::TextEditor::focusedOutlineColourId, activeScheme.text);
+	lengthEditor->setBounds (controlX, fy, controlW - 30, rowH);
+	formPanel->addAndMakeVisible (lengthEditor);
+
+	auto* secLabel = new juce::Label ("sec", "s");
+	secLabel->setFont (labelFont);
+	secLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	secLabel->setBounds (controlX + controlW - 26, fy, 26, rowH);
+	formPanel->addAndMakeVisible (secLabel);
+	fy += rowH + gap;
+
+	// TRIM SILENCE
+	auto* trimToggle = new juce::ToggleButton ("TRIM SILENCE");
+	trimToggle->setToggleState (true, juce::dontSendNotification);
+	trimToggle->setLookAndFeel (&lnf);
+	trimToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
+	trimToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
+	trimToggle->setBounds (controlX, fy, controlW, rowH);
+	formPanel->addAndMakeVisible (trimToggle);
+	fy += rowH;
+
+	// Register form panel as custom component so AlertWindow sizes correctly
+	formPanel->setSize (formW, fy);
+	aw->addCustomComponent (formPanel);
+
+	// Buttons
+	aw->addButton ("EXPORT", 1, juce::KeyPress (juce::KeyPress::returnKey));
+	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	aw->setEscapeKeyCancels (true);
+
+	styleAlertButtons (*aw, lnf);
+	layoutAlertWindowButtons (*aw);
+
+	if (safeThis != nullptr)
+	{
+		fitAlertWindowToEditor (*aw, safeThis.getComponent(), nullptr);
+		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
+	}
+
+	aw->enterModalState (true,
+		juce::ModalCallbackFunction::create (
+			[safeThis, aw, formPanel, rateCombo, formatCombo, lengthEditor, trimToggle] (int result) mutable
+		{
+			const int rateId = (rateCombo != nullptr) ? rateCombo->getSelectedId() : 2;
+			const int formatId = (formatCombo != nullptr) ? formatCombo->getSelectedId() : 2;
+			const float maxLen = (lengthEditor != nullptr)
+			    ? juce::jlimit (0.01f, 10.0f, lengthEditor->getText().getFloatValue()) : 10.0f;
+			const bool trim = (trimToggle != nullptr) ? trimToggle->getToggleState() : true;
+
+			// Delete all form children, then form panel, then AlertWindow
+			while (formPanel->getNumChildComponents() > 0)
+				delete formPanel->getChildComponent (0);
+			delete formPanel;
+
+			std::unique_ptr<juce::AlertWindow> killer (aw);
+
+			if (safeThis == nullptr)
+				return;
+
+			safeThis->setPromptOverlayActive (false);
+
+			if (result != 1)
+				return;
+
+			double targetRate = 48000.0;
+			switch (rateId)
+			{
+				case 1: targetRate = 44100.0;  break;
+				case 2: targetRate = 48000.0;  break;
+				case 3: targetRate = 88200.0;  break;
+				case 4: targetRate = 96000.0;  break;
+				case 5: targetRate = 176400.0; break;
+				case 6: targetRate = 192000.0; break;
+			}
+
+			const int formatType = formatId - 1;
+			juce::String ext = ".wav";
+			if (formatId == 4) ext = ".aiff";
+			if (formatId == 5) ext = ".flac";
+
+			juce::String baseName = "CAB-TR_export";
+
+			safeThis->exportChooser = std::make_unique<juce::FileChooser> (
+				"Export Impulse Response",
+				juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
+					.getChildFile (baseName + ext),
+				"*" + ext);
+
+			auto safeThis2 = safeThis;
+			safeThis->exportChooser->launchAsync (
+				juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+				[safeThis2, targetRate, formatType, maxLen, trim, ext] (const juce::FileChooser& fc)
+				{
+					if (safeThis2 == nullptr)
+						return;
+
+					auto file = fc.getResult();
+					if (file == juce::File())
+						return;
+
+					if (! file.hasFileExtension (ext.substring (1)))
+						file = file.withFileExtension (ext.substring (1));
+
+					const bool ok = safeThis2->audioProcessor.exportCombinedIR (
+						targetRate, formatType, maxLen, trim, file);
+
+					if (! ok)
+					{
+						juce::AlertWindow::showMessageBoxAsync (
+							juce::MessageBoxIconType::WarningIcon,
+							"Export Failed",
+							"Could not export the impulse response.\n"
+							"Make sure at least one IR is loaded and enabled.");
+					}
+				});
+		}),
+		true);
 }
 
 void CABTRAudioProcessorEditor::openInfoPopup()

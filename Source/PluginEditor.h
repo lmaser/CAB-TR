@@ -50,6 +50,7 @@ private:
 	void openInfoPopup();
 	void openGraphicsPopup();
 	void openChaosPrompt (bool forLoaderA);
+	void openExportPrompt();
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
 	void layoutIRSection (juce::Rectangle<int> area, bool isA);
 	void updateLoaderEnabledState (bool isA);
@@ -61,6 +62,8 @@ private:
 	juce::Slider* getSliderForValueAreaPoint (juce::Point<int> p);
 	juce::Rectangle<int> getInfoIconArea() const;
 	void updateInfoIconCache();
+	juce::Rectangle<int> getExportIconArea() const;
+	void updateExportIconCache();
 	void setupBar (juce::Slider& s);
 
 	CABTRAudioProcessor& audioProcessor;
@@ -361,6 +364,10 @@ private:
 	// Gear icon for info button
 	juce::Path cachedInfoGearPath;
 	juce::Rectangle<float> cachedInfoGearHole;
+
+	// Export icon (download arrow)
+	juce::Path cachedExportIconPath;
+	std::unique_ptr<juce::FileChooser> exportChooser;
 
 public:
 	// Public for template friend access from TRSharedUI.h

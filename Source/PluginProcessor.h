@@ -252,6 +252,7 @@ public:
 		juce::dsp::Convolution convolution { juce::dsp::Convolution::NonUniform { 256 } };
 		std::atomic<bool> needsUpdate { false };
 		juce::String currentFilePath;
+		double irSampleRate = 44100.0;  // Sample rate of stored impulseResponse buffer
 		
 		// Filter states (12dB/oct = 2-pole Butterworth)
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, 
@@ -327,6 +328,9 @@ public:
 	//  Helper methods (public for editor to trigger IR loading)
 	// ══════════════════════════════════════════════════════════════
 	void loadImpulseResponse (IRLoaderState& state, const juce::String& filePath);
+	bool exportCombinedIR (double targetSampleRate, int formatType,
+	                       double maxLengthSec, bool trimSilence,
+	                       const juce::File& outputFile);
 
 private:
 	// Timer callback to monitor parameter changes
@@ -399,6 +403,7 @@ private:
 	                    bool isA);
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, bool isA);
 	void calculateAutoAlignment();
+	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer, bool isA, double sampleRate);
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CABTRAudioProcessor)
 };
