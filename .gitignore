@@ -1,0 +1,32 @@
+# Build outputs
+Builds/VisualStudio2022/.vs/
+Builds/VisualStudio2022/x64/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.obj
+*.pdb
+
+# JUCE auto-generated
+JuceLibraryCode/
+
+# FFTW — keep only essential files (header, float lib, float DLL, license)
+ThirdParty/fftw3/bench*.exe
+ThirdParty/fftw3/fftw-wisdom.exe
+ThirdParty/fftw3/fftw*-wisdom.exe
+ThirdParty/fftw3/fftw-dll64.zip
+ThirdParty/fftw3/libfftw3-3.*
+ThirdParty/fftw3/libfftw3l-3.*
+ThirdParty/fftw3/*.f
+ThirdParty/fftw3/*.f03
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# IDE
+/.vscode/

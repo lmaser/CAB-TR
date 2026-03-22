@@ -1,0 +1,7 @@
+<Project>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>JUCE_DSP_USE_SHARED_FFTW=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>
