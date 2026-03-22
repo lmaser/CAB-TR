@@ -602,7 +602,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 		return "R" + juce::String (percent - 50.0, 0);
 	}
 
-	// FRED, POS, global MIX (percentage)
+	// ANGLE, DIST, global MIX (percentage)
 	if (this == &owner->fredSliderA || this == &owner->posSliderA ||
 	    this == &owner->fredSliderB || this == &owner->posSliderB ||
 	    this == &owner->globalMixSlider)
@@ -890,8 +890,8 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	setupSliderWithTooltip (pitchSliderA, "Pitch Shift A (25%-400%)");
 	setupSliderWithTooltip (delaySliderA, "Delay A (0-1000ms)");
 	setupSliderWithTooltip (panSliderA, "Pan A (L-R)");
-	setupSliderWithTooltip (fredSliderA, "Fred A (Fredman miking)");
-	setupSliderWithTooltip (posSliderA, "Position A (Friedman effect)");
+	setupSliderWithTooltip (fredSliderA, "Angle A (off-axis mic simulation)");
+	setupSliderWithTooltip (posSliderA, "Distance A (proximity/distance)");
 
 	addAndMakeVisible (invButtonA);
 	invButtonA.setButtonText ("INV");
@@ -945,8 +945,8 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	setupSliderWithTooltip (pitchSliderB, "Pitch Shift B (25%-400%)");
 	setupSliderWithTooltip (delaySliderB, "Delay B (0-1000ms)");
 	setupSliderWithTooltip (panSliderB, "Pan B (L-R)");
-	setupSliderWithTooltip (fredSliderB, "Fred B (Fredman miking)");
-	setupSliderWithTooltip (posSliderB, "Position B (Friedman effect)");
+	setupSliderWithTooltip (fredSliderB, "Angle B (off-axis mic simulation)");
+	setupSliderWithTooltip (posSliderB, "Distance B (proximity/distance)");
 
 	addAndMakeVisible (invButtonB);
 	invButtonB.setButtonText ("INV");
@@ -1104,6 +1104,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 
 	// Initial refresh of cached text
 	refreshLegendTextCache();
+	legendDirty = false;
 
 	// Initial size
 	setSize (1200, 600);
@@ -1141,7 +1142,11 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 	g.fillAll (activeScheme.bg);
 	g.setColour (activeScheme.text);
 
-	refreshLegendTextCache();
+	if (legendDirty)
+	{
+		refreshLegendTextCache();
+		legendDirty = false;
+	}
 
 	// Helper lambda for drawing legend text with fallback
 	auto tryDrawLegend = [&] (const juce::Rectangle<int>& area,
@@ -1539,7 +1544,7 @@ void CABTRAudioProcessorEditor::timerCallback()
 void CABTRAudioProcessorEditor::sliderValueChanged (juce::Slider* slider)
 {
 	juce::ignoreUnused (slider);
-	refreshLegendTextCache();
+	legendDirty = true;
 	repaint();
 }
 
@@ -1592,7 +1597,8 @@ bool CABTRAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray&
 {
 	for (const auto& file : files)
 		if (file.endsWithIgnoreCase (".wav") || file.endsWithIgnoreCase (".aif") ||
-		    file.endsWithIgnoreCase (".aiff"))
+		    file.endsWithIgnoreCase (".aiff") || file.endsWithIgnoreCase (".flac") ||
+		    file.endsWithIgnoreCase (".mp3") || file.endsWithIgnoreCase (".ogg"))
 			return true;
 	return false;
 }
@@ -2062,12 +2068,12 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	cachedPanTextAInt = formatPan ((float) panSliderA.getValue());
 
 	const int fredPctA = juce::roundToInt (fredSliderA.getValue() * 100.0);
-	cachedFredTextAFull = juce::String (fredPctA) + "% FRED";
+	cachedFredTextAFull = juce::String (fredPctA) + "% ANGLE";
 	cachedFredTextAShort = juce::String (fredPctA) + "%";
 	cachedFredTextAInt = juce::String (fredPctA);
 
 	const int posPctA = juce::roundToInt (posSliderA.getValue() * 100.0);
-	cachedPosTextAFull = juce::String (posPctA) + "% POS";
+	cachedPosTextAFull = juce::String (posPctA) + "% DIST";
 	cachedPosTextAShort = juce::String (posPctA) + "%";
 	cachedPosTextAInt = juce::String (posPctA);
 
@@ -2106,12 +2112,12 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	cachedPanTextBInt = formatPan ((float) panSliderB.getValue());
 
 	const int fredPctB = juce::roundToInt (fredSliderB.getValue() * 100.0);
-	cachedFredTextBFull = juce::String (fredPctB) + "% FRED";
+	cachedFredTextBFull = juce::String (fredPctB) + "% ANGLE";
 	cachedFredTextBShort = juce::String (fredPctB) + "%";
 	cachedFredTextBInt = juce::String (fredPctB);
 
 	const int posPctB = juce::roundToInt (posSliderB.getValue() * 100.0);
-	cachedPosTextBFull = juce::String (posPctB) + "% POS";
+	cachedPosTextBFull = juce::String (posPctB) + "% DIST";
 	cachedPosTextBShort = juce::String (posPctB) + "%";
 	cachedPosTextBInt = juce::String (posPctB);
 
@@ -2301,8 +2307,8 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	else if (isPitch)       { suffix = " % PITCH";     suffixShort = " %"; }
 	else if (isDelay)       { suffix = " ms DELAY";    suffixShort = " ms"; }
 	else if (isPan)         { suffix = " % PAN";       suffixShort = " %"; }
-	else if (isFred)        { suffix = " % FRED";      suffixShort = " %"; }
-	else if (isPos)         { suffix = " % POS";       suffixShort = " %"; }
+	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " %"; }
+	else if (isPos)         { suffix = " % DIST";     suffixShort = " %"; }
 	else if (isMix)         { suffix = " % MIX";       suffixShort = " %"; }
 
 	const juce::String suffixText      = suffix.trimStart();

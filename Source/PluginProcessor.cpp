@@ -238,9 +238,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanA, "Pan A", kPanMin, kPanMax, kPanDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamFredA, "Fred A", kFredMin, kFredMax, kFredDefault));
+		kParamFredA, "Angle A", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamPosA, "Position A", kPosMin, kPosMax, kPosDefault));
+		kParamPosA, "Distance A", kPosMin, kPosMax, kPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamInvA, "Invert A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -290,9 +290,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanB, "Pan B", kPanMin, kPanMax, kPanDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamFredB, "Fred B", kFredMin, kFredMax, kFredDefault));
+		kParamFredB, "Angle B", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamPosB, "Position B", kPosMin, kPosMax, kPosDefault));
+		kParamPosB, "Distance B", kPosMin, kPosMax, kPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamInvB, "Invert B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -958,14 +958,14 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 
 //==============================================================================
 // PROCESSING CHAIN OPTIMIZADA: 
-// convolution → INV → HP/LP → POS → PAN → DELAY → FRED → OUT
+// convolution → INV → HP/LP → DIST → PAN → DELAY → ANGLE → OUT
 //
 // CPU OPTIMIZATIONS:
 // - Zero allocations en audio thread
 // - Cached filter coefficients (solo recalcula si cambia parameter)
-// - FRED: minimal 2-sample delay (no extra buffer needed)
+// - ANGLE: minimal 7-sample delay (comb filter for off-axis simulation)
 // - SIMD operations donde sea posible
-// - Position como simple high-shelf EQ (no loop manual)
+// - Distance as exponential LPF + gain attenuation
 // - Timer debounce: no reload during slider drag
 //==============================================================================
 void CABTRAudioProcessor::processLoader (IRLoaderState& state, 
@@ -1064,7 +1064,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.lpFilter.process (context);
 	}
 	
-	// 4. POSITION EFFECT (distance simulation: exponential LPF + gain attenuation)
+	// 4. DISTANCE EFFECT (exponential LPF + gain attenuation)
 	// 0% = close/bright (no change), 100% = far/dark (HF reduction + volume drop)
 	if (pos > 0.01f)
 	{
@@ -1119,11 +1119,11 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		applyDelay (buffer, delayMs, isA);
 	}
 	
-	// 7. FRED (Fredman miking simulation)
-	// Simulates a second mic at 45° angle on a guitar cab.
+	// 7. ANGLE (off-axis mic simulation)
+	// Simulates a second mic at an angle on a guitar cab.
 	// 7-sample circular delay (~0.15ms at 48kHz ≈ 5cm path difference).
 	// First comb null at ~6.8kHz — creates musically useful tonal shaping.
-	// fred=0: pure on-axis (no effect), fred=1: full off-axis blend
+	// angle=0: pure on-axis (no effect), angle=1: full off-axis blend
 	if (fred > 0.001f)
 	{
 		float* channelData[2] = { nullptr, nullptr };
@@ -1219,12 +1219,13 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			const int iPos = (int) std::floor (readPos);
 			const float frac = readPos - (float) iPos;
 			
+			const int mask = delayBufLen - 1; // 1024 is power-of-2
 			for (int ch = 0; ch < chCount; ++ch)
 			{
-				const float p0 = state.chaosDelayBuffer[ch][((iPos - 1) % delayBufLen + delayBufLen) % delayBufLen];
-				const float p1 = state.chaosDelayBuffer[ch][((iPos    ) % delayBufLen + delayBufLen) % delayBufLen];
-				const float p2 = state.chaosDelayBuffer[ch][((iPos + 1) % delayBufLen + delayBufLen) % delayBufLen];
-				const float p3 = state.chaosDelayBuffer[ch][((iPos + 2) % delayBufLen + delayBufLen) % delayBufLen];
+				const float p0 = state.chaosDelayBuffer[ch][(iPos - 1) & mask];
+				const float p1 = state.chaosDelayBuffer[ch][(iPos    ) & mask];
+				const float p2 = state.chaosDelayBuffer[ch][(iPos + 1) & mask];
+				const float p3 = state.chaosDelayBuffer[ch][(iPos + 2) & mask];
 				
 				const float c0 = p1;
 				const float c1 = p2 - (1.0f / 3.0f) * p0 - 0.5f * p1 - (1.0f / 6.0f) * p3;
@@ -1246,25 +1247,6 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		const float outGain = juce::Decibels::decibelsToGain (outDb);
 		buffer.applyGain (outGain);
 	}
-}
-
-//==============================================================================
-// PITCH SHIFTING: Aplicado al IR al cargarlo, NO en tiempo real
-// El pitch no se puede cambiar durante playback - requiere recargar el IR
-//==============================================================================
-void CABTRAudioProcessor::applyPitchShift (juce::AudioBuffer<float>& buffer, float pitchRatio)
-{
-	// NOTA: Esta función ya no se usa - pitch se aplica en loadImpulseResponse
-	juce::ignoreUnused (buffer, pitchRatio);
-}
-
-//==============================================================================
-// POSITION EFFECT: Ya está integrado optimizado en processLoader
-//==============================================================================
-void CABTRAudioProcessor::applyPositionEffect (juce::AudioBuffer<float>& buffer, float position)
-{
-	// NOTA: Esta función ya no se usa - position se aplica inline en processLoader
-	juce::ignoreUnused (buffer, position);
 }
 
 //==============================================================================

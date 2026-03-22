@@ -55,6 +55,7 @@ private:
 	void updateLoaderEnabledState (bool isA);
 
 	// TR-style label/value display system
+	bool legendDirty = true;
 	bool refreshLegendTextCache();
 	juce::Rectangle<int> getValueAreaFor (const juce::Rectangle<int>& barBounds) const;
 	juce::Slider* getSliderForValueAreaPoint (juce::Point<int> p);

@@ -397,8 +397,6 @@ private:
 	                    juce::AudioBuffer<float>& buffer,
 	                    const char* paramPrefix,
 	                    bool isA);
-	void applyPitchShift (juce::AudioBuffer<float>& buffer, float pitchRatio);
-	void applyPositionEffect (juce::AudioBuffer<float>& buffer, float position);
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, bool isA);
 	void calculateAutoAlignment();
 
