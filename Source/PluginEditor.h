@@ -49,8 +49,10 @@ private:
 	void loadIRFile (const juce::String& path, bool forLoaderA);
 	void openInfoPopup();
 	void openGraphicsPopup();
+	void openChaosPrompt (bool forLoaderA);
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
 	void layoutIRSection (juce::Rectangle<int> area, bool isA);
+	void updateLoaderEnabledState (bool isA);
 
 	// TR-style label/value display system
 	bool refreshLegendTextCache();
@@ -196,6 +198,8 @@ private:
 	juce::ToggleButton invButtonA;
 	juce::ToggleButton normButtonA;
 	juce::ToggleButton rvsButtonA;
+	juce::ToggleButton chaosButtonA;
+	juce::Label chaosDisplayA;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachA;
@@ -211,6 +215,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachA;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — IR Loader B
@@ -233,6 +238,8 @@ private:
 	juce::ToggleButton invButtonB;
 	juce::ToggleButton normButtonB;
 	juce::ToggleButton rvsButtonB;
+	juce::ToggleButton chaosButtonB;
+	juce::Label chaosDisplayB;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachB;
@@ -248,6 +255,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachB;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — Global
@@ -355,14 +363,11 @@ private:
 
 public:
 	// Public for template friend access from TRSharedUI.h
-	juce::Component promptOverlay;
+	using PromptOverlay = TR::PromptOverlay;
+	PromptOverlay promptOverlay;
 	std::unique_ptr<juce::TooltipWindow> tooltipWindow;
-	void setPromptOverlayActive (bool shouldBeActive)
-	{
-		promptOverlay.setVisible (shouldBeActive);
-		if (shouldBeActive)
-			promptOverlay.toFront (false);
-	}
+	void setPromptOverlayActive (bool shouldBeActive);
+	bool promptOverlayActive = false;
 
 private:
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CABTRAudioProcessorEditor)

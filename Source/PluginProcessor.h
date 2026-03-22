@@ -30,6 +30,9 @@ public:
 	static constexpr const char* kParamInvA         = "inv_a";
 	static constexpr const char* kParamNormA        = "norm_a";
 	static constexpr const char* kParamRvsA         = "rvs_a";
+	static constexpr const char* kParamChaosA       = "chaos_a";
+	static constexpr const char* kParamChaosAmtA    = "chaos_amt_a";
+	static constexpr const char* kParamChaosSpdA    = "chaos_spd_a";
 
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter IDs — IR Loader B
@@ -49,6 +52,9 @@ public:
 	static constexpr const char* kParamInvB         = "inv_b";
 	static constexpr const char* kParamNormB        = "norm_b";
 	static constexpr const char* kParamRvsB         = "rvs_b";
+	static constexpr const char* kParamChaosB       = "chaos_b";
+	static constexpr const char* kParamChaosAmtB    = "chaos_amt_b";
+	static constexpr const char* kParamChaosSpdB    = "chaos_spd_b";
 
 	// ══════════════════════════════════════════════════════════════
 	//  Global Parameters
@@ -105,6 +111,13 @@ public:
 	static constexpr float kPanMin                  = 0.0f;       // 0% = full left
 	static constexpr float kPanMax                  = 1.0f;       // 100% = full right
 	static constexpr float kPanDefault              = 0.5f;       // 50% = center
+
+	static constexpr float kChaosAmtMin              = 0.0f;
+	static constexpr float kChaosAmtMax              = 100.0f;
+	static constexpr float kChaosAmtDefault          = 50.0f;
+	static constexpr float kChaosSpdMin              = 0.01f;      // Hz
+	static constexpr float kChaosSpdMax              = 100.0f;     // Hz
+	static constexpr float kChaosSpdDefault          = 5.0f;       // Hz
 
 	static constexpr float kFredMin                 = 0.0f;
 	static constexpr float kFredMax                 = 1.0f;
@@ -282,6 +295,22 @@ public:
 		static constexpr int kFredDelaySamples = 7;
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
+
+		// CHAOS (S&H micro-delay pitch modulation)
+		// Micro-delay line: max ±5ms @ 192kHz = 960 samples, round to 1024
+		static constexpr int kChaosDelayMaxSamples = 1024;
+		float chaosDelayBuffer[2][kChaosDelayMaxSamples] = {};
+		int chaosDelayWritePos = 0;
+		float chaosCurrentTarget = 0.0f;    // S&H target (pitch): -1..+1
+		float chaosSmoothedValue = 0.0f;    // EMA-smoothed pitch value
+		float chaosPhaseSamples = 0.0f;     // phase accumulator for pitch S&H
+		juce::Random chaosRng;
+
+		// CHAOS gain S&H (independent from pitch S&H)
+		float chaosGainTarget = 0.0f;       // S&H target (gain): -1..+1
+		float chaosGainSmoothed = 0.0f;     // EMA-smoothed gain value
+		float chaosGainPhase = 0.0f;        // phase accumulator for gain S&H
+		juce::Random chaosGainRng;
 		
 		// Delete copy operations (contains atomic)
 		IRLoaderState() = default;
@@ -334,6 +363,12 @@ private:
 	std::atomic<float>* pFredB = nullptr;
 	std::atomic<float>* pPosB = nullptr;
 	std::atomic<float>* pOutB = nullptr;
+	std::atomic<float>* pChaosA = nullptr;
+	std::atomic<float>* pChaosAmtA = nullptr;
+	std::atomic<float>* pChaosSpdA = nullptr;
+	std::atomic<float>* pChaosB = nullptr;
+	std::atomic<float>* pChaosAmtB = nullptr;
+	std::atomic<float>* pChaosSpdB = nullptr;
 
 	// Reusable format manager (avoid re-creating on every IR load)
 	juce::AudioFormatManager formatManager;

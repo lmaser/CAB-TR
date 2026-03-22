@@ -233,7 +233,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kPitchDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayA, "Delay A",
-		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.1f, 0.3f), // Skew 0.3 = logarítmico
+		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
 		kDelayDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanA, "Pan A", kPanMin, kPanMax, kPanDefault));
@@ -247,6 +247,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamNormA, "Normalize A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamRvsA, "Reverse A", false));
+	layout.add (std::make_unique<juce::AudioParameterBool> (
+		kParamChaosA, "Chaos A", false));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosAmtA, "Chaos Amount A",
+		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosSpdA, "Chaos Speed A",
+		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
 
 	// ══════════════════════════════════════════════════════════════
 	//  IR Loader B Parameters
@@ -277,7 +285,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kPitchDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayB, "Delay B",
-		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.1f, 0.3f), // Skew 0.3 = logarítmico
+		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
 		kDelayDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanB, "Pan B", kPanMin, kPanMax, kPanDefault));
@@ -291,6 +299,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamNormB, "Normalize B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamRvsB, "Reverse B", false));
+	layout.add (std::make_unique<juce::AudioParameterBool> (
+		kParamChaosB, "Chaos B", false));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosAmtB, "Chaos Amount B",
+		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosSpdB, "Chaos Speed B",
+		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
 
 	// ══════════════════════════════════════════════════════════════
 	//  Global Parameters
@@ -431,12 +447,36 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pFredB   = parameters.getRawParameterValue (kParamFredB);
 	pPosB    = parameters.getRawParameterValue (kParamPosB);
 	pOutB    = parameters.getRawParameterValue (kParamOutB);
+	pChaosA    = parameters.getRawParameterValue (kParamChaosA);
+	pChaosAmtA = parameters.getRawParameterValue (kParamChaosAmtA);
+	pChaosSpdA = parameters.getRawParameterValue (kParamChaosSpdA);
+	pChaosB    = parameters.getRawParameterValue (kParamChaosB);
+	pChaosAmtB = parameters.getRawParameterValue (kParamChaosAmtB);
+	pChaosSpdB = parameters.getRawParameterValue (kParamChaosSpdB);
 	
 	// Reset FRED delay state
 	std::memset (stateA.fredDelayBuffer, 0, sizeof (stateA.fredDelayBuffer));
 	std::memset (stateB.fredDelayBuffer, 0, sizeof (stateB.fredDelayBuffer));
 	stateA.fredDelayIndex = 0;
 	stateB.fredDelayIndex = 0;
+
+	// Reset CHAOS state
+	std::memset (stateA.chaosDelayBuffer, 0, sizeof (stateA.chaosDelayBuffer));
+	std::memset (stateB.chaosDelayBuffer, 0, sizeof (stateB.chaosDelayBuffer));
+	stateA.chaosDelayWritePos = 0;
+	stateB.chaosDelayWritePos = 0;
+	stateA.chaosCurrentTarget = 0.0f;
+	stateB.chaosCurrentTarget = 0.0f;
+	stateA.chaosSmoothedValue = 0.0f;
+	stateB.chaosSmoothedValue = 0.0f;
+	stateA.chaosPhaseSamples = 0.0f;
+	stateB.chaosPhaseSamples = 0.0f;
+	stateA.chaosGainTarget = 0.0f;
+	stateB.chaosGainTarget = 0.0f;
+	stateA.chaosGainSmoothed = 0.0f;
+	stateB.chaosGainSmoothed = 0.0f;
+	stateA.chaosGainPhase = 0.0f;
+	stateB.chaosGainPhase = 0.0f;
 
 	// Initialize EMA-smoothed filter frequencies to current parameter values
 	stateA.smoothedHpFreq = pHpFreqA->load();
@@ -958,6 +998,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float fred = (isLoaderA ? pFredA : pFredB)->load();
 	const float pos = (isLoaderA ? pPosA : pPosB)->load();
 	const float outDb = (isLoaderA ? pOutA : pOutB)->load();
+	const bool chaosEnabled = (isLoaderA ? pChaosA : pChaosB)->load() > 0.5f;
+	const float chaosAmt = (isLoaderA ? pChaosAmtA : pChaosAmtB)->load();
+	const float chaosSpd = (isLoaderA ? pChaosSpdA : pChaosSpdB)->load();
 	
 	// (FRED processing happens after convolution + filters)
 	
@@ -1021,12 +1064,12 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.lpFilter.process (context);
 	}
 	
-	// 4. POSITION EFFECT (Friedman-style: simple high-shelf attenuation)
-	// 0% = bright (no change), 100% = dark (HF reduction)
-	// EMA smoothed like HP/LP
+	// 4. POSITION EFFECT (distance simulation: exponential LPF + gain attenuation)
+	// 0% = close/bright (no change), 100% = far/dark (HF reduction + volume drop)
 	if (pos > 0.01f)
 	{
-		const float cutoff = 12000.0f - (pos * 10500.0f); // 12kHz -> 1.5kHz
+		// Exponential cutoff: 12kHz * exp(-pos * 2.08) → pos=0→12kHz, pos=1→1.5kHz
+		const float cutoff = 12000.0f * std::exp (-pos * 2.0794f);
 		constexpr float kPosSmooth = 0.9955f;
 		state.smoothedPosFreq += (cutoff - state.smoothedPosFreq) * (1.0f - kPosSmooth);
 
@@ -1043,6 +1086,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> context (block);
 		state.posFilter.process (context);
+
+		// Distance gain attenuation: 0dB at pos=0, -6dB at pos=1
+		const float distGain = 1.0f - pos * 0.5f;
+		buffer.applyGain (distGain);
 	}
 	else if (state.lastPosFreq > 0.0f)
 	{
@@ -1101,7 +1148,99 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 	}
 	
-	// 8. OUTPUT GAIN
+	// 8. CHAOS (S&H micro-delay pitch modulation + independent gain modulation)
+	// Pitch S&H: random targets at 'speed' Hz → EMA smoothing → variable delay line.
+	// Gain S&H: independent random targets at same rate → EMA smoothing → ±1dB gain.
+	// Amount controls depth for both. Each loader has fully independent generators.
+	if (chaosEnabled && chaosAmt > 0.01f)
+	{
+		const float maxDelaySec = 0.005f; // ±5ms max
+		const float amountNorm = chaosAmt * 0.01f; // 0..1
+		const float maxDelaySamples = amountNorm * maxDelaySec * (float) currentSampleRate;
+		
+		// Pitch EMA τ scales with speed: 15ms @ 0.01Hz → 120ms @ 100Hz (log mapping)
+		const float spdNorm = std::log (chaosSpd / 0.01f) / std::log (100.0f / 0.01f); // 0..1
+		const float pitchTau = 0.015f + spdNorm * 0.105f; // 15ms → 120ms
+		const float pitchSmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * pitchTau));
+		const float gainSmoothCoeff  = std::exp (-1.0f / ((float) currentSampleRate * 0.015f));
+		
+		// S&H period in samples
+		const float shPeriodSamples = (float) currentSampleRate / chaosSpd;
+		
+		// Gain modulation depth: ±1dB at amount=100% (±0.12 linear)
+		const float gainModDepth = amountNorm * 0.12f;
+		
+		const int chCount = juce::jmin (numChannels, 2);
+		const int delayBufLen = IRLoaderState::kChaosDelayMaxSamples;
+		
+		float* channelData[2] = { nullptr, nullptr };
+		for (int ch = 0; ch < chCount; ++ch)
+			channelData[ch] = buffer.getWritePointer (ch);
+		
+		for (int i = 0; i < numSamples; ++i)
+		{
+			// Pitch S&H: generate new random target when phase wraps
+			state.chaosPhaseSamples += 1.0f;
+			if (state.chaosPhaseSamples >= shPeriodSamples)
+			{
+				state.chaosPhaseSamples -= shPeriodSamples;
+				state.chaosCurrentTarget = state.chaosRng.nextFloat() * 2.0f - 1.0f;
+			}
+			
+			// Gain S&H: independent phase + random (decorrelated from pitch)
+			state.chaosGainPhase += 1.0f;
+			if (state.chaosGainPhase >= shPeriodSamples)
+			{
+				state.chaosGainPhase -= shPeriodSamples;
+				state.chaosGainTarget = state.chaosGainRng.nextFloat() * 2.0f - 1.0f;
+			}
+			
+			// EMA smoothing for both (pitch=30ms, gain=15ms)
+			state.chaosSmoothedValue = pitchSmoothCoeff * state.chaosSmoothedValue
+			                         + (1.0f - pitchSmoothCoeff) * state.chaosCurrentTarget;
+			state.chaosGainSmoothed = gainSmoothCoeff * state.chaosGainSmoothed
+			                        + (1.0f - gainSmoothCoeff) * state.chaosGainTarget;
+			
+			// Convert to delay in samples (centered around midpoint so average is 0 pitch change)
+			const float centerDelay = maxDelaySamples;
+			const float delaySamples = centerDelay + state.chaosSmoothedValue * maxDelaySamples;
+			const float clampedDelay = juce::jlimit (0.0f, (float) (delayBufLen - 2), delaySamples);
+			
+			// Gain modulation: ±1dB max
+			const float gainMod = 1.0f + state.chaosGainSmoothed * gainModDepth;
+			
+			// Write current sample into delay buffer
+			const int wp = state.chaosDelayWritePos;
+			for (int ch = 0; ch < chCount; ++ch)
+				state.chaosDelayBuffer[ch][wp] = channelData[ch][i];
+			
+			// Read with 4-point Lagrange interpolation for high quality
+			const float readPos = (float) wp - clampedDelay;
+			const int iPos = (int) std::floor (readPos);
+			const float frac = readPos - (float) iPos;
+			
+			for (int ch = 0; ch < chCount; ++ch)
+			{
+				const float p0 = state.chaosDelayBuffer[ch][((iPos - 1) % delayBufLen + delayBufLen) % delayBufLen];
+				const float p1 = state.chaosDelayBuffer[ch][((iPos    ) % delayBufLen + delayBufLen) % delayBufLen];
+				const float p2 = state.chaosDelayBuffer[ch][((iPos + 1) % delayBufLen + delayBufLen) % delayBufLen];
+				const float p3 = state.chaosDelayBuffer[ch][((iPos + 2) % delayBufLen + delayBufLen) % delayBufLen];
+				
+				const float c0 = p1;
+				const float c1 = p2 - (1.0f / 3.0f) * p0 - 0.5f * p1 - (1.0f / 6.0f) * p3;
+				const float c2 = 0.5f * (p0 + p2) - p1;
+				const float c3 = (1.0f / 6.0f) * (p3 - p0) + 0.5f * (p1 - p2);
+				channelData[ch][i] = ((c3 * frac + c2) * frac + c1) * frac + c0;
+				
+				// Apply gain modulation
+				channelData[ch][i] *= gainMod;
+			}
+			
+			state.chaosDelayWritePos = (wp + 1) % delayBufLen;
+		}
+	}
+	
+	// 9. OUTPUT GAIN
 	if (std::abs (outDb) > 0.01f)
 	{
 		const float outGain = juce::Decibels::decibelsToGain (outDb);
@@ -1263,7 +1402,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 		p->setValueNotifyingHost (needsInvert ? 1.0f : 0.0f);
 
 	LOG_IR_EVENT ("ALIGN: bestLag=" + juce::String (bestLag) + " samples (" +
-	              juce::String (lagMs, 2) + "ms), rawCorr=" + juce::String (rawCorr, 4) +
+	              juce::String (lagMs, 3) + "ms), rawCorr=" + juce::String (rawCorr, 4) +
 	              " (measured=" + juce::String (bestCorr, 4) + 
 	              " invA_was=" + juce::String (currentInvA ? "ON" : "OFF") +
 	              " invB_was=" + juce::String (currentInvB ? "ON" : "OFF") +

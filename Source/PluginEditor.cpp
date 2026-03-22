@@ -21,11 +21,13 @@ static constexpr float kSilenceDb  = -80.0f;
 // ══════════════════════════════════════════════════════════════
 //  Parameter listener IDs
 // ══════════════════════════════════════════════════════════════
-static constexpr std::array<const char*, 4> kUiMirrorParamIds {
+static constexpr std::array<const char*, 6> kUiMirrorParamIds {
 	CABTRAudioProcessor::kParamUiPalette,
 	CABTRAudioProcessor::kParamUiFxTail,
 	CABTRAudioProcessor::kParamUiColor0,
-	CABTRAudioProcessor::kParamUiColor1
+	CABTRAudioProcessor::kParamUiColor1,
+	CABTRAudioProcessor::kParamEnableA,
+	CABTRAudioProcessor::kParamEnableB
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -903,6 +905,25 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	rvsButtonA.setButtonText ("RVS");
 	rvsButtonA.addListener (this);
 
+	addAndMakeVisible (chaosButtonA);
+	chaosButtonA.setButtonText ("CHAOS");
+	chaosButtonA.addListener (this);
+
+	// CHAOS tooltip overlay — invisible label over the CHAOS checkbox.
+	// Provides tooltip on hover; right-click forwarded to editor opens the config prompt.
+	{
+		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosAmtA)->load();
+		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosSpdA)->load();
+		chaosDisplayA.setText ("", juce::dontSendNotification);
+		chaosDisplayA.setInterceptsMouseClicks (true, false);
+		chaosDisplayA.addMouseListener (this, false);
+		chaosDisplayA.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
+		chaosDisplayA.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+		chaosDisplayA.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
+		chaosDisplayA.setOpaque (false);
+		addAndMakeVisible (chaosDisplayA);
+	}
+
 	// Setup IR Loader B components (identical to A)
 	addAndMakeVisible (enableButtonB);
 	enableButtonB.setButtonText ("ENABLE");
@@ -938,6 +959,23 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	addAndMakeVisible (rvsButtonB);
 	rvsButtonB.setButtonText ("RVS");
 	rvsButtonB.addListener (this);
+
+	addAndMakeVisible (chaosButtonB);
+	chaosButtonB.setButtonText ("CHAOS");
+	chaosButtonB.addListener (this);
+
+	{
+		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosAmtB)->load();
+		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosSpdB)->load();
+		chaosDisplayB.setText ("", juce::dontSendNotification);
+		chaosDisplayB.setInterceptsMouseClicks (true, false);
+		chaosDisplayB.addMouseListener (this, false);
+		chaosDisplayB.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
+		chaosDisplayB.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+		chaosDisplayB.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
+		chaosDisplayB.setOpaque (false);
+		addAndMakeVisible (chaosDisplayB);
+	}
 
 	// Setup global controls
 	addAndMakeVisible (modeInCombo);
@@ -1001,6 +1039,8 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamNormA, normButtonA);
 	rvsAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
 		params, CABTRAudioProcessor::kParamRvsA, rvsButtonA);
+	chaosAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+		params, CABTRAudioProcessor::kParamChaosA, chaosButtonA);
 
 	enableAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
 		params, CABTRAudioProcessor::kParamEnableB, enableButtonB);
@@ -1030,6 +1070,8 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamNormB, normButtonB);
 	rvsAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
 		params, CABTRAudioProcessor::kParamRvsB, rvsButtonB);
+	chaosAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+		params, CABTRAudioProcessor::kParamChaosB, chaosButtonB);
 
 	modeInAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
 		params, CABTRAudioProcessor::kParamModeIn, modeInCombo);
@@ -1070,10 +1112,17 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 
 	// Start timer
 	startTimer (kIdleTimerHz);
+
+	// Initialize loader enabled/disabled visual state
+	updateLoaderEnabledState (true);
+	updateLoaderEnabledState (false);
 }
 
 CABTRAudioProcessorEditor::~CABTRAudioProcessorEditor()
 {
+	TR::dismissEditorOwnedModalPrompts (lnf);
+	setPromptOverlayActive (false);
+
 	setComponentEffect (nullptr);
 	setLookAndFeel (nullptr);
 
@@ -1109,19 +1158,12 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		const float shrinkFloor = baseFontPx * 0.75f;
 
 		if (drawIfFitsWithOptionalShrink (g, area, fullText, baseFontPx, shrinkFloor))
-		{
-			g.setColour (activeScheme.text);
 			return true;
-		}
 
 		if (drawIfFitsWithOptionalShrink (g, area, shortText, baseFontPx, minFontPx))
-		{
-			g.setColour (activeScheme.text);
 			return true;
-		}
 
 		drawValueNoEllipsis (g, area, intText, juce::String(), intText, baseFontPx, minFontPx);
-		g.setColour (activeScheme.text);
 		return true;
 	};
 
@@ -1181,7 +1223,13 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 	{
 		g.setFont (kBoldFont40());
 
+		const bool enabledA = enableButtonA.getToggleState();
+		const bool enabledB = enableButtonB.getToggleState();
+		const auto textColourA = enabledA ? activeScheme.text : activeScheme.text.withAlpha (0.35f);
+		const auto textColourB = enabledB ? activeScheme.text : activeScheme.text.withAlpha (0.35f);
+
 		// Loader A value areas
+		g.setColour (textColourA);
 		const juce::String* fullTextsA[] = { &cachedHpFreqTextAFull, &cachedLpFreqTextAFull,
 		                                      &cachedOutTextAFull, &cachedStartTextAFull,
 		                                      &cachedEndTextAFull, &cachedPitchTextAFull,
@@ -1215,6 +1263,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		}
 
 		// Loader B value areas
+		g.setColour (textColourB);
 		const juce::String* fullTextsB[] = { &cachedHpFreqTextBFull, &cachedLpFreqTextBFull,
 		                                      &cachedOutTextBFull, &cachedStartTextBFull,
 		                                      &cachedEndTextBFull, &cachedPitchTextBFull,
@@ -1340,6 +1389,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, bool
 	auto& inv = isA ? invButtonA : invButtonB;
 	auto& norm = isA ? normButtonA : normButtonB;
 	auto& rvs = isA ? rvsButtonA : rvsButtonB;
+	auto& chaos = isA ? chaosButtonA : chaosButtonB;
 
 	// Sliders take 55% width to leave space for value labels on right
 	const int sliderW = static_cast<int> (area.getWidth() * 0.55f);
@@ -1384,20 +1434,67 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, bool
 	pos.setBounds (sliderRow.removeFromLeft (sliderW));
 	area.removeFromTop (gap * 2);
 
-	// Checkboxes at bottom (INV, NORM, RVS) - alineados con las barras
+	// Checkboxes at bottom (INV, NORM, RVS, CHAOS) - alineados con las barras
 	auto checkArea = area.removeFromTop (buttonH);
 	
 	// Calculate checkbox width to fit text labels
 	const int checkboxW = 55;
+	const int numButtons = 4;
+	const int spacing = juce::jmax (0, (sliderW - numButtons * checkboxW) / (numButtons - 1));
 	
-	// Align with slider bounds: INV at left edge of sliders, RVS at right edge
-	const int leftBlockX = checkArea.getX();
-	const int rightBlockX = checkArea.getX() + sliderW - checkboxW;
-	const int centerBlockX = checkArea.getX() + (sliderW / 2) - (checkboxW / 2);
-	
-	inv.setBounds (leftBlockX, checkArea.getY(), checkboxW, buttonH);
-	norm.setBounds (centerBlockX, checkArea.getY(), checkboxW, buttonH);
-	rvs.setBounds (rightBlockX, checkArea.getY(), checkboxW, buttonH);
+	int bx = checkArea.getX();
+	inv.setBounds  (bx, checkArea.getY(), checkboxW, buttonH);
+	bx += checkboxW + spacing;
+	norm.setBounds (bx, checkArea.getY(), checkboxW, buttonH);
+	bx += checkboxW + spacing;
+	rvs.setBounds  (bx, checkArea.getY(), checkboxW, buttonH);
+	bx += checkboxW + spacing;
+	chaos.setBounds (bx, checkArea.getY(), checkboxW, buttonH);
+
+	// Position invisible CHAOS display overlay on top of the CHAOS checkbox
+	auto& chaosDisp = isA ? chaosDisplayA : chaosDisplayB;
+	chaosDisp.setBounds (bx, checkArea.getY(), checkboxW, buttonH);
+}
+
+//==============================================================================
+//  Loader enabled/disabled visual state
+//==============================================================================
+void CABTRAudioProcessorEditor::updateLoaderEnabledState (bool isA)
+{
+	const bool enabled = isA
+		? enableButtonA.getToggleState()
+		: enableButtonB.getToggleState();
+
+	const float alpha = enabled ? 1.0f : 0.35f;
+	const bool interactive = enabled && ! promptOverlayActive;
+
+	juce::Component* components[] = {
+		isA ? &browseButtonA   : &browseButtonB,
+		isA ? &fileDisplayA    : &fileDisplayB,
+		isA ? &hpFreqSliderA   : &hpFreqSliderB,
+		isA ? &lpFreqSliderA   : &lpFreqSliderB,
+		isA ? &outSliderA      : &outSliderB,
+		isA ? &startSliderA    : &startSliderB,
+		isA ? &endSliderA      : &endSliderB,
+		isA ? &pitchSliderA    : &pitchSliderB,
+		isA ? &delaySliderA    : &delaySliderB,
+		isA ? &panSliderA      : &panSliderB,
+		isA ? &fredSliderA     : &fredSliderB,
+		isA ? &posSliderA      : &posSliderB,
+		isA ? &invButtonA      : &invButtonB,
+		isA ? &normButtonA     : &normButtonB,
+		isA ? &rvsButtonA      : &rvsButtonB,
+		isA ? &chaosButtonA    : &chaosButtonB,
+		isA ? &chaosDisplayA   : &chaosDisplayB
+	};
+
+	for (auto* c : components)
+	{
+		c->setAlpha (alpha);
+		c->setEnabled (interactive);
+	}
+
+	repaint();
 }
 
 //==============================================================================
@@ -1469,6 +1566,22 @@ void CABTRAudioProcessorEditor::parameterChanged (const juce::String& paramID, f
 	{
 		crtEnabled = newValue > 0.5f;
 		crtEffect.setEnabled (crtEnabled);
+	}
+	else if (paramID == CABTRAudioProcessor::kParamEnableA)
+	{
+		juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this)] ()
+		{
+			if (safeThis != nullptr)
+				safeThis->updateLoaderEnabledState (true);
+		});
+	}
+	else if (paramID == CABTRAudioProcessor::kParamEnableB)
+	{
+		juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this)] ()
+		{
+			if (safeThis != nullptr)
+				safeThis->updateLoaderEnabledState (false);
+		});
 	}
 }
 
@@ -1820,6 +1933,24 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 		return;
 	}
 
+	// CHAOS display overlay: left-click toggles, right-click opens prompt
+	if (chaosDisplayA.getBounds().contains (p) && enableButtonA.getToggleState())
+	{
+		if (e.mods.isPopupMenu())
+			openChaosPrompt (true);
+		else
+			chaosButtonA.setToggleState (! chaosButtonA.getToggleState(), juce::sendNotificationSync);
+		return;
+	}
+	if (chaosDisplayB.getBounds().contains (p) && enableButtonB.getToggleState())
+	{
+		if (e.mods.isPopupMenu())
+			openChaosPrompt (false);
+		else
+			chaosButtonB.setToggleState (! chaosButtonB.getToggleState(), juce::sendNotificationSync);
+		return;
+	}
+
 	// Right-click on value area opens numeric entry popup
 	if (e.mods.isPopupMenu())
 	{
@@ -2028,6 +2159,9 @@ juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point
 	if (getValueAreaFor (fredSliderB.getBounds()).contains (p))      return &fredSliderB;
 	if (getValueAreaFor (posSliderB.getBounds()).contains (p))      return &posSliderB;
 
+	// Global
+	if (getValueAreaFor (globalMixSlider.getBounds()).contains (p)) return &globalMixSlider;
+
 	return nullptr;
 }
 
@@ -2069,14 +2203,71 @@ void CABTRAudioProcessorEditor::updateInfoIconCache()
 }
 
 //==============================================================================
+void CABTRAudioProcessorEditor::setPromptOverlayActive (bool shouldBeActive)
+{
+	if (promptOverlayActive == shouldBeActive)
+		return;
+
+	promptOverlayActive = shouldBeActive;
+
+	promptOverlay.setBounds (getLocalBounds());
+	promptOverlay.setVisible (shouldBeActive);
+	if (shouldBeActive)
+		promptOverlay.toFront (false);
+
+	if (shouldBeActive)
+	{
+		// Disable ALL interactive controls while prompt is open
+		const std::array<juce::Component*, 10> globalControls {
+			&globalMixSlider, &enableButtonA, &enableButtonB, &alignButton,
+			&browseButtonA, &browseButtonB,
+			&modeInCombo, &modeCombo, &routeCombo,
+			&invButtonA
+		};
+		for (auto* c : globalControls)
+			c->setEnabled (false);
+
+		// Disable loader subsection controls
+		updateLoaderEnabledState (true);
+		updateLoaderEnabledState (false);
+	}
+	else
+	{
+		// Re-enable global controls
+		const std::array<juce::Component*, 10> globalControls {
+			&globalMixSlider, &enableButtonA, &enableButtonB, &alignButton,
+			&browseButtonA, &browseButtonB,
+			&modeInCombo, &modeCombo, &routeCombo,
+			&invButtonA
+		};
+		for (auto* c : globalControls)
+			c->setEnabled (true);
+
+		// Re-apply loader enabled state (respects per-loader enable toggle)
+		updateLoaderEnabledState (true);
+		updateLoaderEnabledState (false);
+	}
+
+	repaint();
+
+	if (promptOverlayActive)
+		promptOverlay.toFront (false);
+
+	TR::anchorEditorOwnedPromptWindows (*this, lnf);
+}
+
 void CABTRAudioProcessorEditor::moved()
 {
-	// Save window position if needed
+	if (promptOverlayActive)
+		promptOverlay.toFront (false);
+
+	TR::anchorEditorOwnedPromptWindows (*this, lnf);
 }
 
 void CABTRAudioProcessorEditor::parentHierarchyChanged()
 {
-	// Handle parent changes
+	if (promptOverlayActive)
+		promptOverlay.toFront (false);
 }
 
 //==============================================================================
@@ -2084,8 +2275,726 @@ void CABTRAudioProcessorEditor::parentHierarchyChanged()
 //==============================================================================
 void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 {
-	// TODO: Implement numeric entry popup similar to other TR plugins
-	juce::ignoreUnused (s);
+	using namespace TR;
+	lnf.setScheme (activeScheme);
+	const auto scheme = activeScheme;
+
+	// ── Suffix determination ──
+	juce::String suffix;
+	juce::String suffixShort;
+	const bool isHpLp   = (&s == &hpFreqSliderA || &s == &hpFreqSliderB
+	                     || &s == &lpFreqSliderA || &s == &lpFreqSliderB);
+	const bool isOut     = (&s == &outSliderA || &s == &outSliderB);
+	const bool isStart   = (&s == &startSliderA || &s == &startSliderB);
+	const bool isEnd     = (&s == &endSliderA || &s == &endSliderB);
+	const bool isPitch   = (&s == &pitchSliderA || &s == &pitchSliderB);
+	const bool isDelay   = (&s == &delaySliderA || &s == &delaySliderB);
+	const bool isPan     = (&s == &panSliderA || &s == &panSliderB);
+	const bool isFred    = (&s == &fredSliderA || &s == &fredSliderB);
+	const bool isPos     = (&s == &posSliderA || &s == &posSliderB);
+	const bool isMix     = (&s == &globalMixSlider);
+
+	if (isHpLp)             { suffix = " Hz";          suffixShort = " Hz"; }
+	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB"; }
+	else if (isStart)       { suffix = " ms START";    suffixShort = " ms"; }
+	else if (isEnd)         { suffix = " ms END";      suffixShort = " ms"; }
+	else if (isPitch)       { suffix = " % PITCH";     suffixShort = " %"; }
+	else if (isDelay)       { suffix = " ms DELAY";    suffixShort = " ms"; }
+	else if (isPan)         { suffix = " % PAN";       suffixShort = " %"; }
+	else if (isFred)        { suffix = " % FRED";      suffixShort = " %"; }
+	else if (isPos)         { suffix = " % POS";       suffixShort = " %"; }
+	else if (isMix)         { suffix = " % MIX";       suffixShort = " %"; }
+
+	const juce::String suffixText      = suffix.trimStart();
+	const juce::String suffixTextShort = suffixShort.trimStart();
+
+	auto* aw = new juce::AlertWindow ("", "", juce::AlertWindow::NoIcon);
+	aw->setLookAndFeel (&lnf);
+
+	// ── Initial display value ──
+	juce::String currentDisplay;
+	if (isHpLp)
+		currentDisplay = juce::String (s.getValue(), 3);
+	else if (isOut)
+		currentDisplay = juce::String (s.getValue(), 1);
+	else if (isStart || isEnd || isDelay)
+		currentDisplay = juce::String (s.getValue(), 3);
+	else if (isPitch)
+		currentDisplay = juce::String (juce::jlimit (25.0, 400.0, s.getValue() * 100.0), 1);
+	else if (isPan)
+		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 0);
+	else if (isFred || isPos || isMix)
+		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 1);
+	else
+		currentDisplay = s.getTextFromValue (s.getValue());
+
+	aw->addTextEditor ("val", currentDisplay, juce::String());
+
+	juce::Label* suffixLabel = nullptr;
+	juce::Rectangle<int> editorBaseBounds;
+	std::function<void()> layoutValueAndSuffix;
+
+	if (auto* te = aw->getTextEditor ("val"))
+	{
+		const auto& f = kBoldFont40();
+		te->setFont (f);
+		te->applyFontToAllText (f);
+
+		auto r = te->getBounds();
+		r.setHeight ((int) (f.getHeight() * kPromptEditorHeightScale) + kPromptEditorHeightPadPx);
+		r.setY (juce::jmax (kPromptEditorMinTopPx, r.getY() - kPromptEditorRaiseYPx));
+		editorBaseBounds = r;
+
+		suffixLabel = new juce::Label ("suffix", suffixText);
+		suffixLabel->setComponentID (kPromptSuffixLabelId);
+		suffixLabel->setJustificationType (juce::Justification::centredLeft);
+		applyLabelTextColour (*suffixLabel, scheme.text);
+		suffixLabel->setBorderSize (juce::BorderSize<int> (0));
+		suffixLabel->setFont (f);
+		aw->addAndMakeVisible (suffixLabel);
+
+		// Worst-case widths for layout stability
+		juce::String worstCaseText;
+		if (isHpLp)              worstCaseText = "20000.000";
+		else if (isOut)          worstCaseText = "-100.0";
+		else if (isStart||isEnd) worstCaseText = "10000.000";
+		else if (isPitch)        worstCaseText = "400.0";
+		else if (isDelay)        worstCaseText = "1000.000";
+		else if (isPan)          worstCaseText = "100";
+		else if (isFred||isPos)  worstCaseText = "100.0";
+		else if (isMix)          worstCaseText = "100.0";
+		else                     worstCaseText = "999.99";
+
+		const int maxInputTextW = juce::jmax (1, stringWidth (f, worstCaseText));
+
+		layoutValueAndSuffix = [aw, te, suffixLabel, editorBaseBounds,
+		                        suffixText, suffixTextShort, maxInputTextW]()
+		{
+			const int contentPad = kPromptInlineContentPadPx;
+			const int contentLeft = contentPad;
+			const int contentRight = (aw != nullptr ? aw->getWidth() - contentPad : editorBaseBounds.getRight());
+			const int availableW = contentRight - contentLeft;
+			const int contentCenter = (contentLeft + contentRight) / 2;
+
+			const int fullLabelW = stringWidth (suffixLabel->getFont(), suffixText) + 2;
+			const bool stickPercentFull = suffixText.containsChar ('%');
+			const int spaceWFull = stickPercentFull ? 0 : juce::jmax (2, stringWidth (suffixLabel->getFont(), " "));
+			const int worstCaseFullW = maxInputTextW + spaceWFull + fullLabelW;
+
+			const bool useShort = (worstCaseFullW > availableW) && suffixTextShort != suffixText;
+			const juce::String& activeSuffix = useShort ? suffixTextShort : suffixText;
+			suffixLabel->setText (activeSuffix, juce::dontSendNotification);
+
+			const auto txt = te->getText();
+			const int textW = juce::jmax (1, stringWidth (te->getFont(), txt));
+			int labelW = stringWidth (suffixLabel->getFont(), activeSuffix) + 2;
+
+			const bool stickPercent = activeSuffix.containsChar ('%');
+			const int spaceW = stickPercent ? 0 : juce::jmax (2, stringWidth (te->getFont(), " "));
+			const int minGapPx = juce::jmax (1, spaceW);
+
+			constexpr int kEditorTextPadPx = 12;
+			constexpr int kMinEditorWidthPx = 24;
+			const int editorW = juce::jlimit (kMinEditorWidthPx,
+			                                  editorBaseBounds.getWidth(),
+			                                  textW + kEditorTextPadPx * 2);
+			auto er = te->getBounds();
+			er.setWidth (editorW);
+
+			const int combinedW = textW + minGapPx + labelW;
+			int blockLeft = contentCenter - combinedW / 2;
+			blockLeft = juce::jlimit (contentLeft,
+			                          juce::jmax (contentLeft, contentRight - combinedW),
+			                          blockLeft);
+
+			int teX = blockLeft - (editorW - textW) / 2;
+			teX = juce::jlimit (contentLeft,
+			                    juce::jmax (contentLeft, contentRight - editorW), teX);
+			er.setX (teX);
+			te->setBounds (er);
+
+			const int textLeftActual = er.getX() + (er.getWidth() - textW) / 2;
+			int labelX = textLeftActual + textW + minGapPx;
+			labelX = juce::jlimit (contentLeft,
+			                       juce::jmax (contentLeft, contentRight - labelW), labelX);
+			suffixLabel->setBounds (labelX, er.getY(), labelW, juce::jmax (1, er.getHeight()));
+		};
+
+		te->setBounds (editorBaseBounds);
+		int labelW0 = stringWidth (suffixLabel->getFont(), suffixText) + 2;
+		suffixLabel->setBounds (r.getRight() + 2, r.getY() + 1, labelW0, juce::jmax (1, r.getHeight() - 2));
+
+		if (layoutValueAndSuffix)
+			layoutValueAndSuffix();
+
+		// ── Per-slider input constraints ──
+		double minVal = 0.0, maxVal = 1.0;
+		int maxLen = 0, maxDecs = 4;
+
+		if (isHpLp)
+		{
+			minVal = 20.0;   maxVal = 20000.0;
+			maxDecs = 3;     maxLen = 9;     // "20000.000"
+		}
+		else if (isOut)
+		{
+			minVal = -100.0; maxVal = 24.0;
+			maxDecs = 1;     maxLen = 6;     // "-100.0"
+		}
+		else if (isStart || isEnd)
+		{
+			minVal = 0.0;    maxVal = 10000.0;
+			maxDecs = 3;     maxLen = 9;     // "10000.000"
+		}
+		else if (isPitch)
+		{
+			minVal = 25.0;   maxVal = 400.0;
+			maxDecs = 1;     maxLen = 5;     // "400.0"
+		}
+		else if (isDelay)
+		{
+			minVal = 0.0;    maxVal = 1000.0;
+			maxDecs = 3;     maxLen = 8;     // "1000.000"
+		}
+		else if (isPan)
+		{
+			minVal = 0.0;    maxVal = 100.0;
+			maxDecs = 0;     maxLen = 3;     // "100"
+		}
+		else if (isFred || isPos || isMix)
+		{
+			minVal = 0.0;    maxVal = 100.0;
+			maxDecs = 1;     maxLen = 5;     // "100.0"
+		}
+
+		te->setInputFilter (new NumericInputFilter (minVal, maxVal, maxLen, maxDecs), true);
+
+		const int localMaxDecs = maxDecs;
+		te->onTextChange = [te, layoutValueAndSuffix, localMaxDecs]() mutable
+		{
+			auto txt = te->getText();
+			int dot = txt.indexOfChar ('.');
+			if (dot >= 0)
+			{
+				int decimals = txt.length() - dot - 1;
+				if (decimals > localMaxDecs)
+					te->setText (txt.substring (0, dot + 1 + localMaxDecs), juce::dontSendNotification);
+			}
+			if (layoutValueAndSuffix)
+				layoutValueAndSuffix();
+		};
+	}
+
+	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	applyPromptShellSize (*aw);
+	layoutAlertWindowButtons (*aw);
+
+	const juce::Font& kPromptFont = kBoldFont40();
+
+	preparePromptTextEditor (*aw, "val", scheme.bg, scheme.text, scheme.fg, kPromptFont, false);
+
+	if (suffixLabel != nullptr && ! editorBaseBounds.isEmpty())
+	{
+		if (auto* te = aw->getTextEditor ("val"))
+			suffixLabel->setFont (te->getFont());
+		if (layoutValueAndSuffix)
+			layoutValueAndSuffix();
+	}
+
+	styleAlertButtons (*aw, lnf);
+
+	juce::Component::SafePointer<CABTRAudioProcessorEditor> safeThis (this);
+	juce::Slider* sliderPtr = &s;
+
+	setPromptOverlayActive (true);
+
+	if (safeThis != nullptr)
+	{
+		fitAlertWindowToEditor (*aw, safeThis.getComponent(), [layoutValueAndSuffix, scheme, &kPromptFont] (juce::AlertWindow& a)
+		{
+			if (layoutValueAndSuffix)
+				layoutValueAndSuffix();
+			layoutAlertWindowButtons (a);
+			preparePromptTextEditor (a, "val", scheme.bg, scheme.text, scheme.fg, kPromptFont, false);
+		});
+
+		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
+	}
+	else
+	{
+		aw->centreAroundComponent (this, aw->getWidth(), aw->getHeight());
+		bringPromptWindowToFront (*aw);
+		aw->repaint();
+	}
+
+	// Final styling pass
+	{
+		preparePromptTextEditor (*aw, "val", scheme.bg, scheme.text, scheme.fg, kPromptFont, false);
+		if (auto* suffixLbl = dynamic_cast<juce::Label*> (aw->findChildWithID (kPromptSuffixLabelId)))
+		{
+			if (auto* te = aw->getTextEditor ("val"))
+				suffixLbl->setFont (te->getFont());
+		}
+		if (layoutValueAndSuffix)
+			layoutValueAndSuffix();
+
+		juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
+		juce::MessageManager::callAsync ([safeAw]()
+		{
+			if (safeAw == nullptr) return;
+			bringPromptWindowToFront (*safeAw);
+			safeAw->repaint();
+		});
+	}
+
+	aw->enterModalState (true,
+		juce::ModalCallbackFunction::create ([safeThis, sliderPtr, aw] (int result) mutable
+		{
+			std::unique_ptr<juce::AlertWindow> killer (aw);
+
+			if (safeThis != nullptr)
+				safeThis->setPromptOverlayActive (false);
+
+			if (safeThis == nullptr || sliderPtr == nullptr)
+				return;
+
+			if (result != 1)
+				return;
+
+			const auto txt = aw->getTextEditorContents ("val").trim();
+			auto normalised = txt.replaceCharacter (',', '.');
+
+			juce::String t = normalised.trimStart();
+			while (t.startsWithChar ('+'))
+				t = t.substring (1).trimStart();
+			const juce::String numericToken = t.initialSectionContainingOnly ("0123456789.,-");
+			double v = numericToken.getDoubleValue();
+
+			// Percent-based sliders: user typed 0-100, slider stores 0-1
+			const bool isPitchSlider  = (sliderPtr == &safeThis->pitchSliderA  || sliderPtr == &safeThis->pitchSliderB);
+			const bool isPanSlider    = (sliderPtr == &safeThis->panSliderA    || sliderPtr == &safeThis->panSliderB);
+			const bool isFredSlider   = (sliderPtr == &safeThis->fredSliderA   || sliderPtr == &safeThis->fredSliderB);
+			const bool isPosSlider    = (sliderPtr == &safeThis->posSliderA    || sliderPtr == &safeThis->posSliderB);
+			const bool isMixSlider    = (sliderPtr == &safeThis->globalMixSlider);
+
+			if (isPitchSlider || isPanSlider || isFredSlider || isPosSlider || isMixSlider)
+				v *= 0.01;
+
+			const auto range = sliderPtr->getRange();
+			double clamped = juce::jlimit (range.getStart(), range.getEnd(), v);
+
+			sliderPtr->setValue (clamped, juce::sendNotificationSync);
+		}));
+}
+
+//==============================================================================
+//  CHAOS prompt (AMOUNT + SPEED)
+//==============================================================================
+void CABTRAudioProcessorEditor::openChaosPrompt (bool forLoaderA)
+{
+	using namespace TR;
+	lnf.setScheme (activeScheme);
+	const auto scheme = activeScheme;
+
+	const auto& amtId = forLoaderA ? CABTRAudioProcessor::kParamChaosAmtA
+	                                : CABTRAudioProcessor::kParamChaosAmtB;
+	const auto& spdId = forLoaderA ? CABTRAudioProcessor::kParamChaosSpdA
+	                                : CABTRAudioProcessor::kParamChaosSpdB;
+
+	const float currentAmt = audioProcessor.getValueTreeState().getRawParameterValue (amtId)->load();
+	const float currentSpd = audioProcessor.getValueTreeState().getRawParameterValue (spdId)->load();
+
+	auto* aw = new juce::AlertWindow ("", "", juce::AlertWindow::NoIcon);
+	aw->setLookAndFeel (&lnf);
+
+	aw->addTextEditor ("amt", juce::String (juce::roundToInt (currentAmt)), juce::String());
+	aw->addTextEditor ("spd", juce::String (currentSpd, 2), juce::String());
+
+	// ── Inline bar component ──
+	struct PromptBar : public juce::Component
+	{
+		TRScheme colours;
+		float value      = 0.5f;
+		float defaultVal = 0.5f;
+		std::function<void (float)> onValueChanged;
+
+		PromptBar (const TRScheme& s, float initial01, float default01)
+			: colours (s), value (initial01), defaultVal (default01) {}
+
+		void paint (juce::Graphics& g) override
+		{
+			const auto r = getLocalBounds().toFloat();
+			g.setColour (colours.outline);
+			g.drawRect (r, 4.0f);
+
+			const float pad = 7.0f;
+			auto inner = r.reduced (pad);
+
+			g.setColour (colours.bg);
+			g.fillRect (inner);
+
+			const float fillW = juce::jlimit (0.0f, inner.getWidth(), inner.getWidth() * value);
+			g.setColour (colours.fg);
+			g.fillRect (inner.withWidth (fillW));
+		}
+
+		void mouseDown (const juce::MouseEvent& e) override  { updateFromMouse (e); }
+		void mouseDrag (const juce::MouseEvent& e) override  { updateFromMouse (e); }
+		void mouseDoubleClick (const juce::MouseEvent&) override { setValue (defaultVal); }
+
+		void setValue (float v01)
+		{
+			value = juce::jlimit (0.0f, 1.0f, v01);
+			repaint();
+			if (onValueChanged)
+				onValueChanged (value);
+		}
+
+	private:
+		void updateFromMouse (const juce::MouseEvent& e)
+		{
+			const float pad = 7.0f;
+			const float innerX = pad;
+			const float innerW = (float) getWidth() - pad * 2.0f;
+			const float v = (innerW > 0.0f) ? ((float) e.x - innerX) / innerW : 0.0f;
+			setValue (v);
+		}
+	};
+
+	struct ResetLabel : public juce::Label
+	{
+		PromptBar* pairedBar = nullptr;
+		void mouseDoubleClick (const juce::MouseEvent&) override
+		{
+			if (pairedBar != nullptr)
+				pairedBar->setValue (pairedBar->defaultVal);
+		}
+	};
+
+	const auto& f = kBoldFont40();
+
+	ResetLabel* amtSuffix  = nullptr;
+	ResetLabel* spdSuffix  = nullptr;
+	juce::Label* amtUnitLabel = nullptr;
+	juce::Label* spdUnitLabel = nullptr;
+
+	auto setupField = [&] (const char* editorId, const juce::String& suffixText,
+	                       const juce::String& unitText, bool useDecimalFilter,
+	                       ResetLabel*& suffixOut, juce::Label*& unitOut)
+	{
+		if (auto* te = aw->getTextEditor (editorId))
+		{
+			te->setFont (f);
+			te->applyFontToAllText (f);
+
+			if (useDecimalFilter)
+			{
+				// Allow digits and one decimal point, max 6 chars
+				te->setInputRestrictions (6, "0123456789.");
+			}
+			else
+			{
+				te->setInputFilter (new PctInputFilter(), true);
+			}
+
+			auto r = te->getBounds();
+			r.setHeight ((int) (f.getHeight() * kPromptEditorHeightScale) + kPromptEditorHeightPadPx);
+			te->setBounds (r);
+
+			suffixOut = new ResetLabel();
+			suffixOut->setText (suffixText, juce::dontSendNotification);
+			suffixOut->setJustificationType (juce::Justification::centredLeft);
+			applyLabelTextColour (*suffixOut, scheme.text);
+			suffixOut->setBorderSize (juce::BorderSize<int> (0));
+			suffixOut->setFont (f);
+			aw->addAndMakeVisible (suffixOut);
+
+			unitOut = new juce::Label ("", unitText);
+			unitOut->setJustificationType (juce::Justification::centredLeft);
+			applyLabelTextColour (*unitOut, scheme.text);
+			unitOut->setBorderSize (juce::BorderSize<int> (0));
+			unitOut->setFont (f);
+			aw->addAndMakeVisible (unitOut);
+		}
+	};
+
+	setupField ("amt", "AMT", "%",  false, amtSuffix, amtUnitLabel);
+	setupField ("spd", "SPD", "Hz", true,  spdSuffix, spdUnitLabel);
+
+	// Bars: AMOUNT 0-100 → 0..1, SPEED 0.01-100 Hz → 0..1 (logarithmic)
+	const float spdLogMin = std::log (CABTRAudioProcessor::kChaosSpdMin);
+	const float spdLogMax = std::log (CABTRAudioProcessor::kChaosSpdMax);
+	const float spdLogRange = spdLogMax - spdLogMin;
+
+	auto hzToBar = [spdLogMin, spdLogRange] (float hz) -> float
+	{
+		if (hz <= CABTRAudioProcessor::kChaosSpdMin) return 0.0f;
+		if (hz >= CABTRAudioProcessor::kChaosSpdMax) return 1.0f;
+		return (std::log (hz) - spdLogMin) / spdLogRange;
+	};
+
+	auto barToHz = [spdLogMin, spdLogRange] (float v01) -> float
+	{
+		return std::exp (spdLogMin + v01 * spdLogRange);
+	};
+
+	auto* amtBar = new PromptBar (scheme, currentAmt * 0.01f,
+	                              CABTRAudioProcessor::kChaosAmtDefault * 0.01f);
+	auto* spdBar = new PromptBar (scheme,
+	                              hzToBar (currentSpd),
+	                              hzToBar (CABTRAudioProcessor::kChaosSpdDefault));
+	aw->addAndMakeVisible (amtBar);
+	aw->addAndMakeVisible (spdBar);
+
+	if (amtSuffix != nullptr) amtSuffix->pairedBar = amtBar;
+	if (spdSuffix != nullptr) spdSuffix->pairedBar = spdBar;
+
+	auto syncing = std::make_shared<bool> (false);
+
+	auto* amtApvts = audioProcessor.getValueTreeState().getParameter (amtId);
+	auto* spdApvts = audioProcessor.getValueTreeState().getParameter (spdId);
+
+	// Bar → text + APVTS
+	auto barToTextAmt = [aw, syncing, amtApvts] (float v01)
+	{
+		if (*syncing) return;
+		*syncing = true;
+		if (auto* te = aw->getTextEditor ("amt"))
+		{
+			te->setText (juce::String (juce::roundToInt (v01 * 100.0f)), juce::sendNotification);
+			te->selectAll();
+		}
+		if (amtApvts != nullptr)
+			amtApvts->setValueNotifyingHost (amtApvts->convertTo0to1 (v01 * 100.0f));
+		*syncing = false;
+	};
+
+	auto barToTextSpd = [aw, syncing, spdApvts, barToHz] (float v01)
+	{
+		if (*syncing) return;
+		*syncing = true;
+		const float hz = juce::jlimit (CABTRAudioProcessor::kChaosSpdMin,
+		                               CABTRAudioProcessor::kChaosSpdMax, barToHz (v01));
+		if (auto* te = aw->getTextEditor ("spd"))
+		{
+			te->setText (juce::String (hz, 2), juce::sendNotification);
+			te->selectAll();
+		}
+		if (spdApvts != nullptr)
+			spdApvts->setValueNotifyingHost (spdApvts->convertTo0to1 (hz));
+		*syncing = false;
+	};
+
+	amtBar->onValueChanged = barToTextAmt;
+	spdBar->onValueChanged = barToTextSpd;
+
+	// Layout helper
+	auto layoutRows = [aw, amtSuffix, spdSuffix, amtUnitLabel, spdUnitLabel, amtBar, spdBar] ()
+	{
+		auto* amtTe = aw->getTextEditor ("amt");
+		auto* spdTe = aw->getTextEditor ("spd");
+		if (amtTe == nullptr || spdTe == nullptr)
+			return;
+
+		const int buttonsTop = getAlertButtonsTop (*aw);
+		const int rowH = amtTe->getHeight();
+		const int barH = juce::jmax (10, rowH / 2);
+		const int barGap = juce::jmax (2, rowH / 6);
+		const int rowTotal = rowH + barGap + barH;
+		const int gap = juce::jmax (4, rowH / 3);
+		const int totalH = rowTotal * 2 + gap;
+		const int startY = juce::jmax (kPromptEditorMinTopPx, (buttonsTop - totalH) / 2);
+
+		const int contentPad = kPromptInlineContentPadPx;
+		const int contentW = aw->getWidth() - contentPad * 2;
+		const auto& font = amtTe->getFont();
+		const int spaceW = juce::jmax (2, stringWidth (font, " "));
+
+		auto placeRow = [&] (juce::TextEditor* te, juce::Label* suffix,
+		                     juce::Label* unitLabel, PromptBar* bar, int y)
+		{
+			if (te == nullptr || suffix == nullptr || bar == nullptr)
+				return;
+
+			const int labelW  = stringWidth (suffix->getFont(), suffix->getText()) + 2;
+			const auto txt    = te->getText();
+			const int textW   = juce::jmax (1, stringWidth (font, txt));
+			const int unitW   = (unitLabel != nullptr)
+			                  ? stringWidth (font, unitLabel->getText()) + 2 : 0;
+
+			constexpr int kEditorTextPadPx = 12;
+			constexpr int kMinEditorWidthPx = 24;
+			const int editorW = juce::jlimit (kMinEditorWidthPx, 80,
+			                                  textW + kEditorTextPadPx * 2);
+
+			const int visualW = labelW + spaceW + textW + unitW;
+			const int centerX = contentPad + contentW / 2;
+			int blockLeft = juce::jlimit (contentPad,
+			                              juce::jmax (contentPad, contentPad + contentW - visualW),
+			                              centerX - visualW / 2);
+
+			suffix->setBounds (blockLeft, y, labelW, rowH);
+
+			int teX = blockLeft + labelW + spaceW - (editorW - textW) / 2;
+			teX = juce::jlimit (contentPad,
+			                    juce::jmax (contentPad, contentPad + contentW - editorW), teX);
+			te->setBounds (teX, y, editorW, rowH);
+
+			if (unitLabel != nullptr)
+			{
+				const int textRightX = blockLeft + labelW + spaceW + textW;
+				unitLabel->setBounds (textRightX, y, unitW, rowH);
+			}
+
+			const int barX = kPromptInnerMargin;
+			const int barW = juce::jmax (60, aw->getWidth() - kPromptInnerMargin * 2);
+			bar->setBounds (barX, y + rowH + barGap, barW, barH);
+		};
+
+		placeRow (amtTe, amtSuffix, amtUnitLabel, amtBar, startY);
+		placeRow (spdTe, spdSuffix, spdUnitLabel, spdBar, startY + rowTotal + gap);
+	};
+
+	// Text → bar + APVTS
+	auto textToBar = [syncing, hzToBar] (juce::TextEditor* te, PromptBar* bar,
+	                            juce::RangedAudioParameter* param, bool isSpeed)
+	{
+		if (*syncing || te == nullptr || bar == nullptr) return;
+		*syncing = true;
+		const float raw = juce::jlimit (0.0f, 100.0f, te->getText().getFloatValue());
+		if (isSpeed)
+		{
+			const float hz = juce::jlimit (CABTRAudioProcessor::kChaosSpdMin,
+			                               CABTRAudioProcessor::kChaosSpdMax, raw);
+			bar->value = hzToBar (hz);
+			if (param != nullptr)
+				param->setValueNotifyingHost (param->convertTo0to1 (hz));
+		}
+		else
+		{
+			bar->value = raw * 0.01f;
+			if (param != nullptr)
+				param->setValueNotifyingHost (param->convertTo0to1 (raw));
+		}
+		bar->repaint();
+		*syncing = false;
+	};
+
+	if (auto* amtTe = aw->getTextEditor ("amt"))
+		amtTe->onTextChange = [layoutRows, amtTe, amtBar, textToBar, amtApvts] () mutable
+		{
+			textToBar (amtTe, amtBar, amtApvts, false);
+			layoutRows();
+		};
+	if (auto* spdTe = aw->getTextEditor ("spd"))
+		spdTe->onTextChange = [layoutRows, spdTe, spdBar, textToBar, spdApvts] () mutable
+		{
+			textToBar (spdTe, spdBar, spdApvts, true);
+			layoutRows();
+		};
+
+	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	applyPromptShellSize (*aw);
+	layoutAlertWindowButtons (*aw);
+	layoutRows();
+
+	const auto& kChaosFont = kBoldFont40();
+	preparePromptTextEditor (*aw, "amt", scheme.bg, scheme.text, scheme.fg, kChaosFont, false);
+	preparePromptTextEditor (*aw, "spd", scheme.bg, scheme.text, scheme.fg, kChaosFont, false);
+	layoutRows();
+
+	styleAlertButtons (*aw, lnf);
+
+	juce::Component::SafePointer<CABTRAudioProcessorEditor> safeThis (this);
+
+	if (safeThis != nullptr)
+	{
+		fitAlertWindowToEditor (*aw, safeThis.getComponent(), [layoutRows] (juce::AlertWindow& a)
+		{
+			juce::ignoreUnused (a);
+			layoutAlertWindowButtons (a);
+			layoutRows();
+		});
+
+		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
+	}
+	else
+	{
+		aw->centreAroundComponent (this, aw->getWidth(), aw->getHeight());
+		bringPromptWindowToFront (*aw);
+	}
+
+	// Final styling pass
+	{
+		preparePromptTextEditor (*aw, "amt", scheme.bg, scheme.text, scheme.fg, kChaosFont, false);
+		preparePromptTextEditor (*aw, "spd", scheme.bg, scheme.text, scheme.fg, kChaosFont, false);
+		layoutRows();
+
+		if (amtSuffix != nullptr)
+		{
+			if (auto* te = aw->getTextEditor ("amt"))
+			{
+				amtSuffix->setFont (te->getFont());
+				if (amtUnitLabel != nullptr) amtUnitLabel->setFont (te->getFont());
+			}
+		}
+		if (spdSuffix != nullptr)
+		{
+			if (auto* te = aw->getTextEditor ("spd"))
+			{
+				spdSuffix->setFont (te->getFont());
+				if (spdUnitLabel != nullptr) spdUnitLabel->setFont (te->getFont());
+			}
+		}
+
+		layoutRows();
+
+		juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
+		juce::MessageManager::callAsync ([safeAw]()
+		{
+			if (safeAw == nullptr) return;
+			bringPromptWindowToFront (*safeAw);
+			safeAw->repaint();
+		});
+	}
+
+	aw->enterModalState (true,
+		juce::ModalCallbackFunction::create (
+			[safeThis, aw, amtBar, spdBar,
+			 savedAmt = currentAmt, savedSpd = currentSpd,
+			 amtId, spdId, forLoaderA, spdLogMin, spdLogRange] (int result) mutable
+		{
+			std::unique_ptr<juce::AlertWindow> killer (aw);
+
+			if (safeThis != nullptr)
+				safeThis->setPromptOverlayActive (false);
+
+			if (safeThis == nullptr)
+				return;
+
+			if (result != 1)
+			{
+				// CANCEL: revert to original values
+				if (auto* p = safeThis->audioProcessor.getValueTreeState().getParameter (amtId))
+					p->setValueNotifyingHost (p->convertTo0to1 (savedAmt));
+				if (auto* p = safeThis->audioProcessor.getValueTreeState().getParameter (spdId))
+					p->setValueNotifyingHost (p->convertTo0to1 (savedSpd));
+				return;
+			}
+
+			// OK: update tooltip
+			const float newAmt = juce::jlimit (0.0f, 100.0f, amtBar->value * 100.0f);
+			const float newSpd = juce::jlimit (CABTRAudioProcessor::kChaosSpdMin,
+			                                    CABTRAudioProcessor::kChaosSpdMax,
+			                                    std::exp (spdLogMin + juce::jlimit (0.0f, 1.0f, spdBar->value) * spdLogRange));
+			auto tip = juce::String (juce::roundToInt (newAmt)) + "% | "
+			         + juce::String (juce::roundToInt (newSpd)) + " Hz";
+			auto& disp = forLoaderA ? safeThis->chaosDisplayA : safeThis->chaosDisplayB;
+			disp.setTooltip (tip);
+		}),
+		false);
 }
 
 void CABTRAudioProcessorEditor::openInfoPopup()
