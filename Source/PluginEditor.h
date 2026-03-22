@@ -30,7 +30,7 @@ public:
 	void filesDropped (const juce::StringArray& files, int x, int y) override;
 	
 	// Public API for updating UI from processor state
-	void updateFileDisplayLabels (const juce::String& pathA, const juce::String& pathB);
+	void updateFileDisplayLabels (const juce::String& pathA, const juce::String& pathB, const juce::String& pathC);
 
 private:
 	void mouseDown (const juce::MouseEvent& e) override;
@@ -44,16 +44,17 @@ private:
 	void parameterChanged (const juce::String& paramID, float newValue) override;
 
 	void openNumericEntryPopupForSlider (juce::Slider& s);
-	void openFileExplorer (bool forLoaderA);
-	void browseToParentFolder (bool forLoaderA);
-	void loadIRFile (const juce::String& path, bool forLoaderA);
+	void openFileExplorer (int loaderIndex);
+	void browseToParentFolder (int loaderIndex);
+	void loadIRFile (const juce::String& path, int loaderIndex);
 	void openInfoPopup();
 	void openGraphicsPopup();
-	void openChaosPrompt (bool forLoaderA);
+	void openChaosPrompt (int loaderIndex);
+	void openFilterPrompt (int loaderIndex);
 	void openExportPrompt();
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
-	void layoutIRSection (juce::Rectangle<int> area, bool isA);
-	void updateLoaderEnabledState (bool isA);
+	void layoutIRSection (juce::Rectangle<int> area, int loaderIndex);
+	void updateLoaderEnabledState (int loaderIndex);
 
 	// TR-style label/value display system
 	bool legendDirty = true;
@@ -95,6 +96,51 @@ private:
 	private:
 		CABTRAudioProcessorEditor* owner = nullptr;
 		bool allowNumericPopup = true;
+	};
+
+	// ══════════════════════════════════════════════════════════════
+	//  Filter bar (dual HP/LP marker component, replaces separate sliders)
+	// ══════════════════════════════════════════════════════════════
+	class FilterBarComponent : public juce::Component,
+	                           public juce::SettableTooltipClient
+	{
+	public:
+		void setOwner (CABTRAudioProcessorEditor* o, int loaderIdx) { owner = o; loaderIndex_ = loaderIdx; }
+		void setScheme (const TR::TRScheme& s) { scheme = s; repaint(); }
+
+		void paint (juce::Graphics& g) override;
+		void mouseDown (const juce::MouseEvent& e) override;
+		void mouseDrag (const juce::MouseEvent& e) override;
+		void mouseUp (const juce::MouseEvent& e) override;
+		void mouseMove (const juce::MouseEvent& e) override;
+		void mouseDoubleClick (const juce::MouseEvent& e) override;
+
+		void updateFromProcessor();
+
+	private:
+		CABTRAudioProcessorEditor* owner = nullptr;
+		int loaderIndex_ = 0;
+		TR::TRScheme scheme {};
+
+		float hpFreq_ = 80.0f;
+		float lpFreq_ = 12000.0f;
+		bool  hpOn_   = true;
+		bool  lpOn_   = true;
+
+		enum DragTarget { None, HP, LP };
+		DragTarget currentDrag_ = None;
+
+		static constexpr float kMinFreq = 20.0f;
+		static constexpr float kMaxFreq = 20000.0f;
+		static constexpr float kPad     = 7.0f;
+		static constexpr int   kMarkerHitPx = 10;
+
+		juce::Rectangle<float> getInnerArea() const;
+		float freqToNormX (float freq) const;
+		float normXToFreq (float normX) const;
+		float getMarkerScreenX (float freq) const;
+		DragTarget hitTestMarker (juce::Point<float> p) const;
+		void  setFreqFromMouseX (float mouseX, DragTarget target);
 	};
 
 	// ══════════════════════════════════════════════════════════════
@@ -178,8 +224,10 @@ private:
 	// ══════════════════════════════════════════════════════════════
 	juce::File currentFolderA;
 	juce::File currentFolderB;
+	juce::File currentFolderC;
 	juce::String currentFileA;
 	juce::String currentFileB;
+	juce::String currentFileC;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — IR Loader A
@@ -220,6 +268,10 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachA;
+	juce::ComboBox modeInComboA;
+	juce::ComboBox modeOutComboA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachA;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — IR Loader B
@@ -260,21 +312,91 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachB;
+	juce::ComboBox modeInComboB;
+	juce::ComboBox modeOutComboB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachB;
+
+	// ══════════════════════════════════════════════════════════════
+	//  UI Components — IR Loader C
+	// ══════════════════════════════════════════════════════════════
+	juce::ToggleButton enableButtonC;
+	juce::TextButton browseButtonC { "..." };
+	juce::Label fileDisplayC;
+
+	BarSlider hpFreqSliderC;
+	BarSlider lpFreqSliderC;
+	BarSlider outSliderC;
+	BarSlider startSliderC;
+	BarSlider endSliderC;
+	BarSlider pitchSliderC;
+	BarSlider delaySliderC;
+	BarSlider panSliderC;
+	BarSlider fredSliderC;
+	BarSlider posSliderC;
+
+	juce::ToggleButton invButtonC;
+	juce::ToggleButton normButtonC;
+	juce::ToggleButton rvsButtonC;
+	juce::ToggleButton chaosButtonC;
+	juce::Label chaosDisplayC;
+
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpFreqAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> startAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> endAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> panAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fredAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> posAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachC;
+	juce::ComboBox modeInComboC;
+	juce::ComboBox modeOutComboC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachC;
+
+	// ══════════════════════════════════════════════════════════════
+	//  UI Components — Filter Bars & per-loader MIX
+	// ══════════════════════════════════════════════════════════════
+	FilterBarComponent filterBarA_;
+	FilterBarComponent filterBarB_;
+	FilterBarComponent filterBarC_;
+
+	BarSlider mixSliderA;   // per-loader MIX A (kParamMixA)
+	BarSlider mixSliderB;   // per-loader MIX B (kParamMixB)
+	BarSlider mixSliderC;   // per-loader MIX C (kParamMixC)
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachC;
+
+	// ══════════════════════════════════════════════════════════════
+	//  Collapse/Expand state
+	// ══════════════════════════════════════════════════════════════
+	bool ioSectionExpanded_ = false;
+	juce::Rectangle<int> cachedToggleBarAreaA_;
+	juce::Rectangle<int> cachedToggleBarAreaB_;
+	juce::Rectangle<int> cachedToggleBarAreaC_;
+	juce::Rectangle<int> cachedToggleBarArea_;     // continuous bar (used for drawing/clicks)
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — Global
 	// ══════════════════════════════════════════════════════════════
-	juce::ComboBox modeInCombo;
-	juce::ComboBox modeCombo;
 	juce::ComboBox routeCombo;
-	BarSlider globalMixSlider;
 	juce::ToggleButton alignButton;
 
-	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttach;
-	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttach;
+	BarSlider globalMixSlider;   // Global dry/wet MIX (kParamMix)
+	BarSlider globalOutputSlider; // Global output gain (kParamOutput)
+
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> routeAttach;
-	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalMixAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> alignAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalMixAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalOutputAttach;
 
 	// ══════════════════════════════════════════════════════════════
 	//  CRT Effect
@@ -312,17 +434,34 @@ private:
 		lnf.setScheme (activeScheme);
 		browseButtonA.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
 		browseButtonB.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
+		browseButtonC.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
 		fileDisplayA.setColour (juce::Label::textColourId, activeScheme.text);
 		fileDisplayB.setColour (juce::Label::textColourId, activeScheme.text);
-		modeInCombo.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeInCombo.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeInCombo.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeCombo.setColour   (juce::ComboBox::textColourId,       activeScheme.text);
-		modeCombo.setColour   (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeCombo.setColour   (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		fileDisplayC.setColour (juce::Label::textColourId, activeScheme.text);
+		modeInComboA.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeInComboA.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeInComboA.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeOutComboA.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeOutComboA.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeOutComboA.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeInComboB.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeInComboB.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeInComboB.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeOutComboB.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeOutComboB.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeOutComboB.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeInComboC.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeInComboC.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeInComboC.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeOutComboC.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeOutComboC.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeOutComboC.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
 		routeCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
 		routeCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
 		routeCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		filterBarA_.setScheme (activeScheme);
+		filterBarB_.setScheme (activeScheme);
+		filterBarC_.setScheme (activeScheme);
 	}
 
 	// ══════════════════════════════════════════════════════════════
@@ -334,32 +473,13 @@ private:
 	// ══════════════════════════════════════════════════════════════
 	//  TR-style legend text cache (for value display)
 	// ══════════════════════════════════════════════════════════════
-	// Loader A parameter texts (Full, Short, IntOnly versions)
-	juce::String cachedHpFreqTextAFull, cachedHpFreqTextAShort, cachedHpFreqTextAInt;
-	juce::String cachedLpFreqTextAFull, cachedLpFreqTextAShort, cachedLpFreqTextAInt;
-	juce::String cachedOutTextAFull, cachedOutTextAShort, cachedOutTextAInt;
-	juce::String cachedStartTextAFull, cachedStartTextAShort, cachedStartTextAInt;
-	juce::String cachedEndTextAFull, cachedEndTextAShort, cachedEndTextAInt;
-	juce::String cachedPitchTextAFull, cachedPitchTextAShort, cachedPitchTextAInt;
-	juce::String cachedDelayTextAFull, cachedDelayTextAShort, cachedDelayTextAInt;
-	juce::String cachedPanTextAFull, cachedPanTextAShort, cachedPanTextAInt;
-	juce::String cachedFredTextAFull, cachedFredTextAShort, cachedFredTextAInt;
-	juce::String cachedPosTextAFull, cachedPosTextAShort, cachedPosTextAInt;
-
-	// Loader B parameter texts
-	juce::String cachedHpFreqTextBFull, cachedHpFreqTextBShort, cachedHpFreqTextBInt;
-	juce::String cachedLpFreqTextBFull, cachedLpFreqTextBShort, cachedLpFreqTextBInt;
-	juce::String cachedOutTextBFull, cachedOutTextBShort, cachedOutTextBInt;
-	juce::String cachedStartTextBFull, cachedStartTextBShort, cachedStartTextBInt;
-	juce::String cachedEndTextBFull, cachedEndTextBShort, cachedEndTextBInt;
-	juce::String cachedPitchTextBFull, cachedPitchTextBShort, cachedPitchTextBInt;
-	juce::String cachedDelayTextBFull, cachedDelayTextBShort, cachedDelayTextBInt;
-	juce::String cachedPanTextBFull, cachedPanTextBShort, cachedPanTextBInt;
-	juce::String cachedFredTextBFull, cachedFredTextBShort, cachedFredTextBInt;
-	juce::String cachedPosTextBFull, cachedPosTextBShort, cachedPosTextBInt;
+	struct CachedParamText { juce::String full, short_, intOnly; };
+	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, PITCH=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
+	static constexpr int kNumCachedParams = 11;
+	CachedParamText cachedTexts[3][kNumCachedParams];  // [loader][param]
 
 	// Value display areas (calculated in paint(), used for click detection)
-	std::array<juce::Rectangle<int>, 20> cachedValueAreas_;  // 10 per loader
+	std::array<juce::Rectangle<int>, 33> cachedValueAreas_;  // 11 per loader × 3
 
 	// Gear icon for info button
 	juce::Path cachedInfoGearPath;
