@@ -128,6 +128,12 @@ private:
 		                   bool isButtonDown, int buttonX, int buttonY,
 		                   int buttonW, int buttonH, juce::ComboBox&) override;
 
+		void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
+		{
+			label.setBounds (0, 0, box.getWidth(), box.getHeight());
+			label.setJustificationType (juce::Justification::centred);
+		}
+
 		void drawPopupMenuBackground (juce::Graphics&, int width, int height) override;
 
 		void drawAlertBox (juce::Graphics&, juce::AlertWindow&,
@@ -296,6 +302,15 @@ private:
 		browseButtonB.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
 		fileDisplayA.setColour (juce::Label::textColourId, activeScheme.text);
 		fileDisplayB.setColour (juce::Label::textColourId, activeScheme.text);
+		modeInCombo.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+		modeInCombo.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeInCombo.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		modeCombo.setColour   (juce::ComboBox::textColourId,       activeScheme.text);
+		modeCombo.setColour   (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		modeCombo.setColour   (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		routeCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
+		routeCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		routeCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
 	}
 
 	// ══════════════════════════════════════════════════════════════

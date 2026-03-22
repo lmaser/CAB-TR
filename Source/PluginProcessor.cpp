@@ -1340,10 +1340,25 @@ void CABTRAudioProcessor::timerCallback()
 		const float alignVal = parameters.getRawParameterValue (kParamAlign)->load();
 		if (alignVal > 0.5f)
 		{
-			LOG_IR_EVENT ("ALIGN triggered! param=" + juce::String (alignVal, 3) +
-			              " A_loaded=" + juce::String (stateA.currentFilePath.isNotEmpty() ? "yes" : "no") +
-			              " B_loaded=" + juce::String (stateB.currentFilePath.isNotEmpty() ? "yes" : "no"));
-			calculateAutoAlignment();
+			const bool enabledA = parameters.getRawParameterValue (kParamEnableA)->load() > 0.5f;
+			const bool enabledB = parameters.getRawParameterValue (kParamEnableB)->load() > 0.5f;
+			const bool loadedA = stateA.currentFilePath.isNotEmpty();
+			const bool loadedB = stateB.currentFilePath.isNotEmpty();
+
+			if (enabledA && enabledB && loadedA && loadedB)
+			{
+				LOG_IR_EVENT ("ALIGN triggered! param=" + juce::String (alignVal, 3) +
+				              " A_loaded=yes B_loaded=yes");
+				calculateAutoAlignment();
+			}
+			else
+			{
+				LOG_IR_EVENT ("ALIGN skipped: enableA=" + juce::String (enabledA ? "ON" : "OFF") +
+				              " enableB=" + juce::String (enabledB ? "ON" : "OFF") +
+				              " loadedA=" + juce::String (loadedA ? "yes" : "no") +
+				              " loadedB=" + juce::String (loadedB ? "yes" : "no"));
+			}
+
 			if (auto* p = parameters.getParameter (kParamAlign))
 				p->setValueNotifyingHost (0.0f);
 		}

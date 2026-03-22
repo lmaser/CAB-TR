@@ -1127,27 +1127,32 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 	// Title & version
 	{
-		g.setFont (juce::Font (juce::FontOptions (28.0f).withStyle ("Bold")));
 		constexpr int titleX = 16;
 		constexpr int titleY = 12;
 		constexpr int titleH = 32;
+		g.setFont (juce::Font (juce::FontOptions (28.0f).withStyle ("Bold")));
 		g.drawText ("CAB-TR", titleX, titleY, 200, titleH, juce::Justification::left);
 
-		// Draw version near the gear icon
+		// Draw version near the gear icon (scaled like other TR plugins)
 		const auto iconArea = getInfoIconArea();
-		constexpr int versionGap = 8;
-		auto versionFont = juce::Font (juce::FontOptions (13.0f).withStyle ("Bold"));
+		constexpr int kVersionGapPx = 8;
+		auto versionFont = juce::Font (juce::FontOptions (
+		    juce::jmax (10.0f, (float) titleH * UiMetrics::versionFontRatio)).withStyle ("Bold"));
 		g.setFont (versionFont);
 
-		const int versionH = juce::jlimit (10, iconArea.getHeight(), 
-		                                    (int) std::round ((double) iconArea.getHeight() * UiMetrics::versionHeightRatio));
+		const int versionH = juce::jlimit (10, iconArea.getHeight(),
+		    (int) std::round ((double) iconArea.getHeight() * UiMetrics::versionHeightRatio));
 		const int versionY = iconArea.getBottom() - versionH;
-		const int versionRight = iconArea.getX() - versionGap;
-		const int versionW = 60;
-		const int versionX = versionRight - versionW;
+		const int desiredVersionW = juce::jlimit (28, 64,
+		    (int) std::round ((double) iconArea.getWidth() * UiMetrics::versionDesiredWidthRatio));
+		const int versionRight = iconArea.getX() - kVersionGapPx;
+		const int versionLeftLimit = titleX;
+		const int versionX = juce::jmax (versionLeftLimit, versionRight - desiredVersionW);
+		const int versionW = juce::jmax (0, versionRight - versionX);
 
-	g.drawText (juce::String ("v") + InfoContent::version, versionX, versionY, versionW, versionH,
-	            juce::Justification::bottomRight, false);
+		if (versionW > 0)
+			g.drawText (juce::String ("v") + InfoContent::version, versionX, versionY, versionW, versionH,
+			            juce::Justification::bottomRight, false);
 		const auto modeInArea = modeInCombo.getBounds().withHeight (16).translated (0, -18);
 		const auto modeArea = modeCombo.getBounds().withHeight (16).translated (0, -18);
 		const auto routeArea = routeCombo.getBounds().withHeight (16).translated (0, -18);
@@ -1157,6 +1162,19 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 		const auto mixArea = globalMixSlider.getBounds().withHeight (16).translated (0, -18);
 		g.drawText ("MIX", mixArea, juce::Justification::centred);
+	}
+
+	// Draw gear icon (in paint, like other TR plugins)
+	{
+		if (cachedInfoGearPath.isEmpty())
+			updateInfoIconCache();
+
+		g.setColour (activeScheme.text);
+		g.fillPath (cachedInfoGearPath);
+		g.strokePath (cachedInfoGearPath, juce::PathStrokeType (1.0f));
+
+		g.setColour (activeScheme.bg);
+		g.fillEllipse (cachedInfoGearHole);
 	}
 
 	// Draw value legends for all bar sliders
@@ -1233,16 +1251,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 {
-	// Draw gear icon for graphics/info button
-	if (cachedInfoGearPath.isEmpty())
-		updateInfoIconCache();
-
-	g.setColour (activeScheme.text);
-	g.fillPath (cachedInfoGearPath);
-	g.strokePath (cachedInfoGearPath, juce::PathStrokeType (1.0f));
-
-	g.setColour (activeScheme.bg);
-	g.fillEllipse (cachedInfoGearHole);
+	juce::ignoreUnused (g);
 }
 
 //==============================================================================
@@ -1289,6 +1298,8 @@ void CABTRAudioProcessorEditor::resized()
 	alignButton.setBounds (footerCenter.removeFromLeft (btnW));
 
 	promptOverlay.setBounds (getLocalBounds());
+
+	updateInfoIconCache();
 }
 
 void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, bool isA)
@@ -1554,7 +1565,6 @@ void CABTRAudioProcessorEditor::openFileExplorer (bool forLoaderA)
 	// Add drive selection dropdown
 	auto* driveCombo = new juce::ComboBox ("Drives");
 	driveCombo->setLookAndFeel (&lnf);
-	driveCombo->setTextWhenNothingSelected ("C:/");
 	
 	// Create SafePointers for all UI components to prevent use-after-free
 	juce::Component::SafePointer<juce::ListBox> safeListBox (listBox);
@@ -1563,7 +1573,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (bool forLoaderA)
 	
 	// Populate with available drives (Windows A: to Z:)
 	int driveIdx = 1;
-	for (char driveLetter = 'C'; driveLetter <= 'Z'; ++driveLetter)
+	for (char driveLetter = 'A'; driveLetter <= 'Z'; ++driveLetter)
 	{
 		juce::String drivePath = juce::String::charToString (driveLetter) + ":/";
 		juce::File driveFile (drivePath);
@@ -1573,16 +1583,22 @@ void CABTRAudioProcessorEditor::openFileExplorer (bool forLoaderA)
 		}
 	}
 	
-	// Set current drive
+	// Set current drive based on folder path
 	auto currentFolder = forLoaderA ? currentFolderA : currentFolderB;
+	juce::String folderPath = currentFolder.getFullPathName().replaceCharacter ('\\', '/');
+	int selectedDriveIdx = -1;
 	for (int i = 0; i < driveCombo->getNumItems(); ++i)
 	{
-		if (currentFolder.getFullPathName().startsWith (driveCombo->getItemText (i)))
+		if (folderPath.startsWithIgnoreCase (driveCombo->getItemText (i)))
 		{
-			driveCombo->setSelectedItemIndex (i, juce::dontSendNotification);
+			selectedDriveIdx = i;
 			break;
 		}
 	}
+	if (selectedDriveIdx >= 0)
+		driveCombo->setSelectedItemIndex (selectedDriveIdx, juce::dontSendNotification);
+	else
+		driveCombo->setTextWhenNothingSelected ("C:/");
 
 	fileModel->setCurrentFolder (currentFolder);
 
