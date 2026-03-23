@@ -308,7 +308,7 @@ public:
 	struct IRLoaderState
 	{
 		juce::AudioBuffer<float> impulseResponse;
-		juce::dsp::Convolution convolution { juce::dsp::Convolution::NonUniform { 256 } };
+		juce::dsp::Convolution convolution { juce::dsp::Convolution::NonUniform { 1024 } };
 		std::atomic<bool> needsUpdate { false };
 		juce::String currentFilePath;
 		double irSampleRate = 44100.0;  // Sample rate of stored impulseResponse buffer

@@ -1671,12 +1671,13 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		{
 			const bool enabled = enableButtons[loader]->getToggleState();
 			g.setColour (enabled ? activeScheme.text : activeScheme.text.withAlpha (0.35f));
+			const int colR = columnRight_[loader];
 
 			for (int i = 0; i < kNumCachedParams; ++i)
 			{
 				if (allSliders[loader][i]->isVisible())
 				{
-					const auto valueArea = getValueAreaFor (allSliders[loader][i]->getBounds());
+					const auto valueArea = getValueAreaFor (allSliders[loader][i]->getBounds(), colR);
 					cachedValueAreas_[(size_t) (loader * 11 + i)] = valueArea;
 					tryDrawLegend (valueArea, cachedTexts[loader][i].full,
 					               cachedTexts[loader][i].short_, cachedTexts[loader][i].intOnly);
@@ -1685,7 +1686,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 			if (filterBars[loader]->isVisible())
 			{
-				const auto filterValueArea = getValueAreaFor (filterBars[loader]->getBounds());
+				const auto filterValueArea = getValueAreaFor (filterBars[loader]->getBounds(), colR);
 				g.drawText ("FILTER", filterValueArea, juce::Justification::centredLeft);
 			}
 		}
@@ -1749,6 +1750,11 @@ void CABTRAudioProcessorEditor::resized()
 	auto leftArea = bounds.removeFromLeft (colWidth);
 	auto midArea = bounds.removeFromLeft (colWidth);
 	auto rightArea = bounds;
+
+	// Store column right edges for value area clamping
+	columnRight_[0] = leftArea.getRight();
+	columnRight_[1] = midArea.getRight();
+	columnRight_[2] = rightArea.getRight();
 
 	// Layout IR Loader A
 	layoutIRSection (leftArea, 0);
@@ -1840,7 +1846,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		cachedToggleBarAreaC_ = toggleBarArea;
 	area.removeFromTop (gap);
 
-	const int sliderW = static_cast<int> (area.getWidth() * 0.55f);
+	const int sliderW = static_cast<int> (area.getWidth() * 0.50f);
 
 	// Component references
 	auto& hp    = pick (hpFreqSliderA,  hpFreqSliderB,  hpFreqSliderC);
@@ -2688,61 +2694,69 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	return false;
 }
 
-juce::Rectangle<int> CABTRAudioProcessorEditor::getValueAreaFor (const juce::Rectangle<int>& barBounds) const
+juce::Rectangle<int> CABTRAudioProcessorEditor::getValueAreaFor (const juce::Rectangle<int>& barBounds,
+                                                                  int columnRight) const
 {
-	constexpr int valuePadPx = 8;
-	constexpr int valueWidthPx = 200;
+	constexpr int valuePadPx    = 8;
 	constexpr int valueHeightPx = 24;
-	constexpr int rightMarginPx = 10;
+	constexpr int rightMarginPx = 6;
 
 	const int valueX = barBounds.getRight() + valuePadPx;
-	const int maxW = juce::jmax (0, getWidth() - valueX - rightMarginPx);
-	const int valueW = juce::jmin (valueWidthPx, maxW);
-	const int y = barBounds.getCentreY() - (valueHeightPx / 2);
+	const int maxW   = juce::jmax (0, columnRight - valueX - rightMarginPx);
+	const int y      = barBounds.getCentreY() - (valueHeightPx / 2);
 
-	return { valueX, y, juce::jmax (0, valueW), valueHeightPx };
+	return { valueX, y, maxW, valueHeightPx };
 }
 
 juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point<int> p)
 {
 	// Check Loader A sliders
-	if (getValueAreaFor (hpFreqSliderA.getBounds()).contains (p))   return &hpFreqSliderA;
-	if (getValueAreaFor (lpFreqSliderA.getBounds()).contains (p))   return &lpFreqSliderA;
-	if (getValueAreaFor (outSliderA.getBounds()).contains (p))      return &outSliderA;
-	if (getValueAreaFor (startSliderA.getBounds()).contains (p))    return &startSliderA;
-	if (getValueAreaFor (endSliderA.getBounds()).contains (p))      return &endSliderA;
-	if (getValueAreaFor (pitchSliderA.getBounds()).contains (p))    return &pitchSliderA;
-	if (getValueAreaFor (delaySliderA.getBounds()).contains (p))    return &delaySliderA;
-	if (getValueAreaFor (panSliderA.getBounds()).contains (p))      return &panSliderA;
-	if (getValueAreaFor (fredSliderA.getBounds()).contains (p))      return &fredSliderA;
-	if (getValueAreaFor (posSliderA.getBounds()).contains (p))      return &posSliderA;
-	if (mixSliderA.isVisible() && getValueAreaFor (mixSliderA.getBounds()).contains (p)) return &mixSliderA;
+	{
+		const int colR = columnRight_[0];
+		if (getValueAreaFor (hpFreqSliderA.getBounds(), colR).contains (p))   return &hpFreqSliderA;
+		if (getValueAreaFor (lpFreqSliderA.getBounds(), colR).contains (p))   return &lpFreqSliderA;
+		if (getValueAreaFor (outSliderA.getBounds(), colR).contains (p))      return &outSliderA;
+		if (getValueAreaFor (startSliderA.getBounds(), colR).contains (p))    return &startSliderA;
+		if (getValueAreaFor (endSliderA.getBounds(), colR).contains (p))      return &endSliderA;
+		if (getValueAreaFor (pitchSliderA.getBounds(), colR).contains (p))    return &pitchSliderA;
+		if (getValueAreaFor (delaySliderA.getBounds(), colR).contains (p))    return &delaySliderA;
+		if (getValueAreaFor (panSliderA.getBounds(), colR).contains (p))      return &panSliderA;
+		if (getValueAreaFor (fredSliderA.getBounds(), colR).contains (p))      return &fredSliderA;
+		if (getValueAreaFor (posSliderA.getBounds(), colR).contains (p))      return &posSliderA;
+		if (mixSliderA.isVisible() && getValueAreaFor (mixSliderA.getBounds(), colR).contains (p)) return &mixSliderA;
+	}
 
 	// Check Loader B sliders
-	if (getValueAreaFor (hpFreqSliderB.getBounds()).contains (p))   return &hpFreqSliderB;
-	if (getValueAreaFor (lpFreqSliderB.getBounds()).contains (p))   return &lpFreqSliderB;
-	if (getValueAreaFor (outSliderB.getBounds()).contains (p))      return &outSliderB;
-	if (getValueAreaFor (startSliderB.getBounds()).contains (p))    return &startSliderB;
-	if (getValueAreaFor (endSliderB.getBounds()).contains (p))      return &endSliderB;
-	if (getValueAreaFor (pitchSliderB.getBounds()).contains (p))    return &pitchSliderB;
-	if (getValueAreaFor (delaySliderB.getBounds()).contains (p))    return &delaySliderB;
-	if (getValueAreaFor (panSliderB.getBounds()).contains (p))      return &panSliderB;
-	if (getValueAreaFor (fredSliderB.getBounds()).contains (p))      return &fredSliderB;
-	if (getValueAreaFor (posSliderB.getBounds()).contains (p))      return &posSliderB;
-	if (mixSliderB.isVisible() && getValueAreaFor (mixSliderB.getBounds()).contains (p)) return &mixSliderB;
+	{
+		const int colR = columnRight_[1];
+		if (getValueAreaFor (hpFreqSliderB.getBounds(), colR).contains (p))   return &hpFreqSliderB;
+		if (getValueAreaFor (lpFreqSliderB.getBounds(), colR).contains (p))   return &lpFreqSliderB;
+		if (getValueAreaFor (outSliderB.getBounds(), colR).contains (p))      return &outSliderB;
+		if (getValueAreaFor (startSliderB.getBounds(), colR).contains (p))    return &startSliderB;
+		if (getValueAreaFor (endSliderB.getBounds(), colR).contains (p))      return &endSliderB;
+		if (getValueAreaFor (pitchSliderB.getBounds(), colR).contains (p))    return &pitchSliderB;
+		if (getValueAreaFor (delaySliderB.getBounds(), colR).contains (p))    return &delaySliderB;
+		if (getValueAreaFor (panSliderB.getBounds(), colR).contains (p))      return &panSliderB;
+		if (getValueAreaFor (fredSliderB.getBounds(), colR).contains (p))      return &fredSliderB;
+		if (getValueAreaFor (posSliderB.getBounds(), colR).contains (p))      return &posSliderB;
+		if (mixSliderB.isVisible() && getValueAreaFor (mixSliderB.getBounds(), colR).contains (p)) return &mixSliderB;
+	}
 
 	// Check Loader C sliders
-	if (getValueAreaFor (hpFreqSliderC.getBounds()).contains (p))   return &hpFreqSliderC;
-	if (getValueAreaFor (lpFreqSliderC.getBounds()).contains (p))   return &lpFreqSliderC;
-	if (getValueAreaFor (outSliderC.getBounds()).contains (p))      return &outSliderC;
-	if (getValueAreaFor (startSliderC.getBounds()).contains (p))    return &startSliderC;
-	if (getValueAreaFor (endSliderC.getBounds()).contains (p))      return &endSliderC;
-	if (getValueAreaFor (pitchSliderC.getBounds()).contains (p))    return &pitchSliderC;
-	if (getValueAreaFor (delaySliderC.getBounds()).contains (p))    return &delaySliderC;
-	if (getValueAreaFor (panSliderC.getBounds()).contains (p))      return &panSliderC;
-	if (getValueAreaFor (fredSliderC.getBounds()).contains (p))      return &fredSliderC;
-	if (getValueAreaFor (posSliderC.getBounds()).contains (p))      return &posSliderC;
-	if (mixSliderC.isVisible() && getValueAreaFor (mixSliderC.getBounds()).contains (p)) return &mixSliderC;
+	{
+		const int colR = columnRight_[2];
+		if (getValueAreaFor (hpFreqSliderC.getBounds(), colR).contains (p))   return &hpFreqSliderC;
+		if (getValueAreaFor (lpFreqSliderC.getBounds(), colR).contains (p))   return &lpFreqSliderC;
+		if (getValueAreaFor (outSliderC.getBounds(), colR).contains (p))      return &outSliderC;
+		if (getValueAreaFor (startSliderC.getBounds(), colR).contains (p))    return &startSliderC;
+		if (getValueAreaFor (endSliderC.getBounds(), colR).contains (p))      return &endSliderC;
+		if (getValueAreaFor (pitchSliderC.getBounds(), colR).contains (p))    return &pitchSliderC;
+		if (getValueAreaFor (delaySliderC.getBounds(), colR).contains (p))    return &delaySliderC;
+		if (getValueAreaFor (panSliderC.getBounds(), colR).contains (p))      return &panSliderC;
+		if (getValueAreaFor (fredSliderC.getBounds(), colR).contains (p))      return &fredSliderC;
+		if (getValueAreaFor (posSliderC.getBounds(), colR).contains (p))      return &posSliderC;
+		if (mixSliderC.isVisible() && getValueAreaFor (mixSliderC.getBounds(), colR).contains (p)) return &mixSliderC;
+	}
 
 	return nullptr;
 }

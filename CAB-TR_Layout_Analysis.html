@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAB-TR — Layout Analysis &amp; Proposals</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --code-bg: #161b22;
+    --card-bg: #161b22;
+    --border: #30363d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.65;
+    padding: 2rem 3rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 2rem; color: var(--accent); margin-bottom: .3rem; }
+  h2 { font-size: 1.5rem; color: var(--accent); margin: 2rem 0 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+  h3 { font-size: 1.15rem; color: var(--accent2); margin: 1.2rem 0 .5rem; }
+  h4 { font-size: 1rem; color: var(--warn); margin: 1rem 0 .4rem; }
+  p { margin-bottom: .7rem; }
+  code {
+    background: var(--code-bg);
+    color: #e6edf3;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    margin: .5rem 0 1rem;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    line-height: 1.5;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    margin: .8rem 0;
+  }
+  .tag {
+    display: inline-block;
+    font-size: .75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin-right: 6px;
+  }
+  .tag-bug    { background: #f8514922; color: var(--err); border: 1px solid var(--err); }
+  .tag-root   { background: #d2992222; color: var(--warn); border: 1px solid var(--warn); }
+  .tag-ok     { background: #3fb95022; color: var(--accent2); border: 1px solid var(--accent2); }
+  .tag-prop   { background: #58a6ff22; color: var(--accent); border: 1px solid var(--accent); }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; }
+  th, td { text-align: left; padding: .5rem .8rem; border: 1px solid var(--border); }
+  th { background: var(--code-bg); color: var(--accent); font-weight: 600; }
+  .severity-high { color: var(--err); font-weight: 700; }
+  .severity-mid  { color: var(--warn); font-weight: 600; }
+  .severity-low  { color: var(--accent2); }
+  ul, ol { margin: .5rem 0 .8rem 1.5rem; }
+  li { margin-bottom: .3rem; }
+  .diagram {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: .82rem;
+    overflow-x: auto;
+    white-space: pre;
+    line-height: 1.4;
+    color: #8b949e;
+  }
+  .highlight { color: var(--accent); font-weight: 700; }
+  .highlight-warn { color: var(--warn); font-weight: 700; }
+  .highlight-err { color: var(--err); font-weight: 700; }
+  .proposal-box {
+    background: var(--card-bg);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.2rem;
+    margin: .8rem 0;
+  }
+  .proposal-box.recommended {
+    border-left-color: var(--accent2);
+  }
+  .proposal-box.alt {
+    border-left-color: var(--warn);
+  }
+  summary { cursor: pointer; font-weight: 600; color: var(--accent); padding: .3rem 0; }
+  details { margin: .5rem 0; }
+  .badge-rec {
+    display: inline-block;
+    background: var(--accent2);
+    color: var(--bg);
+    font-size: .7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .flex-center { display: flex; align-items: center; gap: .5rem; }
+  .dim { color: #8b949e; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>CAB-TR — Layout Overlap Analysis</h1>
+<p class="dim">Documento de análisis, diagnóstico y propuestas para resolver el solapamiento de elementos GUI</p>
+
+<hr>
+
+<!-- ====================================================================== -->
+<h2>1. Estado actual — Arquitectura del layout</h2>
+
+<h3>1.1 Estructura general</h3>
+<div class="diagram">
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ HEADER  (40 px fijo)  — título, gear icon, export icon                          │
+├────────────────────────┬────────────────────────┬───────────────────────────────┤
+│                        │                        │                               │
+│    <span class="highlight">Columna A</span>            │    <span class="highlight">Columna B</span>            │    <span class="highlight">Columna C</span>                   │
+│    width / 3           │    width / 3           │    width - 2*(width/3)        │
+│                        │                        │                               │
+│  ┌─ENABLE──────────┐   │  ┌─ENABLE──────────┐   │  ┌─ENABLE──────────┐          │
+│  │ BROWSE / FILE   │   │  │ BROWSE / FILE   │   │  │ BROWSE / FILE   │          │
+│  ├─TOGGLE BAR──────┤   │  ├─TOGGLE BAR──────┤   │  ├─TOGGLE BAR──────┤          │
+│  │                 │   │  │                 │   │  │                 │          │
+│  │  <span class="highlight-warn">[SLIDER 55%]</span>  <span class="highlight-err">txt</span> │   │  │  [SLIDER]  txt   │   │  │  [SLIDER]  txt   │          │
+│  │  [SLIDER 55%]  txt │   │  │  [SLIDER]  txt   │   │  │  [SLIDER]  txt   │          │
+│  │  [SLIDER 55%]  txt │   │  │  [SLIDER]  txt   │   │  │  [SLIDER]  txt   │          │
+│  │  [SLIDER 55%]  txt │   │  │  [SLIDER]  txt   │   │  │  [SLIDER]  txt   │          │
+│  │  ...              │   │  │  ...              │   │  │  ...              │          │
+│  │  ☐INV ☐NORM ☐RVS │   │  │  ☐INV ☐NORM ☐RVS │   │  │  ☐INV ☐NORM ☐RVS │          │
+│  └──────────────────┘   │  └──────────────────┘   │  └──────────────────┘          │
+├────────────────────────┴────────────────────────┴───────────────────────────────┤
+│ FOOTER (50 px fijo)  — ROUTE+ALIGN | MIX bar+val | OUTPUT bar+val              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>1.2 Dimensiones clave (hardcoded)</h3>
+<table>
+  <tr><th>Parámetro</th><th>Valor actual</th><th>Tipo</th><th>Problema</th></tr>
+  <tr><td>Resize limits</td><td>min 800×500, max 2000×1200</td><td>Fijo</td><td>—</td></tr>
+  <tr><td>Ancho columna</td><td><code>width / 3</code></td><td>Proporcional</td><td class="severity-low">OK</td></tr>
+  <tr><td>Header</td><td>40 px</td><td>Fijo</td><td class="severity-low">OK</td></tr>
+  <tr><td>Footer</td><td>50 px</td><td>Fijo</td><td class="severity-low">OK</td></tr>
+  <tr><td>Margin</td><td>10 px (interno columna)</td><td>Fijo</td><td class="severity-low">OK</td></tr>
+  <tr><td><strong>Slider width</strong></td><td><code>area.getWidth() * 0.55f</code></td><td>Proporcional <em>a la columna</em></td><td class="severity-mid">⚠ Problema</td></tr>
+  <tr><td><strong>Value pad</strong></td><td>8 px fijo</td><td>Fijo</td><td class="severity-high">⚠ Problema</td></tr>
+  <tr><td><strong>Value max width</strong></td><td>200 px fijo</td><td>Fijo</td><td class="severity-high">⚠ Problema</td></tr>
+  <tr><td><strong>Value right margin</strong></td><td>10 px (desde <code>getWidth()</code>)</td><td>Relativo al editor total</td><td class="severity-high">🔥 RAÍZ</td></tr>
+  <tr><td>Value height</td><td>24 px</td><td>Fijo</td><td class="severity-low">OK</td></tr>
+  <tr><td>Row height (collapsed)</td><td><code>jmax(20, (H - gaps) / 8)</code></td><td>Adaptable</td><td class="severity-low">OK</td></tr>
+  <tr><td>Row height (expanded)</td><td><code>jmax(20, (H - gaps) / 5)</code></td><td>Adaptable</td><td class="severity-low">OK</td></tr>
+  <tr><td>Font cascade</td><td>32px → 75% floor → 14px min</td><td>Adaptable</td><td class="severity-low">OK</td></tr>
+</table>
+
+<!-- ====================================================================== -->
+<h2>2. Diagnóstico — Causas raíz del solapamiento</h2>
+
+<h3>2.1 <span class="tag tag-root">ROOT CAUSE</span> getValueAreaFor() calcula contra <code>getWidth()</code>, no contra el límite de columna</h3>
+
+<div class="card">
+<p>Este es <strong>el problema principal</strong>. El código actual:</p>
+<pre>
+juce::Rectangle&lt;int&gt; getValueAreaFor (const juce::Rectangle&lt;int&gt;&amp; barBounds) const
+{
+    constexpr int valuePadPx    = <span class="highlight-err">8</span>;        // fijo
+    constexpr int valueWidthPx  = <span class="highlight-err">200</span>;      // fijo — ¡puede ser más ancho que la columna!
+    constexpr int valueHeightPx = 24;
+    constexpr int rightMarginPx = <span class="highlight-err">10</span>;       // fijo
+
+    const int valueX = barBounds.getRight() + valuePadPx;
+    const int maxW = jmax(0, <span class="highlight-err">getWidth()</span> - valueX - rightMarginPx);
+    //                        ^^^^^^^^^^
+    //  Se usa el ancho TOTAL del editor, no el de la columna.
+    //  La columna A tiene derecho real a: colWidth - margin*2
+    //  Pero el texto puede extenderse hasta getWidth() - 10
+    const int valueW = jmin(valueWidthPx, maxW);
+    ...
+}
+</pre>
+
+<h4>Consecuencia directa:</h4>
+<ul>
+  <li><strong>Columna A:</strong> El texto puede extenderse visualmente <em>sobre la columna B</em>, porque <code>getWidth() - valueX - 10</code> da un ancho enorme.</li>
+  <li><strong>Columna B:</strong> El texto puede extenderse sobre la columna C.</li>
+  <li><strong>Columna C:</strong> Menos afectada (sólo el margen derecho final cuenta), pero aún puede recortarse mal.</li>
+</ul>
+
+<div class="diagram">
+    Ejemplo: editor width = 900px → colWidth = 300px
+
+    Columna A (x: 0-300)         Columna B (x: 300-600)        Columna C (x: 600-900)
+    ┌──────────┬─────────────────┬──────────┬─────────────────┬──────────┬──────────┐
+    │ margin   │  area           │ margin   │  area           │ margin   │  area    │
+    │ 10       │  280            │ 10       │  280            │ 10       │  280+    │
+    ├──────────┴─────────────────┼──────────┴─────────────────┼──────────┴──────────┤
+    │                            │                            │                     │
+    │ sliderW = 280 * 0.55       │ sliderW = 280 * 0.55       │                     │
+    │         = <span class="highlight">154</span>px             │         = 154px             │                     │
+    │                            │                            │                     │
+    │ valueX = 10 + 154 + 8      │ valueX = 310 + 154 + 8     │                     │
+    │        = <span class="highlight">172</span>              │        = <span class="highlight">472</span>              │                     │
+    │                            │                            │                     │
+    │ maxW = <span class="highlight-err">900 - 172 - 10 = 718</span> │ maxW = <span class="highlight-err">900 - 472 - 10 = 418</span> │                     │
+    │ capado a 200 → OK en      │ capado a 200 → OK en       │                     │
+    │ tamaño grande, PERO:      │ tamaño grande, PERO:       │                     │
+    │                            │                            │                     │
+    │ valueX + 200 = <span class="highlight-err">372</span>         │ valueX + 200 = <span class="highlight-err">672</span>         │                     │
+    │ → <span class="highlight-err">INVADE columna B (300+)</span>  │ → <span class="highlight-err">INVADE columna C (600+)</span>  │                     │
+    │                            │                            │                     │
+    └────────────────────────────┴────────────────────────────┴─────────────────────┘
+</div>
+
+<p><strong>Resultado visual:</strong> Incluso a 900px de ancho, los textos de la columna A como <code>"10000 ms END"</code> (≈120px a 32pt bold) se extienden más allá del límite de la columna A y solapan con los sliders de la columna B.</p>
+</div>
+
+<h3>2.2 <span class="tag tag-bug">BUG</span> El padding 8px y el cap de 200px son fijos, no proporcionan al ancho de columna</h3>
+
+<div class="card">
+<p>A 800px (ancho mínimo), cada columna mide ~266px. Con margin 10 → area de 246px. Slider = 246 * 0.55 = 135px. Espacio restante para texto: 246 - 135 - 8 = <strong>103px</strong>.</p>
+<p>Un texto como <code>"10000 ms START"</code> a 32pt bold mide ≈180px. El cascade baja a <code>"10000 ms"</code> (≈100px) y luego a <code>"10000"</code> (≈55px), pero el ancho de la fuente a 24pt (75% floor) puede ser ajustado. El sistema de cascade <em>funciona</em>, pero los textos se están recortando en tamaños intermedios donde caben en <code>maxW</code> global pero no en la columna.</p>
+</div>
+
+<h3>2.3 <span class="tag tag-bug">BUG</span> tryDrawLegend usa maxW calculado contra getWidth(), no contra columnRight</h3>
+
+<div class="card">
+<p>El problema del punto 2.1 tiene un efecto dominó: <code>tryDrawLegend</code> recibe un <code>area</code> lo suficientemente ancha como para que el texto "completo" quepa → <strong>no activa el cascade a short/intOnly</strong>. El texto se pinta completo y cruza el borde de la columna.</p>
+<p>Si el <code>area</code> se limitara a los bounds de la columna, el cascade se activaría correctamente y mostraría el texto corto o solo el número cuando no hay espacio.</p>
+</div>
+
+<h3>2.4 <span class="tag tag-root">MINOR</span> Slider width 55% está ajustado para 1 columna, no para 3</h3>
+
+<div class="card">
+<p>En los otros TR plugins (DISP-TR, ECHO-TR, FREQ-TR), que son de columna única, se usa <code>barW = editorW * 0.455</code>. En CAB-TR, con 3 columnas, se usa <code>area.getWidth() * 0.55</code>. Esto deja un 45% de la columna para texto, que con margin y padding se reduce significativamente.</p>
+<table>
+  <tr><th>Editor width</th><th>Col width</th><th>Slider</th><th>Espacio texto real</th><th>Suficiente?</th></tr>
+  <tr><td>800 (min)</td><td>266</td><td>135</td><td>103 px</td><td class="severity-high">❌ Barely</td></tr>
+  <tr><td>1000</td><td>333</td><td>172</td><td>133 px</td><td class="severity-mid">⚠ Tight</td></tr>
+  <tr><td>1200 (default)</td><td>400</td><td>209</td><td>163 px</td><td class="severity-low">✓ OK-ish</td></tr>
+  <tr><td>1500</td><td>500</td><td>264</td><td>200+ px</td><td class="severity-low">✓ OK</td></tr>
+  <tr><td>2000 (max)</td><td>666</td><td>355</td><td>200 px (cap)</td><td class="severity-low">✓ OK</td></tr>
+</table>
+<p class="dim">Nota: "Espacio texto real" = colWidth - margin*2 - sliderW - valuePad (si estuviera limitado a columna)</p>
+</div>
+
+
+<!-- ====================================================================== -->
+<h2>3. Comparación con otros TR plugins</h2>
+
+<div class="compare-grid">
+<div class="card">
+  <h3>DISP-TR / ECHO-TR / FREQ-TR</h3>
+  <p><span class="tag tag-ok">SINGLE COLUMN</span></p>
+  <ul>
+    <li><code>barW = editorW * 0.455</code> — proporcional al ancho total</li>
+    <li><code>valuePad = editorW * 0.02</code> — proporcional</li>
+    <li><code>valueW</code> = calculado dinámicamente (<code>getTargetValueColumnWidth()</code>)</li>
+    <li><code>rhythm = jlimit(6, 16, H * 0.018)</code> — vertical proporcional</li>
+    <li><code>barH = jlimit(14, 120, rhythm * 6)</code> — adaptable con degrado gradual</li>
+    <li><code>gapY</code> se reduce primero (min 4px), luego <code>barH</code> (min 14px)</li>
+    <li><code>kValueAreaRightMarginPx = 24</code> — más generoso</li>
+    <li>Layout centralizado: <code>leftX = max(6, (editorW - contentW) / 2)</code></li>
+    <li>Cascade: <code>drawValueWithRightAlignedSuffix()</code> — valor a la izquierda, sufijo derecha-alineado</li>
+    <li>Min size: 360×540</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>CAB-TR <span class="dim">(actual)</span></h3>
+  <p><span class="tag tag-bug">3 COLUMNAS</span></p>
+  <ul>
+    <li><code>sliderW = area.getWidth() * 0.55</code> — proporcional a columna</li>
+    <li><code>valuePad = 8px</code> — <span class="highlight-err">fijo</span></li>
+    <li><code>valueW = 200px</code> — <span class="highlight-err">fijo, no limitado a columna</span></li>
+    <li>Row height = <code>jmax(20, (H-gaps)/N)</code> — adaptable pero sin rhythm</li>
+    <li>Sin degrado gradual (gap/bar)</li>
+    <li><code>rightMarginPx = 10</code> — más ajustado</li>
+    <li>Layout alineado a la izquierda dentro de cada columna</li>
+    <li>Cascade: <code>tryDrawLegend</code> — full → short → intOnly, pero el área es incorrecta</li>
+    <li>Min size: 800×500</li>
+  </ul>
+</div>
+</div>
+
+<h3>Diagrama de la diferencia fundamental</h3>
+<div class="diagram">
+    DISP-TR (1 columna, proporcional):
+    ┌─────────────────────────────────────────────────────────────┐
+    │         leftX          barW (45.5%)    pad(2%)   valueW    │
+    │         ├──────────────[═══════════]···[value text]─────┤   │
+    │                                                  ^-- limitado por rightMargin │
+    └─────────────────────────────────────────────────────────────┘
+
+    CAB-TR (3 columnas, el texto "escapa"):
+    ┌───────────────────┬───────────────────┬────────────────────┐
+    │ col A             │ col B             │ col C              │
+    │ [═══════]<span class="highlight-err">10000ms END</span>│ [═══════]<span class="highlight-err">10000ms EN</span>│ [═══════]text       │
+    │         <span class="highlight-err">^^^^^^^^</span>   │         <span class="highlight-err">^^^^^^^</span>  │                    │
+    │         <span class="highlight-err">INVADE B</span>   │         <span class="highlight-err">INVADE C</span> │                    │
+    └───────────────────┴───────────────────┴────────────────────┘
+</div>
+
+<!-- ====================================================================== -->
+<h2>4. Propuestas de solución</h2>
+
+<!-- PROPOSAL A -->
+<div class="proposal-box recommended">
+<h3 class="flex-center">Propuesta A — Limitar valueArea al bounds de la columna <span class="badge-rec">RECOMENDADA</span></h3>
+<p><span class="tag tag-prop">Esfuerzo: bajo</span> <span class="tag tag-ok">Riesgo: bajo</span> <span class="tag tag-ok">Impacto: resuelve 100% del overlap</span></p>
+
+<h4>Descripción</h4>
+<p>Modificar <code>getValueAreaFor()</code> para que el límite derecho del texto sea el borde derecho de la columna en lugar de <code>getWidth()</code>. Esto requiere que cada slider "sepa" a qué columna pertenece, o pasar el columnRight como parámetro.</p>
+
+<h4>Cambios concretos</h4>
+<pre>
+// ANTES:
+juce::Rectangle&lt;int&gt; getValueAreaFor (const juce::Rectangle&lt;int&gt;&amp; barBounds) const
+{
+    const int valueX = barBounds.getRight() + 8;
+    const int maxW = jmax(0, <span class="highlight-err">getWidth()</span> - valueX - 10);
+    const int valueW = jmin(200, maxW);
+    ...
+}
+
+// DESPUÉS:
+juce::Rectangle&lt;int&gt; getValueAreaFor (const juce::Rectangle&lt;int&gt;&amp; barBounds,
+                                       int <span class="highlight">columnRight</span>) const
+{
+    constexpr int valuePadPx    = 8;
+    constexpr int valueHeightPx = 24;
+    constexpr int rightMarginPx = 6;
+
+    const int valueX = barBounds.getRight() + valuePadPx;
+    const int maxW   = jmax(0, <span class="highlight">columnRight</span> - valueX - rightMarginPx);
+    const int y      = barBounds.getCentreY() - (valueHeightPx / 2);
+
+    return { valueX, y, maxW, valueHeightPx };
+}
+</pre>
+
+<p>Los call sites (paint + hit-test) necesitan pasar el columnRight correcto para cada loader. Se puede calcular en <code>resized()</code> y cachear en un array <code>int columnRight_[3]</code>.</p>
+
+<h4>Efecto en el cascade</h4>
+<p>Con el valueArea correctamente limitado a la columna, el sistema <code>tryDrawLegend</code> <strong>ya existente</strong> activará automáticamente el cascade (full → short → intOnly) cuando el texto no quepa. No se necesita cambiar la lógica de cascade.</p>
+
+<h4>Diagrama del resultado</h4>
+<div class="diagram">
+    Con propuesta A implementada (900px):
+    ┌───────────────────┬───────────────────┬────────────────────┐
+    │ col A (0-300)     │ col B (300-600)   │ col C (600-900)    │
+    │                   │                   │                    │
+    │ [═══════] <span class="highlight">10000ms</span> │ [═══════] <span class="highlight">10000ms</span> │ [═══════] <span class="highlight">10000 ms</span> │
+    │         <span class="highlight">^^^^^^^^^</span>│         <span class="highlight">^^^^^^^^^</span>│          <span class="highlight">^^^^^^^^^</span>│
+    │  (short cascade) │  (short cascade) │  (fits full → col)│
+    │  limitado a 300  │  limitado a 600  │  limitado a 900   │
+    └───────────────────┴───────────────────┴────────────────────┘
+    ¡Sin solapamiento!
+</div>
+
+<h4>Ventajas</h4>
+<ul>
+  <li>Solución mínimamente invasiva — cambia 1 función + pasar 1 parámetro extra</li>
+  <li>El cascade full → short → intOnly ya funciona bien, solo necesita el área correcta</li>
+  <li>Compatible con todos los tamaños (800-2000)</li>
+  <li>Mantiene la apariencia actual; solo se activa el cascade cuando realmente no cabe</li>
+</ul>
+
+<h4>Contras</h4>
+<ul>
+  <li>A 800px mínimo, la mayoría de textos aparecerán como "short" o "intOnly" (pero se leen)</li>
+</ul>
+</div>
+
+<!-- PROPOSAL B -->
+<div class="proposal-box recommended">
+<h3 class="flex-center">Propuesta B — Propuesta A + valuePad y ratio proporcionales <span class="badge-rec">RECOMENDADA</span></h3>
+<p><span class="tag tag-prop">Esfuerzo: medio</span> <span class="tag tag-ok">Riesgo: bajo</span> <span class="tag tag-ok">Impacto: resuelve overlap + mejora scaling</span></p>
+
+<h4>Descripción</h4>
+<p>Implementar Propuesta A más adoptar el patrón proporcional de los otros TR plugins. El slider ratio y padding se calculan en función del ancho de columna (actuando como "editorW" en los otros plugins).</p>
+
+<h4>Cambios concretos</h4>
+<pre>
+// En layoutIRSection():
+const int colW    = area.getWidth();
+const int sliderW = (int) std::round (colW * <span class="highlight">0.50f</span>);   // Reducido de 55% a 50%
+const int valPad  = (int) std::round (colW * <span class="highlight">0.02f</span>);   // Proporcional como DISP-TR
+
+// En getValueAreaFor() — pasar colRight + valuePad dinámico:
+juce::Rectangle&lt;int&gt; getValueAreaFor (const juce::Rectangle&lt;int&gt;&amp; barBounds,
+                                       int columnRight, int valuePad) const
+{
+    const int valueX = barBounds.getRight() + valuePad;
+    const int maxW   = jmax(0, columnRight - valueX - 6);
+    ...
+}
+</pre>
+
+<h4>Tabla comparativa de espacio para texto</h4>
+<table>
+  <tr><th>Editor W</th><th>Col W</th><th>Slider (50%)</th><th>Pad (2%)</th><th>Texto disponible</th><th>vs Propuesta A</th></tr>
+  <tr><td>800</td><td>246</td><td>123</td><td>5</td><td>~112 px</td><td>+9 px</td></tr>
+  <tr><td>1000</td><td>313</td><td>157</td><td>6</td><td>~144 px</td><td>+11 px</td></tr>
+  <tr><td>1200</td><td>380</td><td>190</td><td>8</td><td>~176 px</td><td>+13 px</td></tr>
+  <tr><td>1500</td><td>480</td><td>240</td><td>10</td><td>~224 px</td><td>+24 px</td></tr>
+</table>
+
+<h4>Ventajas</h4>
+<ul>
+  <li>Todo lo de Propuesta A</li>
+  <li>Más espacio para texto al reducir slider ratio de 55% → 50%</li>
+  <li>Padding proporcional evita que 8px fijos sean demasiado a tamaños grandes</li>
+  <li>Consistente con el patrón de diseño de los otros TR plugins</li>
+</ul>
+
+<h4>Contras</h4>
+<ul>
+  <li>Los sliders serán ligeramente más estrechos (5% menos)</li>
+  <li>Más cambios que Propuesta A (pero sigue siendo contenido)</li>
+</ul>
+</div>
+
+<!-- PROPOSAL C -->
+<div class="proposal-box alt">
+<h3>Propuesta C — Propuesta A/B + sistema rhythm vertical (como DISP-TR)</h3>
+<p><span class="tag tag-prop">Esfuerzo: medio-alto</span> <span class="tag tag-ok">Riesgo: medio</span></p>
+
+<h4>Descripción</h4>
+<p>Además del fix horizontal, adoptar el sistema <code>rhythm</code> de DISP-TR para la distribución vertical. Esto proporciona una experiencia más suave al redimensionar verticalmente.</p>
+
+<pre>
+// Vertical rhythm como DISP-TR pero por columna
+const int rhythm    = jlimit(6, 16, (int) std::round (area.getHeight() * 0.018));
+const int nomBarH   = jlimit(14, 120, rhythm * 6);
+const int nomGapY   = jmax(4, rhythm * 4);
+
+// Degrado gradual: primero reduce gaps, luego altura de barra
+while (stackHeight() > available && gapY > 4)   --gapY;
+while (stackHeight() > available && barH > 14)   --barH;
+</pre>
+
+<h4>Ventajas</h4>
+<ul>
+  <li>Transiciones más suaves al redimensionar verticalmente</li>
+  <li>Consistencia visual con la familia TR</li>
+  <li>Los gaps se comprimen antes que los bars → los sliders mantienen usabilidad</li>
+</ul>
+
+<h4>Contras</h4>
+<ul>
+  <li>Más código a modificar (layoutIRSection completa)</li>
+  <li>Requiere testing visual extensivo en ambos modos (collapsed/expanded)</li>
+  <li>No es estrictamente necesario para resolver el solapamiento horizontal</li>
+</ul>
+</div>
+
+<!-- PROPOSAL D -->
+<div class="proposal-box alt">
+<h3>Propuesta D — Aumentar ancho mínimo a 1080px</h3>
+<p><span class="tag tag-prop">Esfuerzo: mínimo</span> <span class="tag tag-root">Riesgo: limitaciones UX</span></p>
+
+<h4>Descripción</h4>
+<p>Cambiar <code>setResizeLimits(800, ...)</code> a <code>setResizeLimits(1080, ...)</code> para que cada columna tenga mínimo ~360px (como el ancho mínimo de los otros TR plugins single-column).</p>
+
+<pre>
+setResizeLimits (<span class="highlight">1080</span>, 540, 2000, 1200);
+</pre>
+
+<h4>Ventajas</h4>
+<ul>
+  <li>Un solo cambio de línea</li>
+  <li>A 1080px las columnas tienen 360px, equivalente al min de DISP-TR single-column</li>
+  <li>Reduce la gravedad del solapamiento en los tamaños más pequeños</li>
+</ul>
+
+<h4>Contras</h4>
+<ul>
+  <li><strong>No resuelve el problema de raíz</strong> — el texto aún puede cruzar columnas</li>
+  <li>Usuarios con pantallas pequeñas no podrán reducir el plugin</li>
+  <li>Debe combinarse con Propuesta A o B para ser completa</li>
+</ul>
+</div>
+
+<!-- PROPOSAL E -->
+<div class="proposal-box alt">
+<h3>Propuesta E — Modo "compact" con texto sobre el slider (stacked layout)</h3>
+<p><span class="tag tag-prop">Esfuerzo: alto</span> <span class="tag tag-root">Riesgo: alto</span></p>
+
+<h4>Descripción</h4>
+<p>Cuando el ancho de columna baja de un umbral (ej. 300px), cambiar a un layout "stacked" donde el texto del valor se pinta encima del slider bar en lugar de a su derecha. Esto elimina la competencia horizontal por espacio.</p>
+
+<div class="diagram">
+    Layout normal (col > 300px):         Layout stacked (col ≤ 300px):
+    ┌─────────────────────┐              ┌─────────────────────┐
+    │ [═══════] 10000 ms  │              │ 10000 ms START      │
+    │ [═══════] 100% PITCH│              │ [═══════════════════]│
+    └─────────────────────┘              │ 100% PITCH          │
+                                         │ [═══════════════════]│
+                                         └─────────────────────┘
+</div>
+
+<h4>Ventajas</h4>
+<ul>
+  <li>Elimina completamente el problema de solapamiento horizontal</li>
+  <li>Los sliders pueden usar el 100% del ancho de columna</li>
+  <li>Legibilidad total del texto incluso a tamaños mínimos</li>
+</ul>
+
+<h4>Contras</h4>
+<ul>
+  <li>Requiere reestructuración significativa de <code>layoutIRSection</code> y <code>paint</code></li>
+  <li>Reduce el espacio vertical (cada slider necesita ~2x de altura)</li>
+  <li>Rompe la consistencia visual con los otros TR plugins</li>
+  <li>Con 8 sliders en collapsed, podría no caber verticalmente a 500px de alto</li>
+</ul>
+</div>
+
+<!-- ====================================================================== -->
+<h2>5. Matriz de comparación</h2>
+
+<table>
+  <tr>
+    <th>Criterio</th>
+    <th>A: Limit col</th>
+    <th>B: A + proporcional</th>
+    <th>C: B + rhythm</th>
+    <th>D: Min width</th>
+    <th>E: Stacked</th>
+  </tr>
+  <tr>
+    <td>Resuelve overlap</td>
+    <td class="severity-low">✅ 100%</td>
+    <td class="severity-low">✅ 100%</td>
+    <td class="severity-low">✅ 100%</td>
+    <td class="severity-mid">⚠ parcial</td>
+    <td class="severity-low">✅ 100%</td>
+  </tr>
+  <tr>
+    <td>Esfuerzo (LOC)</td>
+    <td>~30</td>
+    <td>~50</td>
+    <td>~100</td>
+    <td>~1</td>
+    <td>~200+</td>
+  </tr>
+  <tr>
+    <td>Riesgo regresión</td>
+    <td class="severity-low">Bajo</td>
+    <td class="severity-low">Bajo</td>
+    <td class="severity-mid">Medio</td>
+    <td class="severity-low">Bajo</td>
+    <td class="severity-high">Alto</td>
+  </tr>
+  <tr>
+    <td>Consistencia TR family</td>
+    <td class="severity-low">Buena</td>
+    <td class="severity-low">Muy buena</td>
+    <td class="severity-low">Excelente</td>
+    <td class="severity-mid">Neutral</td>
+    <td class="severity-high">Rota</td>
+  </tr>
+  <tr>
+    <td>Min-size friendly</td>
+    <td class="severity-low">✅</td>
+    <td class="severity-low">✅</td>
+    <td class="severity-low">✅</td>
+    <td class="severity-high">❌ restringe</td>
+    <td class="severity-low">✅</td>
+  </tr>
+  <tr>
+    <td>Cascade aprovechado</td>
+    <td class="severity-low">✅ se activa bien</td>
+    <td class="severity-low">✅ óptimo</td>
+    <td class="severity-low">✅ óptimo</td>
+    <td class="severity-mid">⚠ menos necesario</td>
+    <td>N/A</td>
+  </tr>
+</table>
+
+<!-- ====================================================================== -->
+<h2>6. Recomendación</h2>
+
+<div class="card" style="border-left: 4px solid var(--accent2);">
+<h3>🏆 Propuesta B (A + proporcional)</h3>
+<p>Es la mejor relación esfuerzo/resultado:</p>
+<ol>
+  <li><strong>Paso 1:</strong> Aplicar Propuesta A — limitar <code>getValueAreaFor()</code> al borde de columna. <em>Esto resuelve el solapamiento inmediatamente.</em></li>
+  <li><strong>Paso 2:</strong> Ajustar slider ratio (55→50%) y hacer valuePad proporcional. <em>Mejora el balance visual.</em></li>
+  <li><strong>Opcional:</strong> Combinar con Propuesta D (subir min width a 1000-1080px) como safety net.</li>
+</ol>
+<p>El sistema de cascade <code>full → short → intOnly</code> ya implementado se encargará automáticamente de la adaptación textual una vez que las áreas estén correctamente limitadas.</p>
+</div>
+
+<hr>
+
+<h2>7. Resumen ejecutivo</h2>
+
+<div class="card">
+<h4>Problema raíz</h4>
+<p><code>getValueAreaFor()</code> calcula el espacio disponible contra <code>getWidth()</code> (ancho total del editor) en lugar del borde derecho de la columna respectiva. Esto permite que el texto de cada columna invada la columna siguiente.</p>
+
+<h4>Fix mínimo viable</h4>
+<p>Pasar <code>columnRight</code> a <code>getValueAreaFor()</code> y usarlo como límite. El cascade existente hará el resto. ~30 líneas de cambio.</p>
+
+<h4>Fix recomendado</h4>
+<p>Propuesta B: fix de columnRight + ajuste proporcional del ratio slider/pad. ~50 líneas. Consistente con la familia TR.</p>
+</div>
+
+<p class="dim" style="margin-top: 2rem; text-align: center;">CAB-TR Layout Analysis — Generado para revisión</p>
+
+</body>
+</html>

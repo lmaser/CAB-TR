@@ -59,7 +59,7 @@ private:
 	// TR-style label/value display system
 	bool legendDirty = true;
 	bool refreshLegendTextCache();
-	juce::Rectangle<int> getValueAreaFor (const juce::Rectangle<int>& barBounds) const;
+	juce::Rectangle<int> getValueAreaFor (const juce::Rectangle<int>& barBounds, int columnRight) const;
 	juce::Slider* getSliderForValueAreaPoint (juce::Point<int> p);
 	juce::Rectangle<int> getInfoIconArea() const;
 	void updateInfoIconCache();
@@ -477,6 +477,9 @@ private:
 	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, PITCH=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
 	static constexpr int kNumCachedParams = 11;
 	CachedParamText cachedTexts[3][kNumCachedParams];  // [loader][param]
+
+	// Column right edges (set in resized(), used by getValueAreaFor())
+	int columnRight_[3] = {};
 
 	// Value display areas (calculated in paint(), used for click detection)
 	std::array<juce::Rectangle<int>, 33> cachedValueAreas_;  // 11 per loader × 3

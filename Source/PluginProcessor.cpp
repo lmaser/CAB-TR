@@ -1204,15 +1204,10 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	}
 
 	// Load into convolution engine
-	// Cap IR length to prevent excessive CPU (convolution cost is proportional to IR length)
-	constexpr int kMaxIrSamples = 4096; // ~85ms at 48kHz — generous for guitar cab responses
-	if (state.impulseResponse.getNumSamples() > kMaxIrSamples)
-	{
-		const int oldLen = state.impulseResponse.getNumSamples();
-		state.impulseResponse.setSize (state.impulseResponse.getNumChannels(), kMaxIrSamples, true);
-		LOG_IR_EVENT ("IR truncated from " + juce::String (oldLen) + " to " + juce::String (kMaxIrSamples) + " samples (CPU cap)");
-	}
-	
+	// NonUniform{256} uses partitioned FFT — handles long IRs efficiently
+	LOG_IR_EVENT ("IR final length: " + juce::String (state.impulseResponse.getNumSamples()) +
+	              " samples (" + juce::String (state.impulseResponse.getNumSamples() / reader->sampleRate * 1000.0, 1) + " ms)");
+
 	// Head size configured in Convolution constructor (NonUniform{256})
 	// IMPORTANT: Copy the buffer — do NOT std::move it, we need state.impulseResponse
 	// for cross-correlation alignment (calculateAutoAlignment)
@@ -1243,12 +1238,10 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.currentFilePath = filePath;
 	state.irSampleRate = reader->sampleRate;
 	state.needsUpdate = false;
-	
-	const int cappedLength = juce::jmin (finalLength, 4096);
-	
+
 	LOG_IR_EVENT ("IR Reload " + juce::String (loaderLabel) + ": " + 
-	     juce::String (cappedLength) + " samples" +
-	     (finalLength > 4096 ? " (capped from " + juce::String (finalLength) + ")" : "") +
+	     juce::String (finalLength) + " samples (" +
+	     juce::String (finalLength / reader->sampleRate * 1000.0, 1) + "ms)" +
 	     ", pitch=" + juce::String (pitch, 2) +
 	     ", inv=" + juce::String (invert ? 1 : 0) + ", rvs=" + juce::String (reverse ? 1 : 0) +
 	     ", norm=" + juce::String (normalize ? 1 : 0));
@@ -1944,16 +1937,19 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// (FRED processing happens after convolution + filters)
 	
-	// 1. CONVOLUTION (NonUniform{256} — low-latency partitioned)
+	// 1. CONVOLUTION (NonUniform{1024} — partitioned FFT)
 	{
+		const auto convStart = juce::Time::getHighResolutionTicks();
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> context (block);
 		state.convolution.process (context);
+		const double convUs = juce::Time::highResolutionTicksToSeconds (
+			juce::Time::getHighResolutionTicks() - convStart) * 1e6;
+		double curConv = worstConvTimeUs.load();
+		if (convUs > curConv) worstConvTimeUs.store (convUs);
 
 		// Sanitise: kill NaN/Inf/denormals that can leak from the engine
 		// during IR swaps (crossfade transients) or extreme input.
-		// This prevents NaN from propagating into IIR filter state and
-		// causing a permanent runaway.
 		for (int ch = 0; ch < numChannels; ++ch)
 		{
 			auto* d = buffer.getWritePointer (ch);
@@ -2513,6 +2509,7 @@ void CABTRAudioProcessor::timerCallback()
 			const double loaderAUs = worstLoaderAUs.exchange (0.0);
 			const double loaderBUs = worstLoaderBUs.exchange (0.0);
 			const double loaderCUs = worstLoaderCUs.exchange (0.0);
+			const double convUs = worstConvTimeUs.exchange (0.0);
 			const float inPeak  = peakInputLevel.exchange (0.0f);
 			const float outPeak = peakOutputLevel.exchange (0.0f);
 			const int   clips   = clipCount.exchange (0);
@@ -2527,6 +2524,10 @@ void CABTRAudioProcessor::timerCallback()
 			              " | loaderA=" + juce::String (loaderAUs, 0) + "us" +
 			              " loaderB=" + juce::String (loaderBUs, 0) + "us" +
 			              " loaderC=" + juce::String (loaderCUs, 0) + "us" +
+			              " convWorst=" + juce::String (convUs, 0) + "us" +
+			              " | irA=" + juce::String (stateA.impulseResponse.getNumSamples()) + "smp" +
+			              " irB=" + juce::String (stateB.impulseResponse.getNumSamples()) + "smp" +
+			              " irC=" + juce::String (stateC.impulseResponse.getNumSamples()) + "smp" +
 			              " | peakIn=" + juce::String (inDb, 1) + "dB" +
 			              " peakOut=" + juce::String (outDb, 1) + "dB" +
 			              " clips=" + juce::String (clips) +
