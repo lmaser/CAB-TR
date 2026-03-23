@@ -1153,7 +1153,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	rvsButtonA.addListener (this);
 
 	addAndMakeVisible (chaosButtonA);
-	chaosButtonA.setButtonText ("CHAOS");
+	chaosButtonA.setButtonText ("CHAOS SETTINGS");
 	chaosButtonA.addListener (this);
 
 	// CHAOS tooltip overlay — invisible label over the CHAOS checkbox.
@@ -1230,7 +1230,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	rvsButtonB.addListener (this);
 
 	addAndMakeVisible (chaosButtonB);
-	chaosButtonB.setButtonText ("CHAOS");
+	chaosButtonB.setButtonText ("CHAOS SETTINGS");
 	chaosButtonB.addListener (this);
 
 	{
@@ -1295,7 +1295,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	rvsButtonC.addListener (this);
 
 	addAndMakeVisible (chaosButtonC);
-	chaosButtonC.setButtonText ("CHAOS");
+	chaosButtonC.setButtonText ("CHAOS SETTINGS");
 	chaosButtonC.addListener (this);
 
 	{
@@ -1650,18 +1650,19 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 	// Per-loader MODE IN / MODE OUT labels (only when expanded/visible)
 	if (ioSectionExpanded_)
 	{
-		g.setColour (activeScheme.text);
-		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut)
+		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ToggleButton& enableBtn)
 		{
 			if (! modeIn.isVisible()) return;
+			const float alpha = enableBtn.getToggleState() ? 1.0f : 0.35f;
+			g.setColour (activeScheme.text.withAlpha (alpha));
 			const auto miArea = modeIn.getBounds().withHeight (14).translated (0, -15);
 			const auto moArea = modeOut.getBounds().withHeight (14).translated (0, -15);
 			g.drawText ("MODE IN", miArea, juce::Justification::centred);
 			g.drawText ("MODE OUT", moArea, juce::Justification::centred);
 		};
-		drawModeLabels (modeInComboA, modeOutComboA);
-		drawModeLabels (modeInComboB, modeOutComboB);
-		drawModeLabels (modeInComboC, modeOutComboC);
+		drawModeLabels (modeInComboA, modeOutComboA, enableButtonA);
+		drawModeLabels (modeInComboB, modeOutComboB, enableButtonB);
+		drawModeLabels (modeInComboC, modeOutComboC, enableButtonC);
 	}
 
 	// Draw gear icon (in paint, like other TR plugins)
@@ -1940,11 +1941,10 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		modeOutCmb.setVisible (true);
 		area.removeFromTop (gap * 2);
 
-		// CHAOS checkbox
-		const int chaosW = 80;
+		// CHAOS checkbox — full width since it's alone in its row
 		auto checkArea = area.removeFromTop (sliderH);
-		chaos.setBounds (checkArea.getX(), checkArea.getY(), chaosW, juce::jmin (sliderH, 30));
-		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), chaosW, juce::jmin (sliderH, 30));
+		chaos.setBounds (checkArea.getX(), checkArea.getY(), sliderW, juce::jmin (sliderH, 30));
+		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), sliderW, juce::jmin (sliderH, 30));
 		chaos.setVisible (true);
 		chaosDisp.setVisible (true);
 
@@ -2370,9 +2370,10 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 			fileModel->setCurrentFolder (parent);
 			
 			// Check UI components are still valid before using them
-			if (safeListBox != nullptr)
+				if (safeListBox != nullptr)
 			{
 				safeListBox->updateContent();
+				safeListBox->selectRow (0);
 				safeListBox->repaint();
 			}
 			if (safePathLabel != nullptr)
@@ -2405,6 +2406,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		if (safeListBox != nullptr)
 		{
 			safeListBox->updateContent();
+			safeListBox->selectRow (0);
 			safeListBox->repaint();
 		}
 		if (safePathLabel != nullptr)

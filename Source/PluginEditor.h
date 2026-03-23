@@ -463,6 +463,12 @@ private:
 		routeCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
 		routeCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
 		routeCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		matchCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
+		matchCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		matchCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		trimCombo.setColour   (juce::ComboBox::textColourId,       activeScheme.text);
+		trimCombo.setColour   (juce::ComboBox::backgroundColourId, activeScheme.bg);
+		trimCombo.setColour   (juce::ComboBox::outlineColourId,    activeScheme.outline);
 		filterBarA_.setScheme (activeScheme);
 		filterBarB_.setScheme (activeScheme);
 		filterBarC_.setScheme (activeScheme);

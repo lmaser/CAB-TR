@@ -382,6 +382,9 @@ public:
 		float chaosGainSmoothed = 0.0f;     // EMA-smoothed gain value
 		float chaosGainPhase = 0.0f;        // phase accumulator for gain S&H
 		juce::Random chaosGainRng;
+
+		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
+		std::atomic<float> irSlopeDbPerOct { 0.0f };
 		
 		// Delete copy operations (contains atomic)
 		IRLoaderState() = default;
@@ -481,7 +484,9 @@ private:
 	// Tilt EQ filter state (1st-order shelf, per-channel)
 	float tiltState_[2] = { 0.0f, 0.0f };
 	int   tiltLastProfile_ = -1;
-	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;
+	float tiltLastSlope_   = 0.0f;  // last applied compensating slope
+	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;        // current (smoothed)
+	float tiltTargetB0_ = 1.0f, tiltTargetB1_ = 0.0f, tiltTargetA1_ = 0.0f; // target
 
 	// Wet NORM AGC state (peak follower + gain smoothing)
 	float normPeakFollower_  = 0.0f;

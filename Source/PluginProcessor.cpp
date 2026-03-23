@@ -216,9 +216,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kFilterFreqMin, kFilterFreqMax, 1.0f, 0.3f), 
 		kFilterLpFreqDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamHpOnA, "HP On A", true));
+		kParamHpOnA, "HP On A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamLpOnA, "LP On A", true));
+		kParamLpOnA, "LP On A", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamHpSlopeA, "HP Slope A",
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
@@ -286,9 +286,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kFilterFreqMin, kFilterFreqMax, 1.0f, 0.3f), 
 		kFilterLpFreqDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamHpOnB, "HP On B", true));
+		kParamHpOnB, "HP On B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamLpOnB, "LP On B", true));
+		kParamLpOnB, "LP On B", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamHpSlopeB, "HP Slope B",
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
@@ -356,9 +356,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kFilterFreqMin, kFilterFreqMax, 1.0f, 0.3f), 
 		kFilterLpFreqDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamHpOnC, "HP On C", true));
+		kParamHpOnC, "HP On C", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamLpOnC, "LP On C", true));
+		kParamLpOnC, "LP On C", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamHpSlopeC, "HP Slope C",
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
@@ -951,58 +951,104 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 	}
 
-	// ── MATCH: Tilt EQ on wet signal (before dry/wet mix) ──
-	// Applies a 1st-order shelf tilt centred at 1 kHz.
-	// Profile slopes: None=0, White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6 dB/oct
+	// ── MATCH: Adaptive tilt EQ based on IR spectral analysis ──
+	// Measures the spectral slope of the combined IR (computed at load time),
+	// then applies compensating tilt to match the selected target profile.
+	// Target slopes: White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6 dB/oct
 	{
 		const int matchProfile = static_cast<int> (pMatch->load());
 
 		if (matchProfile != 0) // 0 = None
 		{
-			// dB/oct per profile: White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6
-			static constexpr float kSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
-			const float slopeDbPerOct = kSlopes[matchProfile];
+			// Target dB/oct per profile
+			static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
+			const float targetSlope = kTargetSlopes[matchProfile];
 
-			// Recalculate coefficients only when profile changes
-			if (matchProfile != tiltLastProfile_)
+			// Compute combined IR slope based on routing mode
+			float combinedSlope = 0.0f;
+			if (route == 0) // A→B→C series: slopes add
+			{
+				if (enableA) combinedSlope += stateA.irSlopeDbPerOct.load();
+				if (enableB) combinedSlope += stateB.irSlopeDbPerOct.load();
+				if (enableC) combinedSlope += stateC.irSlopeDbPerOct.load();
+			}
+			else if (route == 1) // A|B|C parallel: weighted average
+			{
+				float totalWeight = 0.0f;
+				if (enableA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
+				if (enableB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
+				if (enableC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
+				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
+			}
+			else if (route == 2) // A→B | C
+			{
+				float seriesSlope = 0.0f;
+				if (enableA) seriesSlope += stateA.irSlopeDbPerOct.load();
+				if (enableB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (enableC)
+					combinedSlope = (seriesSlope + stateC.irSlopeDbPerOct.load()) * 0.5f;
+				else
+					combinedSlope = seriesSlope;
+			}
+			else if (route == 3) // A | B→C
+			{
+				float seriesSlope = 0.0f;
+				if (enableB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (enableC) seriesSlope += stateC.irSlopeDbPerOct.load();
+				if (enableA)
+					combinedSlope = (stateA.irSlopeDbPerOct.load() + seriesSlope) * 0.5f;
+				else
+					combinedSlope = seriesSlope;
+			}
+
+			// Compensating slope: what tilt we need to get from measured → target
+			const float compensatingSlope = targetSlope - combinedSlope;
+
+			// Update target coefficients when profile or slope changes
+			if (matchProfile != tiltLastProfile_ || std::abs (compensatingSlope - tiltLastSlope_) > 0.05f)
 			{
 				tiltLastProfile_ = matchProfile;
+				tiltLastSlope_ = compensatingSlope;
 
-				// 1st-order tilt filter: shelving at pivot 1 kHz
-				// Gain at Nyquist relative to pivot = slope * log2(Nyquist/pivot)
-				const double sr = getSampleRate();
-				const double pivot = 1000.0;
-				const double octavesToNyquist = std::log2 ((sr * 0.5) / pivot);
-				const double gainAtNyquistDb = slopeDbPerOct * octavesToNyquist;
+				if (std::abs (compensatingSlope) < 0.1f)
+				{
+					tiltTargetB0_ = 1.0f; tiltTargetB1_ = 0.0f; tiltTargetA1_ = 0.0f;
+				}
+				else
+				{
+					const double sr = getSampleRate();
+					const double pivot = 1000.0;
+					const double octavesToNyquist = std::log2 ((sr * 0.5) / pivot);
+					const double gainAtNyquistDb = compensatingSlope * octavesToNyquist;
+					const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
 
-				// Convert to linear gain factor at Nyquist (pivot = 0 dB)
-				const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+					const double wc = 2.0 * sr * std::tan (juce::MathConstants<double>::pi * pivot / sr);
+					const double K = wc / (2.0 * sr);
+					const double g = std::sqrt (gNy);
 
-				// 1st-order shelf: H(z) = (b0 + b1*z^-1) / (1 + a1*z^-1)
-				// warp pivot to digital
-				const double wc = 2.0 * sr * std::tan (juce::MathConstants<double>::pi * pivot / sr);
-				const double K = wc / (2.0 * sr);  // pre-warped analog freq
-
-				// Design: low-shelf when slope < 0, high-shelf when slope > 0
-				// Using standard 1st-order shelf formulae:
-				//   g = sqrt(linear_gain_at_nyquist)  for shelf gain
-				const double g = std::sqrt (gNy);
-				// Single 1st-order shelf works for both directions:
-				//   g < 1 (neg slope): boosts lows, cuts highs (Pink/Brown)
-				//   g > 1 (pos slope): cuts lows, boosts highs (Bright)
-				const double norm = 1.0 / (1.0 + K * g);
-				tiltB0_ = static_cast<float> ((g + K) * norm);
-				tiltB1_ = static_cast<float> ((K - g) * norm);
-				tiltA1_ = static_cast<float> ((K * g - 1.0) * norm);
+					const double norm = 1.0 / (1.0 + K * g);
+					tiltTargetB0_ = static_cast<float> ((g + K) * norm);
+					tiltTargetB1_ = static_cast<float> ((K - g) * norm);
+					tiltTargetA1_ = static_cast<float> ((K * g - 1.0) * norm);
+				}
 			}
+
+			// Smooth coefficients towards target (~30ms ramp) to avoid zipper noise
+			const float smoothCoeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * 0.03f));
 
 			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 			{
 				auto* data = buffer.getWritePointer (ch);
 				float s = tiltState_[ch];
-				const float b0 = tiltB0_, b1 = tiltB1_, a1 = tiltA1_;
+				float b0 = tiltB0_, b1 = tiltB1_, a1 = tiltA1_;
+				const float tb0 = tiltTargetB0_, tb1 = tiltTargetB1_, ta1 = tiltTargetA1_;
+
 				for (int i = 0; i < numSamples; ++i)
 				{
+					b0 += (tb0 - b0) * smoothCoeff;
+					b1 += (tb1 - b1) * smoothCoeff;
+					a1 += (ta1 - a1) * smoothCoeff;
+
 					const float x = data[i];
 					const float y = b0 * x + s;
 					s = b1 * x - a1 * y;
@@ -1010,14 +1056,23 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				}
 				tiltState_[ch] = s;
 			}
+			// Store smoothed coefficients for next block
+			const float blendFactor = 1.0f - std::pow (1.0f - smoothCoeff, static_cast<float> (numSamples));
+			tiltB0_ += (tiltTargetB0_ - tiltB0_) * blendFactor;
+			tiltB1_ += (tiltTargetB1_ - tiltB1_) * blendFactor;
+			tiltA1_ += (tiltTargetA1_ - tiltA1_) * blendFactor;
 		}
 		else
 		{
-			// Reset state when match is off to avoid click on re-enable
+			// Reset state when match is off
 			if (tiltLastProfile_ != 0)
 			{
 				tiltState_[0] = tiltState_[1] = 0.0f;
 				tiltLastProfile_ = 0;
+				tiltLastSlope_ = 0.0f;
+				tiltB0_ = tiltTargetB0_ = 1.0f;
+				tiltB1_ = tiltTargetB1_ = 0.0f;
+				tiltA1_ = tiltTargetA1_ = 0.0f;
 			}
 		}
 	}
@@ -1142,6 +1197,87 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	if (blockTimeUs > currentWorst)
 		worstBlockTimeUs.store (blockTimeUs);
 	blockCount++;
+}
+
+//==============================================================================
+// Measure spectral slope of an IR in dB/octave via FFT + linear regression
+// Analyses magnitude spectrum from 100 Hz to 10 kHz
+static float computeIRSlopeDbPerOct (const juce::AudioBuffer<float>& ir, double sampleRate)
+{
+	const int numSamples = ir.getNumSamples();
+	if (numSamples < 64 || sampleRate <= 0.0)
+		return 0.0f;
+
+	// FFT order: next power of 2 >= numSamples, capped at 8192 for efficiency
+	const int fftOrder = juce::jmin (13, static_cast<int> (std::ceil (std::log2 (numSamples))));
+	const int fftSize = 1 << fftOrder;
+	juce::dsp::FFT fft (fftOrder);
+
+	// Average magnitude across channels
+	std::vector<float> magnitudeDb (fftSize / 2 + 1, 0.0f);
+
+	const int numChannels = ir.getNumChannels();
+	std::vector<float> fftData (fftSize * 2, 0.0f);
+
+	for (int ch = 0; ch < numChannels; ++ch)
+	{
+		std::fill (fftData.begin(), fftData.end(), 0.0f);
+		const float* src = ir.getReadPointer (ch);
+		const int copyLen = juce::jmin (numSamples, fftSize);
+		for (int i = 0; i < copyLen; ++i)
+			fftData[i] = src[i];
+
+		fft.performRealOnlyForwardTransform (fftData.data(), true);
+
+		// Accumulate magnitude in dB
+		for (int bin = 0; bin <= fftSize / 2; ++bin)
+		{
+			const float re = fftData[bin * 2];
+			const float im = fftData[bin * 2 + 1];
+			const float mag = std::sqrt (re * re + im * im);
+			magnitudeDb[static_cast<size_t> (bin)] += (mag > 1e-10f)
+				? 20.0f * std::log10 (mag)
+				: -200.0f;
+		}
+	}
+
+	// Average across channels
+	const float chScale = 1.0f / static_cast<float> (numChannels);
+	for (auto& v : magnitudeDb)
+		v *= chScale;
+
+	// Linear regression: dB vs log2(freq) over 100 Hz - 10 kHz
+	const double freqPerBin = sampleRate / fftSize;
+	const int binLow  = juce::jmax (1, static_cast<int> (std::ceil  (100.0  / freqPerBin)));
+	const int binHigh = juce::jmin (fftSize / 2, static_cast<int> (std::floor (10000.0 / freqPerBin)));
+	if (binHigh <= binLow + 2)
+		return 0.0f;
+
+	// Weighted linear regression (log2(freq) vs dB)
+	double sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
+	int n = 0;
+	for (int bin = binLow; bin <= binHigh; ++bin)
+	{
+		const double freq = bin * freqPerBin;
+		const double x = std::log2 (freq);  // octaves
+		const double y = magnitudeDb[static_cast<size_t> (bin)];
+		if (y < -100.0) continue; // skip bins with negligible energy
+		sumX += x;
+		sumY += y;
+		sumXX += x * x;
+		sumXY += x * y;
+		++n;
+	}
+
+	if (n < 3)
+		return 0.0f;
+
+	// Slope = (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX)
+	const double denom = n * sumXX - sumX * sumX;
+	if (std::abs (denom) < 1e-12)
+		return 0.0f;
+
+	return static_cast<float> ((n * sumXY - sumX * sumY) / denom);
 }
 
 //==============================================================================
@@ -1335,6 +1471,10 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		}
 		LOG_IR_EVENT ("REVERSE applied to IR");
 	}
+
+	// Measure spectral slope for adaptive Match tilt EQ
+	state.irSlopeDbPerOct.store (computeIRSlopeDbPerOct (state.impulseResponse, reader->sampleRate));
+	LOG_IR_EVENT ("IR spectral slope: " + juce::String (state.irSlopeDbPerOct.load(), 2) + " dB/oct");
 
 	// Load into convolution engine
 	// NonUniform{256} uses partitioned FFT — handles long IRs efficiently
@@ -1711,6 +1851,108 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	// Input gain
 	if (std::abs (inputGainDb) > 0.01f)
 		result.applyGain (juce::Decibels::decibelsToGain (inputGainDb));
+
+	// ── MATCH tilt EQ (offline) ──
+	{
+		const int matchProfile = static_cast<int> (pMatch->load());
+		if (matchProfile != 0)
+		{
+			static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
+			const float targetSlope = kTargetSlopes[matchProfile];
+
+			// Compute combined IR slope (same logic as processBlock)
+			float combinedSlope = 0.0f;
+			if (route == 0)
+			{
+				if (hasA) combinedSlope += stateA.irSlopeDbPerOct.load();
+				if (hasB) combinedSlope += stateB.irSlopeDbPerOct.load();
+				if (hasC) combinedSlope += stateC.irSlopeDbPerOct.load();
+			}
+			else if (route == 1)
+			{
+				float totalWeight = 0.0f;
+				const float mA = hasA ? std::abs (pOutA->load()) : 0.0f;
+				const float mB = hasB ? std::abs (pOutB->load()) : 0.0f;
+				const float mC = hasC ? std::abs (pOutC->load()) : 0.0f;
+				if (hasA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mA; totalWeight += mA; }
+				if (hasB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mB; totalWeight += mB; }
+				if (hasC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mC; totalWeight += mC; }
+				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
+			}
+			else if (route == 2)
+			{
+				float seriesSlope = 0.0f;
+				if (hasA) seriesSlope += stateA.irSlopeDbPerOct.load();
+				if (hasB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (hasC)
+					combinedSlope = (seriesSlope + stateC.irSlopeDbPerOct.load()) * 0.5f;
+				else
+					combinedSlope = seriesSlope;
+			}
+			else if (route == 3)
+			{
+				float seriesSlope = 0.0f;
+				if (hasB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (hasC) seriesSlope += stateC.irSlopeDbPerOct.load();
+				if (hasA)
+					combinedSlope = (stateA.irSlopeDbPerOct.load() + seriesSlope) * 0.5f;
+				else
+					combinedSlope = seriesSlope;
+			}
+
+			const float compensatingSlope = targetSlope - combinedSlope;
+
+			if (std::abs (compensatingSlope) >= 0.1f)
+			{
+				const double pivot = 1000.0;
+				const double octavesToNyquist = std::log2 ((workingSR * 0.5) / pivot);
+				const double gainAtNyquistDb = compensatingSlope * octavesToNyquist;
+				const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+
+				const double wc = 2.0 * workingSR * std::tan (juce::MathConstants<double>::pi * pivot / workingSR);
+				const double K = wc / (2.0 * workingSR);
+				const double g = std::sqrt (gNy);
+
+				const double norm = 1.0 / (1.0 + K * g);
+				const float b0 = static_cast<float> ((g + K) * norm);
+				const float b1 = static_cast<float> ((K - g) * norm);
+				const float a1 = static_cast<float> ((K * g - 1.0) * norm);
+
+				for (int ch = 0; ch < result.getNumChannels(); ++ch)
+				{
+					auto* data = result.getWritePointer (ch);
+					float s = 0.0f;
+					for (int i = 0; i < numSamples; ++i)
+					{
+						const float x = data[i];
+						const float y = b0 * x + s;
+						s = b1 * x - a1 * y;
+						data[i] = y;
+					}
+				}
+			}
+		}
+	}
+
+	// ── NORM: apply peak normalization to wet signal ──
+	{
+		const int normIdx = static_cast<int> (pTrim->load());
+		if (normIdx > 0)
+		{
+			static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
+			const float target = kNormTargets[normIdx];
+
+			float peak = 0.0f;
+			for (int ch = 0; ch < result.getNumChannels(); ++ch)
+				peak = std::max (peak, result.getMagnitude (ch, 0, numSamples));
+
+			if (peak > 0.001f)
+			{
+				const float gain = juce::jlimit (0.01f, 7.94f, target / peak);
+				result.applyGain (gain);
+			}
+		}
+	}
 
 	// Global MIX: blend impulse (dry) with processed (wet)
 	if (globalMix < 0.999f)
