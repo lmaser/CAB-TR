@@ -171,6 +171,10 @@ private:
 		                  bool ticked, bool isEnabled,
 		                  bool highlighted, bool down) override;
 
+		void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
+		                      bool shouldDrawButtonAsHighlighted,
+		                      bool shouldDrawButtonAsDown) override;
+
 		void drawButtonBackground (juce::Graphics&, juce::Button&,
 		                           const juce::Colour& backgroundColour,
 		                           bool shouldDrawButtonAsHighlighted,
@@ -218,6 +222,43 @@ private:
 	};
 
 	MinimalLNF lnf;
+
+	// ══════════════════════════════════════════════════════════════
+	//  DRY helpers for tripled loader A/B/C setup
+	// ══════════════════════════════════════════════════════════════
+	struct LoaderRefs
+	{
+		juce::ToggleButton &enableBtn;  juce::TextButton &browseBtn;  juce::Label &fileDisp;
+		BarSlider &hp, &lp, &out, &start, &end, &pitch, &delay, &pan, &fred, &pos;
+		juce::ToggleButton &inv, &norm, &rvs, &chaos;  juce::Label &chaosDisp;
+		juce::ComboBox &modeIn, &modeOut;
+		FilterBarComponent &filterBar;  BarSlider &mix;
+	};
+	struct AttachRefs
+	{
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &outAtt, &startAtt, &endAtt, &pitchAtt, &delayAtt, &panAtt, &fredAtt, &posAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
+	};
+	LoaderRefs  getLoaderRefs (int index);
+	AttachRefs  getAttachRefs (int index);
+	void setupLoaderUI (int loaderIndex, LoaderRefs refs, const char* chaosAmtId, const char* chaosSpdId);
+	void createLoaderAttachments (juce::AudioProcessorValueTreeState& params, int loaderIndex,
+	                              LoaderRefs ui, AttachRefs att);
+
+	struct LoaderParamIds
+	{
+		const char* enable;
+		const char* hpFreq;  const char* lpFreq;  const char* out;
+		const char* start;   const char* end;     const char* pitch;
+		const char* delay;   const char* pan;     const char* fred;   const char* pos;
+		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;
+		const char* chaosAmt; const char* chaosSpd;
+		const char* modeIn;  const char* modeOut; const char* mix;
+	};
+	static const LoaderParamIds kLoaderParams[3];
 
 	// ══════════════════════════════════════════════════════════════
 	//  File Explorer State
@@ -436,42 +477,26 @@ private:
 
 		activeScheme = scheme;
 		lnf.setScheme (activeScheme);
-		browseButtonA.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-		browseButtonB.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-		browseButtonC.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-		fileDisplayA.setColour (juce::Label::textColourId, activeScheme.text);
-		fileDisplayB.setColour (juce::Label::textColourId, activeScheme.text);
-		fileDisplayC.setColour (juce::Label::textColourId, activeScheme.text);
-		modeInComboA.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeInComboA.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeInComboA.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeOutComboA.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeOutComboA.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeOutComboA.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeInComboB.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeInComboB.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeInComboB.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeOutComboB.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeOutComboB.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeOutComboB.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeInComboC.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeInComboC.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeInComboC.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		modeOutComboC.setColour (juce::ComboBox::textColourId,       activeScheme.text);
-		modeOutComboC.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		modeOutComboC.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		routeCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
-		routeCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		routeCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		matchCombo.setColour  (juce::ComboBox::textColourId,       activeScheme.text);
-		matchCombo.setColour  (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		matchCombo.setColour  (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		trimCombo.setColour   (juce::ComboBox::textColourId,       activeScheme.text);
-		trimCombo.setColour   (juce::ComboBox::backgroundColourId, activeScheme.bg);
-		trimCombo.setColour   (juce::ComboBox::outlineColourId,    activeScheme.outline);
-		filterBarA_.setScheme (activeScheme);
-		filterBarB_.setScheme (activeScheme);
-		filterBarC_.setScheme (activeScheme);
+
+		auto applyComboScheme = [this] (juce::ComboBox& c) {
+			c.setColour (juce::ComboBox::textColourId,       activeScheme.text);
+			c.setColour (juce::ComboBox::backgroundColourId, activeScheme.bg);
+			c.setColour (juce::ComboBox::outlineColourId,    activeScheme.outline);
+		};
+
+		for (int i = 0; i < 3; ++i)
+		{
+			auto r = getLoaderRefs (i);
+			r.browseBtn.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
+			r.fileDisp.setColour (juce::Label::textColourId, activeScheme.text);
+			applyComboScheme (r.modeIn);
+			applyComboScheme (r.modeOut);
+			r.filterBar.setScheme (activeScheme);
+		}
+
+		applyComboScheme (routeCombo);
+		applyComboScheme (matchCombo);
+		applyComboScheme (trimCombo);
 	}
 
 	// ══════════════════════════════════════════════════════════════

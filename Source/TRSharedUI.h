@@ -672,6 +672,14 @@ inline void applySchemeToLookAndFeel (juce::LookAndFeel_V4& lnf, const TRScheme&
     lnf.setColour (juce::ListBox::backgroundColourId, scheme.bg);
     lnf.setColour (juce::ListBox::textColourId,       scheme.text);
     lnf.setColour (juce::ListBox::outlineColourId,    scheme.outline);
+
+    lnf.setColour (juce::TextEditor::backgroundColourId,       scheme.bg);
+    lnf.setColour (juce::TextEditor::textColourId,             scheme.text);
+    lnf.setColour (juce::TextEditor::highlightColourId,        scheme.text.withAlpha (0.3f));
+    lnf.setColour (juce::TextEditor::highlightedTextColourId,  scheme.text);
+    lnf.setColour (juce::TextEditor::outlineColourId,          scheme.outline);
+    lnf.setColour (juce::TextEditor::focusedOutlineColourId,   scheme.text);
+    lnf.setColour (juce::TextEditor::shadowColourId,           juce::Colours::transparentBlack);
 }
 
 //======================================================================

@@ -901,22 +901,59 @@ void CABTRAudioProcessorEditor::MinimalLNF::drawTickBox (
 	                                 local.getCentreY() - (side * 0.5f),
 	                                 side, side).getIntersection (local);
 
-	g.setColour (scheme.outline);
-	g.drawRect (r, 4.0f);
-
-	const float innerInset = juce::jlimit (1.0f, side * 0.45f, side * UiMetrics::tickBoxInnerInsetRatio);
-	auto inner = r.reduced (innerInset);
-
 	if (ticked)
 	{
-		g.setColour (scheme.fg);
-		g.fillRect (inner);
+		g.setColour (scheme.outline);
+		g.fillRect (r);
 	}
 	else
 	{
+		g.setColour (scheme.outline);
+		g.drawRect (r, 4.0f);
+
+		const float innerInset = juce::jlimit (1.0f, side * 0.45f, side * UiMetrics::tickBoxInnerInsetRatio);
+		auto inner = r.reduced (innerInset);
 		g.setColour (scheme.bg);
 		g.fillRect (inner);
 	}
+}
+
+void CABTRAudioProcessorEditor::MinimalLNF::drawToggleButton (
+	juce::Graphics& g, juce::ToggleButton& button,
+	bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
+{
+	const auto local = button.getLocalBounds().toFloat().reduced (1.0f);
+	const float side = juce::jlimit (14.0f,
+	                                 juce::jmax (14.0f, local.getHeight() - 2.0f),
+	                                 std::round (local.getHeight() * 0.65f));
+
+	drawTickBox (g, button, 0, 0, 0, 0,
+	             button.getToggleState(), button.isEnabled(),
+	             shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+
+	const float textX = local.getX() + 2.0f + side + 2.0f;
+	auto textArea = button.getLocalBounds().toFloat();
+	textArea.removeFromLeft (textX);
+
+	g.setColour (button.findColour (juce::ToggleButton::textColourId));
+
+	float fontSize = juce::jlimit (12.0f, 40.0f, (float) button.getHeight() - 6.0f);
+
+	// Shrink font if text would overflow available width
+	const auto text = button.getButtonText();
+	const float availW = textArea.getWidth();
+	if (availW > 0)
+	{
+		juce::Font testFont (juce::FontOptions (fontSize).withStyle ("Bold"));
+		const float neededW = testFont.getStringWidthFloat (text);
+		if (neededW > availW)
+			fontSize = juce::jmax (8.0f, fontSize * (availW / neededW));
+	}
+
+	g.setFont (juce::Font (juce::FontOptions (fontSize).withStyle ("Bold")));
+
+	g.drawText (text, textArea,
+	            juce::Justification::centredLeft, false);
 }
 
 void CABTRAudioProcessorEditor::MinimalLNF::drawButtonBackground (
@@ -1095,6 +1132,193 @@ void CABTRAudioProcessorEditor::MinimalLNF::drawTooltip (juce::Graphics& g,
 }
 
 //==============================================================================
+//  Static loader param-ID table
+//==============================================================================
+const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoaderParams[3] =
+{
+	{ // A
+		CABTRAudioProcessor::kParamEnableA,
+		CABTRAudioProcessor::kParamHpFreqA, CABTRAudioProcessor::kParamLpFreqA, CABTRAudioProcessor::kParamOutA,
+		CABTRAudioProcessor::kParamStartA,  CABTRAudioProcessor::kParamEndA,    CABTRAudioProcessor::kParamPitchA,
+		CABTRAudioProcessor::kParamDelayA,  CABTRAudioProcessor::kParamPanA,    CABTRAudioProcessor::kParamFredA, CABTRAudioProcessor::kParamPosA,
+		CABTRAudioProcessor::kParamInvA,    CABTRAudioProcessor::kParamNormA,   CABTRAudioProcessor::kParamRvsA,  CABTRAudioProcessor::kParamChaosA,
+		CABTRAudioProcessor::kParamChaosAmtA, CABTRAudioProcessor::kParamChaosSpdA,
+		CABTRAudioProcessor::kParamModeInA, CABTRAudioProcessor::kParamModeOutA, CABTRAudioProcessor::kParamMixA
+	},
+	{ // B
+		CABTRAudioProcessor::kParamEnableB,
+		CABTRAudioProcessor::kParamHpFreqB, CABTRAudioProcessor::kParamLpFreqB, CABTRAudioProcessor::kParamOutB,
+		CABTRAudioProcessor::kParamStartB,  CABTRAudioProcessor::kParamEndB,    CABTRAudioProcessor::kParamPitchB,
+		CABTRAudioProcessor::kParamDelayB,  CABTRAudioProcessor::kParamPanB,    CABTRAudioProcessor::kParamFredB, CABTRAudioProcessor::kParamPosB,
+		CABTRAudioProcessor::kParamInvB,    CABTRAudioProcessor::kParamNormB,   CABTRAudioProcessor::kParamRvsB,  CABTRAudioProcessor::kParamChaosB,
+		CABTRAudioProcessor::kParamChaosAmtB, CABTRAudioProcessor::kParamChaosSpdB,
+		CABTRAudioProcessor::kParamModeInB, CABTRAudioProcessor::kParamModeOutB, CABTRAudioProcessor::kParamMixB
+	},
+	{ // C
+		CABTRAudioProcessor::kParamEnableC,
+		CABTRAudioProcessor::kParamHpFreqC, CABTRAudioProcessor::kParamLpFreqC, CABTRAudioProcessor::kParamOutC,
+		CABTRAudioProcessor::kParamStartC,  CABTRAudioProcessor::kParamEndC,    CABTRAudioProcessor::kParamPitchC,
+		CABTRAudioProcessor::kParamDelayC,  CABTRAudioProcessor::kParamPanC,    CABTRAudioProcessor::kParamFredC, CABTRAudioProcessor::kParamPosC,
+		CABTRAudioProcessor::kParamInvC,    CABTRAudioProcessor::kParamNormC,   CABTRAudioProcessor::kParamRvsC,  CABTRAudioProcessor::kParamChaosC,
+		CABTRAudioProcessor::kParamChaosAmtC, CABTRAudioProcessor::kParamChaosSpdC,
+		CABTRAudioProcessor::kParamModeInC, CABTRAudioProcessor::kParamModeOutC, CABTRAudioProcessor::kParamMixC
+	}
+};
+
+//==============================================================================
+//  Loader ref accessors
+//==============================================================================
+CABTRAudioProcessorEditor::LoaderRefs CABTRAudioProcessorEditor::getLoaderRefs (int i)
+{
+	static const char* kLabels[] = { "A", "B", "C" };
+	switch (i)
+	{
+		case 1: return { enableButtonB, browseButtonB, fileDisplayB,
+		                 hpFreqSliderB, lpFreqSliderB, outSliderB, startSliderB, endSliderB,
+		                 pitchSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB,
+		                 invButtonB, normButtonB, rvsButtonB, chaosButtonB, chaosDisplayB,
+		                 modeInComboB, modeOutComboB, filterBarB_, mixSliderB };
+		case 2: return { enableButtonC, browseButtonC, fileDisplayC,
+		                 hpFreqSliderC, lpFreqSliderC, outSliderC, startSliderC, endSliderC,
+		                 pitchSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC,
+		                 invButtonC, normButtonC, rvsButtonC, chaosButtonC, chaosDisplayC,
+		                 modeInComboC, modeOutComboC, filterBarC_, mixSliderC };
+		default: return { enableButtonA, browseButtonA, fileDisplayA,
+		                  hpFreqSliderA, lpFreqSliderA, outSliderA, startSliderA, endSliderA,
+		                  pitchSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA,
+		                  invButtonA, normButtonA, rvsButtonA, chaosButtonA, chaosDisplayA,
+		                  modeInComboA, modeOutComboA, filterBarA_, mixSliderA };
+	}
+}
+
+CABTRAudioProcessorEditor::AttachRefs CABTRAudioProcessorEditor::getAttachRefs (int i)
+{
+	switch (i)
+	{
+		case 1: return { enableAttachB,
+		                 hpFreqAttachB, lpFreqAttachB, outAttachB, startAttachB, endAttachB,
+		                 pitchAttachB, delayAttachB, panAttachB, fredAttachB, posAttachB,
+		                 invAttachB, normAttachB, rvsAttachB, chaosAttachB,
+		                 modeInAttachB, modeOutAttachB, mixAttachB };
+		case 2: return { enableAttachC,
+		                 hpFreqAttachC, lpFreqAttachC, outAttachC, startAttachC, endAttachC,
+		                 pitchAttachC, delayAttachC, panAttachC, fredAttachC, posAttachC,
+		                 invAttachC, normAttachC, rvsAttachC, chaosAttachC,
+		                 modeInAttachC, modeOutAttachC, mixAttachC };
+		default: return { enableAttachA,
+		                  hpFreqAttachA, lpFreqAttachA, outAttachA, startAttachA, endAttachA,
+		                  pitchAttachA, delayAttachA, panAttachA, fredAttachA, posAttachA,
+		                  invAttachA, normAttachA, rvsAttachA, chaosAttachA,
+		                  modeInAttachA, modeOutAttachA, mixAttachA };
+	}
+}
+
+//==============================================================================
+//  setupLoaderUI — unified per-loader component initialisation
+//==============================================================================
+void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
+                                                const char* chaosAmtId, const char* chaosSpdId)
+{
+	const juce::String suffix = juce::String (loaderIndex == 0 ? "A" : loaderIndex == 1 ? "B" : "C");
+
+	addAndMakeVisible (r.enableBtn);
+	r.enableBtn.setButtonText ("ENABLE " + suffix);
+	r.enableBtn.addListener (this);
+
+	addAndMakeVisible (r.browseBtn);
+	r.browseBtn.addListener (this);
+	r.browseBtn.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
+
+	addAndMakeVisible (r.fileDisp);
+	r.fileDisp.setText ("No file loaded", juce::dontSendNotification);
+	r.fileDisp.setJustificationType (juce::Justification::centred);
+
+	auto setupSlider = [this] (BarSlider& slider, const juce::String& tooltip) {
+		addAndMakeVisible (slider);
+		slider.setOwner (this);
+		setupBar (slider);
+		slider.addListener (this);
+		slider.setTooltip (tooltip);
+	};
+
+	setupSlider (r.hp,    "HP Filter " + suffix);
+	setupSlider (r.lp,    "LP Filter " + suffix);
+	setupSlider (r.out,   "Output Gain " + suffix);
+	setupSlider (r.start, "IR Start Time " + suffix);
+	setupSlider (r.end,   "IR End Time " + suffix);
+	setupSlider (r.pitch, "Pitch Shift " + suffix + " (25%-400%)");
+	setupSlider (r.delay, "Delay " + suffix + " (0-1000ms)");
+	setupSlider (r.pan,   "Pan " + suffix + " (L-R)");
+	setupSlider (r.fred,  "Angle " + suffix + " (off-axis mic simulation)");
+	setupSlider (r.pos,   "Distance " + suffix + " (proximity/distance)");
+
+	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
+	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
+	addAndMakeVisible (r.rvs);   r.rvs.setButtonText ("RVS");           r.rvs.addListener (this);
+	addAndMakeVisible (r.chaos); r.chaos.setButtonText ("CHAOS SETTINGS"); r.chaos.addListener (this);
+
+	{
+		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
+		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (chaosSpdId)->load();
+		r.chaosDisp.setText ("", juce::dontSendNotification);
+		r.chaosDisp.setInterceptsMouseClicks (true, false);
+		r.chaosDisp.addMouseListener (this, false);
+		r.chaosDisp.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
+		r.chaosDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+		r.chaosDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
+		r.chaosDisp.setOpaque (false);
+		addAndMakeVisible (r.chaosDisp);
+	}
+
+	auto setupModeCombo = [this] (juce::ComboBox& combo) {
+		addAndMakeVisible (combo);
+		combo.addItem ("L+R", 1);
+		combo.addItem ("MID", 2);
+		combo.addItem ("SIDE", 3);
+		combo.setJustificationType (juce::Justification::centred);
+		combo.setLookAndFeel (&lnf);
+		combo.addListener (this);
+	};
+	setupModeCombo (r.modeIn);
+	setupModeCombo (r.modeOut);
+
+	r.filterBar.setOwner (this, loaderIndex);
+	r.filterBar.setScheme (activeScheme);
+	addAndMakeVisible (r.filterBar);
+
+	setupSlider (r.mix, "Mix " + suffix + " (Dry/Wet)");
+}
+
+//==============================================================================
+//  createLoaderAttachments — unified per-loader param attachment wiring
+//==============================================================================
+void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorValueTreeState& params,
+                                                          int loaderIndex,
+                                                          LoaderRefs ui, AttachRefs a)
+{
+	const auto& ids = kLoaderParams[loaderIndex];
+
+	a.enableAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.enable,  ui.enableBtn);
+	a.hpAtt      = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.hpFreq,  ui.hp);
+	a.lpAtt      = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.lpFreq,  ui.lp);
+	a.outAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.out,     ui.out);
+	a.startAtt   = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.start,   ui.start);
+	a.endAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.end,     ui.end);
+	a.pitchAtt   = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.pitch,   ui.pitch);
+	a.delayAtt   = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.delay,   ui.delay);
+	a.panAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.pan,     ui.pan);
+	a.fredAtt    = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.fred,    ui.fred);
+	a.posAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.pos,     ui.pos);
+	a.invAtt     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.inv,     ui.inv);
+	a.normAtt    = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.norm,    ui.norm);
+	a.rvsAtt     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.rvs,     ui.rvs);
+	a.chaosAtt   = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.chaos,   ui.chaos);
+	a.modeInAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeIn,  ui.modeIn);
+	a.modeOutAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeOut, ui.modeOut);
+	a.mixAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.mix,     ui.mix);
+}
+
+//==============================================================================
 //  Constructor
 //==============================================================================
 CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
@@ -1107,221 +1331,9 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	currentFolderB = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 	currentFolderC = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 
-	// Setup IR Loader A components
-	addAndMakeVisible (enableButtonA);
-	enableButtonA.setButtonText ("ENABLE A");
-	enableButtonA.addListener (this);
-
-	addAndMakeVisible (browseButtonA);
-	browseButtonA.addListener (this);
-	browseButtonA.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-
-	addAndMakeVisible (fileDisplayA);
-	fileDisplayA.setText ("No file loaded", juce::dontSendNotification);
-	fileDisplayA.setJustificationType (juce::Justification::centred);
-
-	// Setup sliders A
-	auto setupSliderWithTooltip = [this] (BarSlider& slider, const juce::String& tooltip) {
-		addAndMakeVisible (slider);
-		slider.setOwner (this);
-		setupBar (slider);
-		slider.addListener (this);
-		slider.setTooltip (tooltip);
-	};
-
-	setupSliderWithTooltip (hpFreqSliderA, "HP Filter A");
-	setupSliderWithTooltip (lpFreqSliderA, "LP Filter A");
-	setupSliderWithTooltip (outSliderA, "Output Gain A");
-	setupSliderWithTooltip (startSliderA, "IR Start Time A");
-	setupSliderWithTooltip (endSliderA, "IR End Time A");
-	setupSliderWithTooltip (pitchSliderA, "Pitch Shift A (25%-400%)");
-	setupSliderWithTooltip (delaySliderA, "Delay A (0-1000ms)");
-	setupSliderWithTooltip (panSliderA, "Pan A (L-R)");
-	setupSliderWithTooltip (fredSliderA, "Angle A (off-axis mic simulation)");
-	setupSliderWithTooltip (posSliderA, "Distance A (proximity/distance)");
-
-	addAndMakeVisible (invButtonA);
-	invButtonA.setButtonText ("INV");
-	invButtonA.addListener (this);
-
-	addAndMakeVisible (normButtonA);
-	normButtonA.setButtonText ("NORM");
-	normButtonA.addListener (this);
-
-	addAndMakeVisible (rvsButtonA);
-	rvsButtonA.setButtonText ("RVS");
-	rvsButtonA.addListener (this);
-
-	addAndMakeVisible (chaosButtonA);
-	chaosButtonA.setButtonText ("CHAOS SETTINGS");
-	chaosButtonA.addListener (this);
-
-	// CHAOS tooltip overlay — invisible label over the CHAOS checkbox.
-	// Provides tooltip on hover; right-click forwarded to editor opens the config prompt.
-	{
-		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosAmtA)->load();
-		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosSpdA)->load();
-		chaosDisplayA.setText ("", juce::dontSendNotification);
-		chaosDisplayA.setInterceptsMouseClicks (true, false);
-		chaosDisplayA.addMouseListener (this, false);
-		chaosDisplayA.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
-		chaosDisplayA.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-		chaosDisplayA.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
-		chaosDisplayA.setOpaque (false);
-		addAndMakeVisible (chaosDisplayA);
-	}
-
-	// Per-loader mode combos A
-	auto setupModeCombo = [this] (juce::ComboBox& combo)
-	{
-		addAndMakeVisible (combo);
-		combo.addItem ("L+R", 1);
-		combo.addItem ("MID", 2);
-		combo.addItem ("SIDE", 3);
-		combo.setJustificationType (juce::Justification::centred);
-		combo.setLookAndFeel (&lnf);
-		combo.addListener (this);
-	};
-	setupModeCombo (modeInComboA);
-	setupModeCombo (modeOutComboA);
-
-	// Filter bar A (dual HP/LP marker)
-	filterBarA_.setOwner (this, 0);
-	filterBarA_.setScheme (activeScheme);
-	addAndMakeVisible (filterBarA_);
-
-	// Per-loader MIX slider A
-	setupSliderWithTooltip (mixSliderA, "Mix A (Dry/Wet)");
-
-	// Setup IR Loader B components (identical to A)
-	addAndMakeVisible (enableButtonB);
-	enableButtonB.setButtonText ("ENABLE B");
-	enableButtonB.addListener (this);
-
-	addAndMakeVisible (browseButtonB);
-	browseButtonB.addListener (this);
-	browseButtonB.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-
-	addAndMakeVisible (fileDisplayB);
-	fileDisplayB.setText ("No file loaded", juce::dontSendNotification);
-	fileDisplayB.setJustificationType (juce::Justification::centred);
-
-	setupSliderWithTooltip (hpFreqSliderB, "HP Filter B");
-	setupSliderWithTooltip (lpFreqSliderB, "LP Filter B");
-	setupSliderWithTooltip (outSliderB, "Output Gain B");
-	setupSliderWithTooltip (startSliderB, "IR Start Time B");
-	setupSliderWithTooltip (endSliderB, "IR End Time B");
-	setupSliderWithTooltip (pitchSliderB, "Pitch Shift B (25%-400%)");
-	setupSliderWithTooltip (delaySliderB, "Delay B (0-1000ms)");
-	setupSliderWithTooltip (panSliderB, "Pan B (L-R)");
-	setupSliderWithTooltip (fredSliderB, "Angle B (off-axis mic simulation)");
-	setupSliderWithTooltip (posSliderB, "Distance B (proximity/distance)");
-
-	addAndMakeVisible (invButtonB);
-	invButtonB.setButtonText ("INV");
-	invButtonB.addListener (this);
-
-	addAndMakeVisible (normButtonB);
-	normButtonB.setButtonText ("NORM");
-	normButtonB.addListener (this);
-
-	addAndMakeVisible (rvsButtonB);
-	rvsButtonB.setButtonText ("RVS");
-	rvsButtonB.addListener (this);
-
-	addAndMakeVisible (chaosButtonB);
-	chaosButtonB.setButtonText ("CHAOS SETTINGS");
-	chaosButtonB.addListener (this);
-
-	{
-		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosAmtB)->load();
-		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosSpdB)->load();
-		chaosDisplayB.setText ("", juce::dontSendNotification);
-		chaosDisplayB.setInterceptsMouseClicks (true, false);
-		chaosDisplayB.addMouseListener (this, false);
-		chaosDisplayB.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
-		chaosDisplayB.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-		chaosDisplayB.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
-		chaosDisplayB.setOpaque (false);
-		addAndMakeVisible (chaosDisplayB);
-	}
-
-	// Per-loader mode combos B
-	setupModeCombo (modeInComboB);
-	setupModeCombo (modeOutComboB);
-
-	// Filter bar B (dual HP/LP marker)
-	filterBarB_.setOwner (this, 1);
-	filterBarB_.setScheme (activeScheme);
-	addAndMakeVisible (filterBarB_);
-
-	// Per-loader MIX slider B
-	setupSliderWithTooltip (mixSliderB, "Mix B (Dry/Wet)");
-
-	// Setup IR Loader C components (identical to A/B)
-	addAndMakeVisible (enableButtonC);
-	enableButtonC.setButtonText ("ENABLE C");
-	enableButtonC.addListener (this);
-
-	addAndMakeVisible (browseButtonC);
-	browseButtonC.addListener (this);
-	browseButtonC.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
-
-	addAndMakeVisible (fileDisplayC);
-	fileDisplayC.setText ("No file loaded", juce::dontSendNotification);
-	fileDisplayC.setJustificationType (juce::Justification::centred);
-
-	setupSliderWithTooltip (hpFreqSliderC, "HP Filter C");
-	setupSliderWithTooltip (lpFreqSliderC, "LP Filter C");
-	setupSliderWithTooltip (outSliderC, "Output Gain C");
-	setupSliderWithTooltip (startSliderC, "IR Start Time C");
-	setupSliderWithTooltip (endSliderC, "IR End Time C");
-	setupSliderWithTooltip (pitchSliderC, "Pitch Shift C (25%-400%)");
-	setupSliderWithTooltip (delaySliderC, "Delay C (0-1000ms)");
-	setupSliderWithTooltip (panSliderC, "Pan C (L-R)");
-	setupSliderWithTooltip (fredSliderC, "Angle C (off-axis mic simulation)");
-	setupSliderWithTooltip (posSliderC, "Distance C (proximity/distance)");
-
-	addAndMakeVisible (invButtonC);
-	invButtonC.setButtonText ("INV");
-	invButtonC.addListener (this);
-
-	addAndMakeVisible (normButtonC);
-	normButtonC.setButtonText ("NORM");
-	normButtonC.addListener (this);
-
-	addAndMakeVisible (rvsButtonC);
-	rvsButtonC.setButtonText ("RVS");
-	rvsButtonC.addListener (this);
-
-	addAndMakeVisible (chaosButtonC);
-	chaosButtonC.setButtonText ("CHAOS SETTINGS");
-	chaosButtonC.addListener (this);
-
-	{
-		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosAmtC)->load();
-		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (CABTRAudioProcessor::kParamChaosSpdC)->load();
-		chaosDisplayC.setText ("", juce::dontSendNotification);
-		chaosDisplayC.setInterceptsMouseClicks (true, false);
-		chaosDisplayC.addMouseListener (this, false);
-		chaosDisplayC.setTooltip (juce::String (juce::roundToInt (savedAmt)) + "% | " + juce::String (juce::roundToInt (savedSpd)) + " Hz");
-		chaosDisplayC.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-		chaosDisplayC.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
-		chaosDisplayC.setOpaque (false);
-		addAndMakeVisible (chaosDisplayC);
-	}
-
-	// Per-loader mode combos C
-	setupModeCombo (modeInComboC);
-	setupModeCombo (modeOutComboC);
-
-	// Filter bar C (dual HP/LP marker)
-	filterBarC_.setOwner (this, 2);
-	filterBarC_.setScheme (activeScheme);
-	addAndMakeVisible (filterBarC_);
-
-	// Per-loader MIX slider C
-	setupSliderWithTooltip (mixSliderC, "Mix C (Dry/Wet)");
+	// Setup IR Loader A/B/C components (unified)
+	for (int i = 0; i < 3; ++i)
+		setupLoaderUI (i, getLoaderRefs (i), kLoaderParams[i].chaosAmt, kLoaderParams[i].chaosSpd);
 
 	// Setup global controls
 	addAndMakeVisible (routeCombo);
@@ -1360,119 +1372,27 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	trimCombo.setTooltip ("Norm: auto-normalize wet signal peak to target level");
 
 	// Global MIX bar slider (footer)
-	setupSliderWithTooltip (globalMixSlider, "Global Mix (Dry/Wet)");
+	addAndMakeVisible (globalMixSlider);
+	globalMixSlider.setOwner (this);
+	setupBar (globalMixSlider);
+	globalMixSlider.addListener (this);
+	globalMixSlider.setTooltip ("Global Mix (Dry/Wet)");
 
 	// Global OUTPUT bar slider (footer)
-	setupSliderWithTooltip (globalOutputSlider, "Global Output");
+	addAndMakeVisible (globalOutputSlider);
+	globalOutputSlider.setOwner (this);
+	setupBar (globalOutputSlider);
+	globalOutputSlider.addListener (this);
+	globalOutputSlider.setTooltip ("Global Output");
 
 	// Create parameter attachments
 	auto& params = audioProcessor.getValueTreeState();
 
-	enableAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamEnableA, enableButtonA);
-	hpFreqAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamHpFreqA, hpFreqSliderA);
-	lpFreqAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamLpFreqA, lpFreqSliderA);
-	outAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamOutA, outSliderA);
-	startAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamStartA, startSliderA);
-	endAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamEndA, endSliderA);
-	pitchAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPitchA, pitchSliderA);
-	delayAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamDelayA, delaySliderA);
-	panAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPanA, panSliderA);
-	fredAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamFredA, fredSliderA);
-	posAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPosA, posSliderA);
-	invAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamInvA, invButtonA);
-	normAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamNormA, normButtonA);
-	rvsAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamRvsA, rvsButtonA);
-	chaosAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamChaosA, chaosButtonA);
-	modeInAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeInA, modeInComboA);
-	modeOutAttachA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeOutA, modeOutComboA);
+	// Create per-loader parameter attachments
+	for (int i = 0; i < 3; ++i)
+		createLoaderAttachments (params, i, getLoaderRefs (i), getAttachRefs (i));
 
-	enableAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamEnableB, enableButtonB);
-	hpFreqAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamHpFreqB, hpFreqSliderB);
-	lpFreqAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamLpFreqB, lpFreqSliderB);
-	outAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamOutB, outSliderB);
-	startAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamStartB, startSliderB);
-	endAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamEndB, endSliderB);
-	pitchAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPitchB, pitchSliderB);
-	delayAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamDelayB, delaySliderB);
-	panAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPanB, panSliderB);
-	fredAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamFredB, fredSliderB);
-	posAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPosB, posSliderB);
-	invAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamInvB, invButtonB);
-	normAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamNormB, normButtonB);
-	rvsAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamRvsB, rvsButtonB);
-	chaosAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamChaosB, chaosButtonB);
-	modeInAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeInB, modeInComboB);
-	modeOutAttachB = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeOutB, modeOutComboB);
-
-	enableAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamEnableC, enableButtonC);
-	hpFreqAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamHpFreqC, hpFreqSliderC);
-	lpFreqAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamLpFreqC, lpFreqSliderC);
-	outAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamOutC, outSliderC);
-	startAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamStartC, startSliderC);
-	endAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamEndC, endSliderC);
-	pitchAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPitchC, pitchSliderC);
-	delayAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamDelayC, delaySliderC);
-	panAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPanC, panSliderC);
-	fredAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamFredC, fredSliderC);
-	posAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamPosC, posSliderC);
-	invAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamInvC, invButtonC);
-	normAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamNormC, normButtonC);
-	rvsAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamRvsC, rvsButtonC);
-	chaosAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-		params, CABTRAudioProcessor::kParamChaosC, chaosButtonC);
-	modeInAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeInC, modeInComboC);
-	modeOutAttachC = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-		params, CABTRAudioProcessor::kParamModeOutC, modeOutComboC);
-
+	// Global parameter attachments
 	routeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
 		params, CABTRAudioProcessor::kParamRoute, routeCombo);
 	alignAttach = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
@@ -1481,12 +1401,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamMatch, matchCombo);
 	trimAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
 		params, CABTRAudioProcessor::kParamTrim, trimCombo);
-	mixAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamMixA, mixSliderA);
-	mixAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamMixB, mixSliderB);
-	mixAttachC = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-		params, CABTRAudioProcessor::kParamMixC, mixSliderC);
 	globalMixAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
 		params, CABTRAudioProcessor::kParamMix, globalMixSlider);
 	globalOutputAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
@@ -1612,6 +1526,11 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		if (versionW > 0)
 			g.drawText (juce::String ("v") + InfoContent::version, versionX, versionY, versionW, versionH,
 			            juce::Justification::bottomRight, false);
+
+		// Footer combo labels — explicit font + colour
+		g.setColour (activeScheme.text);
+		g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")));
+
 		const auto routeArea = routeCombo.getBounds().withHeight (16).translated (0, -18);
 		g.drawText ("ROUTE", routeArea, juce::Justification::centred);
 
@@ -1655,6 +1574,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			if (! modeIn.isVisible()) return;
 			const float alpha = enableBtn.getToggleState() ? 1.0f : 0.35f;
 			g.setColour (activeScheme.text.withAlpha (alpha));
+			g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")));
 			const auto miArea = modeIn.getBounds().withHeight (14).translated (0, -15);
 			const auto moArea = modeOut.getBounds().withHeight (14).translated (0, -15);
 			g.drawText ("MODE IN", miArea, juce::Justification::centred);
@@ -1845,6 +1765,7 @@ void CABTRAudioProcessorEditor::resized()
 
 	promptOverlay.setBounds (getLocalBounds());
 
+	legendDirty = true;
 	updateInfoIconCache();
 	updateExportIconCache();
 }
@@ -1911,10 +1832,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	if (ioSectionExpanded_)
 	{
 		// ── Expanded IO view: OUT, FILTER, MIX, MODE IN/OUT, CHAOS ──
-		// 3 sliders + 1 mode row + 1 chaos row = 5 rows + mode label gap
-		const int modeLabelGap = 12;
-		const int totalGap = gap * 4 + modeLabelGap + gap * 2;
-		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap) / 5);
+		// 3 sliders fill remaining space; mode + chaos get fixed height
+		const int modeLabelGap = gap * 2;
+		const int comboH = 30;
+		const int fixedH = comboH * 2 + modeLabelGap + gap * 3 + gap * 2;
+		const int sliderH = juce::jmax (20, (area.getHeight() - fixedH) / 3);
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		out.setBounds (sliderRow.removeFromLeft (sliderW));
@@ -1933,18 +1855,19 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 		// MODE IN / MODE OUT combos
 		area.removeFromTop (modeLabelGap);
-		auto modeRow = area.removeFromTop (sliderH);
+		auto modeRow = area.removeFromTop (comboH);
 		const int modeComboW = sliderW / 2 - gap / 2;
-		modeInCmb.setBounds  (modeRow.getX(), modeRow.getY(), modeComboW, juce::jmin (sliderH, 30));
-		modeOutCmb.setBounds (modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, juce::jmin (sliderH, 30));
+		modeInCmb.setBounds  (modeRow.getX(), modeRow.getY(), modeComboW, comboH);
+		modeOutCmb.setBounds (modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, comboH);
 		modeInCmb.setVisible (true);
 		modeOutCmb.setVisible (true);
 		area.removeFromTop (gap * 2);
 
-		// CHAOS checkbox — full width since it's alone in its row
-		auto checkArea = area.removeFromTop (sliderH);
-		chaos.setBounds (checkArea.getX(), checkArea.getY(), sliderW, juce::jmin (sliderH, 30));
-		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), sliderW, juce::jmin (sliderH, 30));
+		// CHAOS checkbox — full column width since it's alone in its row
+		auto checkArea = area.removeFromTop (comboH);
+		const int chaosW = checkArea.getWidth();
+		chaos.setBounds (checkArea.getX(), checkArea.getY(), chaosW, comboH);
+		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), chaosW, comboH);
 		chaos.setVisible (true);
 		chaosDisp.setVisible (true);
 
@@ -1960,9 +1883,10 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	else
 	{
 		// ── Collapsed main view: 7 sliders + INV/NORM/RVS checkboxes ──
-		// 7 sliders + 1 checkbox row = 8 rows
-		const int totalGap = gap * 7 + gap * 2; // 7 gaps between sliders + extra gap before checkboxes
-		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap) / 8);
+		// Checkboxes get fixed height; sliders fill remaining space
+		const int checkH = 30;
+		const int totalGap = gap * 6 + gap * 2; // 6 gaps between 7 sliders + extra gap before checkboxes
+		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH) / 7);
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		start.setBounds (sliderRow.removeFromLeft (sliderW));
@@ -1999,18 +1923,17 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		pos.setVisible (true);
 		area.removeFromTop (gap * 2);
 
-		// Checkboxes: INV, NORM, RVS
-		auto checkArea = area.removeFromTop (sliderH);
-		const int checkboxW = 55;
+		// Checkboxes: INV, NORM, RVS — distribute evenly across sliderW
+		auto checkArea = area.removeFromTop (checkH);
 		const int numButtons = 3;
-		const int spacing = juce::jmax (0, (sliderW - numButtons * checkboxW) / (numButtons - 1));
+		const int checkboxW = sliderW / numButtons;
 
 		int bx = checkArea.getX();
-		inv.setBounds  (bx, checkArea.getY(), checkboxW, juce::jmin (sliderH, 30));  inv.setVisible (true);
-		bx += checkboxW + spacing;
-		norm.setBounds (bx, checkArea.getY(), checkboxW, juce::jmin (sliderH, 30));  norm.setVisible (true);
-		bx += checkboxW + spacing;
-		rvs.setBounds  (bx, checkArea.getY(), checkboxW, juce::jmin (sliderH, 30));  rvs.setVisible (true);
+		inv.setBounds  (bx, checkArea.getY(), checkboxW, checkH);  inv.setVisible (true);
+		bx += checkboxW;
+		norm.setBounds (bx, checkArea.getY(), checkboxW, checkH);  norm.setVisible (true);
+		bx += checkboxW;
+		rvs.setBounds  (bx, checkArea.getY(), checkboxW, checkH);  rvs.setVisible (true);
 
 		// Hide expanded-only controls
 		out.setVisible (false);        filterBar.setVisible (false);
@@ -2072,39 +1995,24 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 void CABTRAudioProcessorEditor::timerCallback()
 {
 	// Update file display labels if paths exist but labels show "No file loaded"
-	if (!audioProcessor.stateA.currentFilePath.isEmpty() && 
-	    fileDisplayA.getText() == "No file loaded")
-	{
-		juce::File fileA (audioProcessor.stateA.currentFilePath);
-		if (fileA.existsAsFile())
-		{
-			currentFileA = fileA.getFileName();
-			currentFolderA = fileA.getParentDirectory();
-			fileDisplayA.setText (currentFileA, juce::dontSendNotification);
-		}
-	}
-	
-	if (!audioProcessor.stateB.currentFilePath.isEmpty() && 
-	    fileDisplayB.getText() == "No file loaded")
-	{
-		juce::File fileB (audioProcessor.stateB.currentFilePath);
-		if (fileB.existsAsFile())
-		{
-			currentFileB = fileB.getFileName();
-			currentFolderB = fileB.getParentDirectory();
-			fileDisplayB.setText (currentFileB, juce::dontSendNotification);
-		}
-	}
+	juce::Label*  fileDisps[]    = { &fileDisplayA, &fileDisplayB, &fileDisplayC };
+	juce::String* currentFiles[] = { &currentFileA, &currentFileB, &currentFileC };
+	juce::File*   currentDirs[]  = { &currentFolderA, &currentFolderB, &currentFolderC };
+	const juce::String* paths[]  = { &audioProcessor.stateA.currentFilePath,
+	                                  &audioProcessor.stateB.currentFilePath,
+	                                  &audioProcessor.stateC.currentFilePath };
 
-	if (!audioProcessor.stateC.currentFilePath.isEmpty() && 
-	    fileDisplayC.getText() == "No file loaded")
+	for (int i = 0; i < 3; ++i)
 	{
-		juce::File fileC (audioProcessor.stateC.currentFilePath);
-		if (fileC.existsAsFile())
+		if (paths[i]->isNotEmpty() && fileDisps[i]->getText() == "No file loaded")
 		{
-			currentFileC = fileC.getFileName();
-			currentFolderC = fileC.getParentDirectory();
-			fileDisplayC.setText (currentFileC, juce::dontSendNotification);
+			juce::File f (*paths[i]);
+			if (f.existsAsFile())
+			{
+				*currentFiles[i] = f.getFileName();
+				*currentDirs[i]  = f.getParentDirectory();
+				fileDisps[i]->setText (*currentFiles[i], juce::dontSendNotification);
+			}
 		}
 	}
 	
@@ -2131,17 +2039,14 @@ void CABTRAudioProcessorEditor::sliderValueChanged (juce::Slider* slider)
 
 void CABTRAudioProcessorEditor::buttonClicked (juce::Button* button)
 {
-	if (button == &browseButtonA)
+	juce::TextButton* browseBtns[] = { &browseButtonA, &browseButtonB, &browseButtonC };
+	for (int i = 0; i < 3; ++i)
 	{
-		openFileExplorer (0);
-	}
-	else if (button == &browseButtonB)
-	{
-		openFileExplorer (1);
-	}
-	else if (button == &browseButtonC)
-	{
-		openFileExplorer (2);
+		if (button == browseBtns[i])
+		{
+			openFileExplorer (i);
+			return;
+		}
 	}
 }
 
@@ -2156,30 +2061,24 @@ void CABTRAudioProcessorEditor::parameterChanged (const juce::String& paramID, f
 	{
 		crtEnabled = newValue > 0.5f;
 		crtEffect.setEnabled (crtEnabled);
+		return;
 	}
-	else if (paramID == CABTRAudioProcessor::kParamEnableA)
+
+	const char* enableIds[] = { CABTRAudioProcessor::kParamEnableA,
+	                            CABTRAudioProcessor::kParamEnableB,
+	                            CABTRAudioProcessor::kParamEnableC };
+	for (int i = 0; i < 3; ++i)
 	{
-		juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this)] ()
+		if (paramID == enableIds[i])
 		{
-			if (safeThis != nullptr)
-				safeThis->updateLoaderEnabledState (0);
-		});
-	}
-	else if (paramID == CABTRAudioProcessor::kParamEnableB)
-	{
-		juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this)] ()
-		{
-			if (safeThis != nullptr)
-				safeThis->updateLoaderEnabledState (1);
-		});
-	}
-	else if (paramID == CABTRAudioProcessor::kParamEnableC)
-	{
-		juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this)] ()
-		{
-			if (safeThis != nullptr)
-				safeThis->updateLoaderEnabledState (2);
-		});
+			const int idx = i;
+			juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<CABTRAudioProcessorEditor> (this), idx] ()
+			{
+				if (safeThis != nullptr)
+					safeThis->updateLoaderEnabledState (idx);
+			});
+			return;
+		}
 	}
 }
 
@@ -2281,10 +2180,8 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	// Set background from palette
 	aw->setColour (juce::AlertWindow::backgroundColourId, activeScheme.bg);
 
-	// Size for file browser
-	constexpr int browserWidth = 520;
+	// Use standard prompt width, taller height for file list
 	constexpr int browserHeight = 420;
-	aw->setSize (browserWidth, browserHeight);
 
 	// Create file list model and ListBox
 	auto* fileModel = new FileListModel (activeScheme);
@@ -2426,39 +2323,76 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	// Style the ListBox with green border
 	listBox->setColour (juce::ListBox::backgroundColourId, activeScheme.bg);
 	listBox->setColour (juce::ListBox::outlineColourId, activeScheme.fg);
-	listBox->setOutlineThickness (1);
+	listBox->setOutlineThickness (3);
 	listBox->setRowHeight (24);
 	listBox->setMultipleSelectionEnabled (false);
 
-	// Add components to AlertWindow
-	constexpr int margin = 24;
+	// Build browser panel — same container pattern as export prompt
+	auto* browserPanel = new juce::Component();
+	constexpr int margin = TR::kPromptInnerMargin;
+	constexpr int driveLabelH = 18;
 	constexpr int driveComboH = 28;
 	constexpr int pathLabelH = 24;
-	constexpr int componentGap = 8;
-	constexpr int buttonAreaH = 92;  // More bottom margin
+	constexpr int componentGap = 4;
+	const int panelW = TR::kPromptWidth - (margin * 2);
 
-	const int contentTop = 12;  // More reduced top margin
-	const int contentW = browserWidth - (margin * 2);
-	
-	driveCombo->setBounds (margin, contentTop, contentW, driveComboH);
-	pathLabel->setBounds (margin, contentTop + driveComboH + componentGap, contentW, pathLabelH);
-	
-	const int listBoxY = contentTop + driveComboH + componentGap + pathLabelH + componentGap;
-	const int listBoxH = browserHeight - listBoxY - buttonAreaH - margin;
-	listBox->setBounds (margin, listBoxY, contentW, listBoxH);
+	auto labelFont = lnf.getAlertWindowMessageFont();
 
-	aw->addCustomComponent (driveCombo);
-	aw->addCustomComponent (pathLabel);
-	aw->addCustomComponent (listBox);
+	int py = 0;
+
+	auto* drivesLabel = new juce::Label ("", "Drives");
+	drivesLabel->setFont (labelFont);
+	drivesLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	drivesLabel->setJustificationType (juce::Justification::centredLeft);
+	drivesLabel->setBounds (0, py, panelW, driveLabelH);
+	browserPanel->addAndMakeVisible (drivesLabel);
+	py += driveLabelH;
+
+	driveCombo->setBounds (0, py, panelW, driveComboH);
+	browserPanel->addAndMakeVisible (driveCombo);
+	py += driveComboH + componentGap;
+
+	auto* pathTitleLabel = new juce::Label ("", "Path");
+	pathTitleLabel->setFont (labelFont);
+	pathTitleLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	pathTitleLabel->setJustificationType (juce::Justification::centredLeft);
+	pathTitleLabel->setBounds (0, py, panelW, driveLabelH);
+	browserPanel->addAndMakeVisible (pathTitleLabel);
+	py += driveLabelH;
+
+	pathLabel->setBounds (0, py, panelW, pathLabelH);
+	browserPanel->addAndMakeVisible (pathLabel);
+	py += pathLabelH + componentGap;
+
+	const int listBoxStartY = py;
+	listBox->setBounds (0, py, panelW, 200);
+	browserPanel->addAndMakeVisible (listBox);
+	browserPanel->setSize (panelW, py + 200);
+
+	aw->addCustomComponent (browserPanel);
 
 	// Buttons
 	aw->addButton ("SELECT", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
+	aw->setEscapeKeyCancels (true);
 	styleAlertButtons (*aw, lnf);
+	aw->setSize (TR::kPromptWidth, browserHeight);
 	layoutAlertWindowButtons (*aw);
 
-	aw->setEscapeKeyCancels (true);
+	// Reposition browser panel between top and button row
+	{
+		const int buttonsTop = TR::getAlertButtonsTop (*aw);
+		const int bodyTop    = TR::kPromptBodyTopPad;
+		const int bodyBottom = buttonsTop - TR::kPromptBodyBottomPad;
+		const int headerH    = listBoxStartY;  // everything above the listBox
+		const int listBoxH   = juce::jmax (60, bodyBottom - bodyTop - headerH);
+		const int panelX     = (TR::kPromptWidth - panelW) / 2;
+
+		listBox->setBounds (0, listBoxStartY, panelW, listBoxH);
+		browserPanel->setSize (panelW, headerH + listBoxH);
+		browserPanel->setBounds (panelX, bodyTop, panelW, headerH + listBoxH);
+	}
 
 	// Embed in overlay instead of modal
 	if (safeThis != nullptr)
@@ -2466,7 +2400,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
 	}
 
-	aw->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, aw, fileModel, listBox, pathLabel, driveCombo, safeListBox, safePathLabel, safeDriveCombo, loaderIndex] (int result) mutable
+	aw->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, aw, fileModel, listBox, pathLabel, driveCombo, browserPanel, safeListBox, safePathLabel, safeDriveCombo, loaderIndex] (int result) mutable
 	{
 		std::unique_ptr<juce::AlertWindow> killer (aw);
 		
@@ -2500,11 +2434,13 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		fileModel->onFileSelected = nullptr;
 		driveCombo->onChange = nullptr;
 
-		// Clean up
+		// Clean up — remove children from panel before deleting individually
+		browserPanel->removeAllChildren();
 		delete driveCombo;
 		delete pathLabel;
 		delete listBox;
 		delete fileModel;
+		delete browserPanel;
 
 		safeThis->setPromptOverlayActive (false);
 	}), true);
@@ -4249,23 +4185,44 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 
 	// LENGTH
 	addFormLabel ("LENGTH", fy);
-	auto* lengthEditor = new juce::TextEditor ("length");
-	lengthEditor->setFont (labelFont);
-	lengthEditor->setJustification (juce::Justification::centred);
-	lengthEditor->setText ("10.0", juce::dontSendNotification);
-	lengthEditor->setInputFilter (new NumericInputFilter (0.01, 10.0, 6, 2), true);
-	lengthEditor->setColour (juce::TextEditor::backgroundColourId, activeScheme.bg);
-	lengthEditor->setColour (juce::TextEditor::textColourId, activeScheme.text);
-	lengthEditor->setColour (juce::TextEditor::outlineColourId, activeScheme.text.withAlpha (0.5f));
-	lengthEditor->setColour (juce::TextEditor::focusedOutlineColourId, activeScheme.text);
-	lengthEditor->setBounds (controlX, fy, controlW - 30, rowH);
-	formPanel->addAndMakeVisible (lengthEditor);
+	auto* lengthLabel = new juce::Label ("length", "10.000s");
+	lengthLabel->setFont (labelFont);
+	lengthLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	lengthLabel->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+	lengthLabel->setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
+	lengthLabel->setJustificationType (juce::Justification::centred);
+	lengthLabel->setEditable (true, true, false);
+	lengthLabel->setBounds (controlX, fy, controlW, rowH);
+	formPanel->addAndMakeVisible (lengthLabel);
 
-	auto* secLabel = new juce::Label ("sec", "s");
-	secLabel->setFont (labelFont);
-	secLabel->setColour (juce::Label::textColourId, activeScheme.text);
-	secLabel->setBounds (controlX + controlW - 26, fy, 26, rowH);
-	formPanel->addAndMakeVisible (secLabel);
+	lengthLabel->onEditorShow = [lengthLabel, this, labelFont]()
+	{
+		if (auto* ed = lengthLabel->getCurrentTextEditor())
+		{
+			ed->setInputFilter (new NumericInputFilter (0.01, 10.0, 7, 3), true);
+			ed->setJustification (juce::Justification::centred);
+			ed->setFont (labelFont);
+			ed->setBorder (juce::BorderSize<int> (0));
+			ed->setIndents (0, 0);
+			ed->setColour (juce::TextEditor::outlineColourId,        juce::Colours::transparentBlack);
+			ed->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+			ed->setColour (juce::TextEditor::backgroundColourId,     juce::Colours::transparentBlack);
+			auto numText = lengthLabel->getText().trimCharactersAtEnd ("s");
+			ed->setText (numText, false);
+			ed->selectAll();
+		}
+	};
+
+	lengthLabel->onTextChange = [lengthLabel]()
+	{
+		auto raw = lengthLabel->getText().trimCharactersAtEnd ("s ");
+		double val = juce::jlimit (0.01, 10.0, raw.getDoubleValue());
+		int decimals = 1;
+		auto dotIdx = raw.indexOfChar ('.');
+		if (dotIdx >= 0)
+			decimals = juce::jlimit (1, 3, raw.length() - dotIdx - 1);
+		lengthLabel->setText (juce::String (val, decimals) + "s", juce::dontSendNotification);
+	};
 	fy += rowH + gap;
 
 	// TRIM SILENCE
@@ -4274,17 +4231,25 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 	trimToggle->setLookAndFeel (&lnf);
 	trimToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
 	trimToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
-	trimToggle->setBounds (controlX, fy, controlW, rowH);
+	{
+		const int toggleW = juce::jmin (controlW, 200);
+		const int toggleX = (formW - toggleW) / 2;
+		trimToggle->setBounds (toggleX, fy, toggleW, rowH);
+	}
 	formPanel->addAndMakeVisible (trimToggle);
 	fy += rowH + gap;
 
-	// NORMALIZE 0 dB
-	auto* normalizeToggle = new juce::ToggleButton ("NORMALIZE 0 dB");
+	// NORMALIZE 0dB
+	auto* normalizeToggle = new juce::ToggleButton ("NORMALIZE 0dB");
 	normalizeToggle->setToggleState (false, juce::dontSendNotification);
 	normalizeToggle->setLookAndFeel (&lnf);
 	normalizeToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
 	normalizeToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
-	normalizeToggle->setBounds (controlX, fy, controlW, rowH);
+	{
+		const int toggleW = juce::jmin (controlW, 200);
+		const int toggleX = (formW - toggleW) / 2;
+		normalizeToggle->setBounds (toggleX, fy, toggleW, rowH);
+	}
 	formPanel->addAndMakeVisible (normalizeToggle);
 	fy += rowH;
 
@@ -4298,7 +4263,18 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 	aw->setEscapeKeyCancels (true);
 
 	styleAlertButtons (*aw, lnf);
+	applyPromptShellSize (*aw);
 	layoutAlertWindowButtons (*aw);
+
+	// Centre formPanel vertically between top and button row
+	{
+		const int buttonsTop = TR::getAlertButtonsTop (*aw);
+		const int availH     = buttonsTop - TR::kPromptBodyBottomPad;
+		const int panelY     = juce::jmax (TR::kPromptEditorMinTopPx,
+		                                   (availH - formPanel->getHeight()) / 2);
+		const int panelX     = (aw->getWidth() - formPanel->getWidth()) / 2;
+		formPanel->setBounds (panelX, panelY, formPanel->getWidth(), formPanel->getHeight());
+	}
 
 	if (safeThis != nullptr)
 	{
@@ -4308,12 +4284,12 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 
 	aw->enterModalState (true,
 		juce::ModalCallbackFunction::create (
-			[safeThis, aw, formPanel, rateCombo, formatCombo, lengthEditor, trimToggle, normalizeToggle] (int result) mutable
+			[safeThis, aw, formPanel, rateCombo, formatCombo, lengthLabel, trimToggle, normalizeToggle] (int result) mutable
 		{
 			const int rateId = (rateCombo != nullptr) ? rateCombo->getSelectedId() : 2;
 			const int formatId = (formatCombo != nullptr) ? formatCombo->getSelectedId() : 2;
-			const float maxLen = (lengthEditor != nullptr)
-			    ? juce::jlimit (0.01f, 10.0f, lengthEditor->getText().getFloatValue()) : 10.0f;
+			const float maxLen = (lengthLabel != nullptr)
+			    ? juce::jlimit (0.01f, 10.0f, lengthLabel->getText().trimCharactersAtEnd ("s").getFloatValue()) : 10.0f;
 			const bool trim = (trimToggle != nullptr) ? trimToggle->getToggleState() : true;
 			const bool normalize = (normalizeToggle != nullptr) ? normalizeToggle->getToggleState() : false;
 
