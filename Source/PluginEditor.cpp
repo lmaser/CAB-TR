@@ -2193,6 +2193,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	pathLabel->setFont (juce::Font (juce::FontOptions (13.0f)));
 	pathLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	pathLabel->setJustificationType (juce::Justification::centredLeft);
+	pathLabel->setMinimumHorizontalScale (0.5f);
 
 	// Add drive selection dropdown
 	auto* driveCombo = new juce::ComboBox ("Drives");
@@ -2337,6 +2338,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	const int panelW = TR::kPromptWidth - (margin * 2);
 
 	auto labelFont = lnf.getAlertWindowMessageFont();
+	labelFont.setHeight (labelFont.getHeight() * 1.20f);
 
 	int py = 0;
 
@@ -2397,6 +2399,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	// Embed in overlay instead of modal
 	if (safeThis != nullptr)
 	{
+		fitAlertWindowToEditor (*aw, safeThis.getComponent(), nullptr);
 		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
 	}
 
