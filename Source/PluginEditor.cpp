@@ -1255,7 +1255,7 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
 	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
 	addAndMakeVisible (r.rvs);   r.rvs.setButtonText ("RVS");           r.rvs.addListener (this);
-	addAndMakeVisible (r.chaos); r.chaos.setButtonText ("CHAOS SETTINGS"); r.chaos.addListener (this);
+	addAndMakeVisible (r.chaos); r.chaos.setButtonText ("CHAOS"); r.chaos.addListener (this);
 
 	{
 		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
@@ -2339,11 +2339,13 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 
 	auto labelFont = lnf.getAlertWindowMessageFont();
 	labelFont.setHeight (labelFont.getHeight() * 1.20f);
+	auto boldFont = labelFont;
+	boldFont.setBold (true);
 
 	int py = 0;
 
 	auto* drivesLabel = new juce::Label ("", "Drives");
-	drivesLabel->setFont (labelFont);
+	drivesLabel->setFont (boldFont);
 	drivesLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	drivesLabel->setJustificationType (juce::Justification::centredLeft);
 	drivesLabel->setBounds (0, py, panelW, driveLabelH);
@@ -2355,7 +2357,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	py += driveComboH + componentGap;
 
 	auto* pathTitleLabel = new juce::Label ("", "Path");
-	pathTitleLabel->setFont (labelFont);
+	pathTitleLabel->setFont (boldFont);
 	pathTitleLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	pathTitleLabel->setJustificationType (juce::Justification::centredLeft);
 	pathTitleLabel->setBounds (0, py, panelW, driveLabelH);
@@ -2377,10 +2379,8 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	aw->addButton ("SELECT", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-	aw->setEscapeKeyCancels (true);
-	styleAlertButtons (*aw, lnf);
 	aw->setSize (TR::kPromptWidth, browserHeight);
-	layoutAlertWindowButtons (*aw);
+	finalizePromptButtons (*aw, lnf);
 
 	// Reposition browser panel between top and button row
 	{
@@ -3105,6 +3105,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 
 	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	aw->setEscapeKeyCancels (true);
 	applyPromptShellSize (*aw);
 	layoutAlertWindowButtons (*aw);
 
@@ -3484,6 +3485,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	// Buttons
 	aw->addButton ("OK",     1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	aw->setEscapeKeyCancels (true);
 
 	applyPromptShellSize (*aw);
 	layoutAlertWindowButtons (*aw);
@@ -3995,6 +3997,7 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex)
 
 	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+	aw->setEscapeKeyCancels (true);
 	applyPromptShellSize (*aw);
 	layoutAlertWindowButtons (*aw);
 	layoutRows();
@@ -4263,11 +4266,8 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 	// Buttons
 	aw->addButton ("EXPORT", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-	aw->setEscapeKeyCancels (true);
 
-	styleAlertButtons (*aw, lnf);
-	applyPromptShellSize (*aw);
-	layoutAlertWindowButtons (*aw);
+	finalizePromptButtons (*aw, lnf, [] (juce::AlertWindow& a) { applyPromptShellSize (a); });
 
 	// Centre formPanel vertically between top and button row
 	{
@@ -4378,6 +4378,7 @@ void CABTRAudioProcessorEditor::openInfoPopup()
 	aw->setLookAndFeel (&lnf);
 	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("GRAPHICS", 2);
+	aw->setEscapeKeyCancels (true);
 
 	applyPromptShellSize (*aw);
 
@@ -4531,6 +4532,7 @@ void CABTRAudioProcessorEditor::openGraphicsPopup()
 	juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
 	aw->setLookAndFeel (&lnf);
 	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+	aw->setEscapeKeyCancels (true);
 
 	auto labelFont = lnf.getAlertWindowMessageFont();
 	labelFont.setHeight (labelFont.getHeight() * 1.20f);
@@ -4697,10 +4699,8 @@ void CABTRAudioProcessorEditor::openGraphicsPopup()
 				colorAw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
 				colorAw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-				styleAlertButtons (*colorAw, safeThis->lnf);
-
-				applyPromptShellSize (*colorAw);
-				layoutAlertWindowButtons (*colorAw);
+				finalizePromptButtons (*colorAw, safeThis->lnf,
+				                       [] (juce::AlertWindow& a) { applyPromptShellSize (a); });
 
 				const juce::Font& kHexPromptFont = kBoldFont40();
 

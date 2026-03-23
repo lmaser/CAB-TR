@@ -381,6 +381,17 @@ inline void layoutAlertWindowButtons (juce::AlertWindow& aw)
     }
 }
 
+/** Style, layout and configure escape for all buttons in an AlertWindow.
+    Call AFTER addButton(). Optionally applies a sizing function before layout. */
+inline void finalizePromptButtons (juce::AlertWindow& aw, juce::LookAndFeel& lnf,
+                                   std::function<void (juce::AlertWindow&)> preSizeFn = nullptr)
+{
+    styleAlertButtons (aw, lnf);
+    if (preSizeFn) preSizeFn (aw);
+    layoutAlertWindowButtons (aw);
+    aw.setEscapeKeyCancels (true);
+}
+
 //======================================================================
 //  Modal / overlay helpers
 //======================================================================
