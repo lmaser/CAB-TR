@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAB-TR — Routing &amp; M/S Bus Analysis</title>
+<style>
+  :root {
+    --bg: #1a1a1e;
+    --surface: #242428;
+    --surface2: #2e2e34;
+    --border: #3a3a42;
+    --text: #d4d4d8;
+    --textDim: #8888a0;
+    --accent: #6ea8fe;
+    --accentDim: #3d6daa;
+    --green: #4ade80;
+    --red: #f87171;
+    --orange: #fb923c;
+    --yellow: #fbbf24;
+    --purple: #c084fc;
+    --pink: #f472b6;
+    --cyan: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 { color: var(--accent); font-size: 28px; margin-bottom: 4px; letter-spacing: -0.5px; }
+  h2 { color: var(--green); font-size: 20px; margin: 40px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { color: var(--orange); font-size: 16px; margin: 24px 0 12px; }
+  h4 { color: var(--purple); font-size: 14px; margin: 16px 0 8px; }
+  .subtitle { color: var(--textDim); font-size: 14px; margin-bottom: 32px; }
+  p { margin-bottom: 12px; }
+  .highlight { color: var(--accent); font-weight: 600; }
+  .warn { color: var(--orange); }
+  .good { color: var(--green); }
+  .bad { color: var(--red); }
+
+  /* Diagram containers */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+  .diagram-title {
+    font-size: 13px;
+    color: var(--textDim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+
+  /* Signal flow blocks */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    font-family: 'Consolas', 'Fira Code', monospace;
+  }
+  .flow-row { margin-bottom: 8px; }
+  .block {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .block-input { background: #1e3a2e; color: var(--green); border: 1px solid #2d5a42; }
+  .block-loader { background: #1e2a4e; color: var(--accent); border: 1px solid #2d4a7e; }
+  .block-mode { background: #3a2040; color: var(--pink); border: 1px solid #5a3060; }
+  .block-process { background: #2a2a10; color: var(--yellow); border: 1px solid #4a4a20; }
+  .block-output { background: #3a1e1e; color: var(--red); border: 1px solid #5a2d2d; }
+  .block-sum { background: #1a3040; color: var(--cyan); border: 1px solid #2a4a60; }
+  .block-new { background: #2a1a3a; color: var(--purple); border: 1px solid #4a2a6a; animation: pulse 2s infinite; }
+  .arrow { color: var(--textDim); font-size: 16px; }
+  .branch-label { color: var(--textDim); font-size: 11px; font-style: italic; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  th {
+    background: var(--surface2);
+    color: var(--accent);
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    font-weight: 600;
+  }
+  td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:hover td { background: var(--surface); }
+  .mono { font-family: 'Consolas', monospace; font-size: 12px; }
+
+  /* Math blocks */
+  .math {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-family: 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .math .label { color: var(--textDim); }
+  .math .eq { color: var(--green); }
+  .math .result { color: var(--yellow); font-weight: 600; }
+  .math .bad-result { color: var(--red); font-weight: 600; }
+
+  /* Code blocks */
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    overflow-x: auto;
+    margin: 12px 0;
+    line-height: 1.5;
+  }
+  code { color: var(--accent); }
+  .comment { color: #6a6a80; }
+  .keyword { color: var(--purple); }
+  .number { color: var(--yellow); }
+
+  /* Callout boxes */
+  .callout {
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  .callout-info { background: #1a2a3a; border-left: 4px solid var(--accent); }
+  .callout-warn { background: #2a2410; border-left: 4px solid var(--orange); }
+  .callout-good { background: #1a2a1a; border-left: 4px solid var(--green); }
+  .callout-bad { background: #2a1a1a; border-left: 4px solid var(--red); }
+  .callout-title { font-weight: 700; margin-bottom: 6px; }
+
+  /* Routing diagrams (SVG-like with CSS) */
+  .route-diagram {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 10px 0;
+    min-height: 100px;
+  }
+  .route-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .route-node {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: 'Consolas', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+    min-width: 50px;
+  }
+  .node-A { background: #1e3050; color: #6ea8fe; border: 2px solid #4488cc; }
+  .node-B { background: #1e4030; color: #4ade80; border: 2px solid #44aa66; }
+  .node-C { background: #3a2040; color: #c084fc; border: 2px solid #8844cc; }
+  .node-input { background: #2a2a10; color: #fbbf24; border: 2px solid #aa8822; }
+  .node-sum { background: #1a3040; color: #22d3ee; border: 2px solid #22889a; }
+  .node-out { background: #3a1e1e; color: #f87171; border: 2px solid #aa4444; }
+  .route-arrow {
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--textDim);
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .route-split {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Proposal cards */
+  .proposal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .proposal.recommended {
+    border-color: var(--green);
+    box-shadow: 0 0 20px rgba(74, 222, 128, 0.1);
+  }
+  .proposal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .proposal-badge {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-easy { background: #1a3a1a; color: var(--green); }
+  .badge-medium { background: #2a2a10; color: var(--yellow); }
+  .badge-hard { background: #3a1a1a; color: var(--red); }
+  .badge-rec { background: #1a2a3a; color: var(--accent); }
+
+  /* Impact meter */
+  .impact-bar {
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 4px 0;
+  }
+  .impact-fill {
+    height: 100%;
+    border-radius: 4px;
+  }
+  .impact-low { width: 20%; background: var(--green); }
+  .impact-med { width: 50%; background: var(--yellow); }
+  .impact-high { width: 80%; background: var(--orange); }
+
+  /* Grid layout for proposals */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .toc { margin-bottom: 32px; }
+  .toc a { color: var(--accent); text-decoration: none; font-size: 14px; }
+  .toc a:hover { text-decoration: underline; }
+  .toc li { margin-bottom: 4px; }
+
+  .section-num {
+    display: inline-block;
+    color: var(--textDim);
+    width: 30px;
+    font-weight: 600;
+  }
+
+  /* Scenario visualization */
+  .scenario-visual {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .cab-column {
+    text-align: center;
+  }
+  .cab-icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 900;
+    font-family: 'Consolas', monospace;
+    margin: 0 auto 8px;
+  }
+  .cab-label {
+    font-size: 11px;
+    color: var(--textDim);
+    text-transform: uppercase;
+  }
+  .stereo-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin: 8px auto;
+    max-width: 500px;
+    font-size: 12px;
+    font-family: 'Consolas', monospace;
+  }
+  .stereo-L { color: var(--accent); }
+  .stereo-C { color: var(--green); }
+  .stereo-R { color: var(--purple); }
+
+  /* Compact version tag */
+  .version { color: var(--textDim); font-size: 12px; margin-top: 60px; text-align: center; border-top: 1px solid var(--border); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<h1>CAB-TR — Routing &amp; M/S Bus Analysis</h1>
+<div class="subtitle">Análisis del flujo de señal, limitaciones actuales de Mode In/Out, y propuesta de M/S Bus Routing para modos paralelos</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="toc">
+  <ol>
+    <li><a href="#s1"><span class="section-num">1</span>Arquitectura actual — 4 modos de routing</a></li>
+    <li><a href="#s2"><span class="section-num">2</span>Cadena de procesamiento por loader (processOne)</a></li>
+    <li><a href="#s3"><span class="section-num">3</span>Mode In / Mode Out — opciones actuales</a></li>
+    <li><a href="#s4"><span class="section-num">4</span>El escenario: 3 cabs mono en paralelo con PAN L/C/R</a></li>
+    <li><a href="#s5"><span class="section-num">5</span>Análisis matemático — ¿qué se puede y qué no hoy?</a></li>
+    <li><a href="#s6"><span class="section-num">6</span>Propuestas de solución</a></li>
+    <li><a href="#s7"><span class="section-num">7</span>Impacto en código — estimación</a></li>
+    <li><a href="#s8"><span class="section-num">8</span>Mode Out extendidos por routing — tabla completa</a></li>
+    <li><a href="#s9"><span class="section-num">9</span>Recomendación final</a></li>
+  </ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s1">§1 — Arquitectura actual: 4 modos de routing</h2>
+
+<p>CAB-TR ofrece 4 configuraciones de routing entre los 3 IR loaders (A, B, C):</p>
+
+<!-- ROUTE 0: A→B→C -->
+<h3>Route 0 — A → B → C (Full Series)</h3>
+<div class="diagram">
+  <div class="diagram-title">Flujo de señal — Serie completa</div>
+  <div class="route-diagram">
+    <div class="route-col"><div class="route-node node-input">INPUT</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-A">A</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-B">B</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-C">C</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-out">OUTPUT</div></div>
+  </div>
+  <div class="branch-label">La salida de cada loader alimenta la entrada del siguiente. Sin compensación de ganancia.</div>
+</div>
+
+<!-- ROUTE 1: A|B|C -->
+<h3>Route 1 — A | B | C (All Parallel) — <span style="color:var(--green)">DEFAULT</span></h3>
+<div class="diagram">
+  <div class="diagram-title">Flujo de señal — Paralelo total</div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <div class="route-col"><div class="route-node node-input">INPUT</div></div>
+    <div class="route-arrow">→</div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">┬</div>
+        <div class="route-node node-A">A</div>
+        <div class="route-arrow">→</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">├</div>
+        <div class="route-node node-B">B</div>
+        <div class="route-arrow">→</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">└</div>
+        <div class="route-node node-C">C</div>
+        <div class="route-arrow">→</div>
+      </div>
+    </div>
+    <div class="route-col"><div class="route-node node-sum">Σ</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-out">OUTPUT</div></div>
+  </div>
+  <div class="branch-label" style="margin-top:10px;">
+    Compensación: <code>1 / √N</code> — 2 loaders: −3 dB · 3 loaders: −4.77 dB
+  </div>
+</div>
+
+<!-- ROUTE 2: A→B | C -->
+<h3>Route 2 — A→B | C (Series A→B + C Parallel)</h3>
+<div class="diagram">
+  <div class="diagram-title">Flujo de señal — Híbrido serie/paralelo</div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <div class="route-col"><div class="route-node node-input">INPUT</div></div>
+    <div class="route-arrow">→</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">┬</div>
+        <div class="route-node node-A">A</div>
+        <div class="route-arrow">→</div>
+        <div class="route-node node-B">B</div>
+        <div class="route-arrow">→</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">└</div>
+        <div class="route-node node-C" style="margin-left:0">C</div>
+        <div class="route-arrow" style="visibility:hidden">→</div>
+        <div style="width:50px"></div>
+        <div class="route-arrow">→</div>
+      </div>
+    </div>
+    <div class="route-col"><div class="route-node node-sum">Σ</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-out">OUTPUT</div></div>
+  </div>
+  <div class="branch-label" style="margin-top:10px;">
+    Compensación fija: −3 dB (2 caminos paralelos)
+  </div>
+</div>
+
+<!-- ROUTE 3: A | B→C -->
+<h3>Route 3 — A | B→C (A Parallel + Series B→C)</h3>
+<div class="diagram">
+  <div class="diagram-title">Flujo de señal — Híbrido paralelo/serie</div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <div class="route-col"><div class="route-node node-input">INPUT</div></div>
+    <div class="route-arrow">→</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">┬</div>
+        <div class="route-node node-A">A</div>
+        <div class="route-arrow" style="visibility:hidden">→</div>
+        <div style="width:50px"></div>
+        <div class="route-arrow">→</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="route-arrow" style="width:24px">└</div>
+        <div class="route-node node-B">B</div>
+        <div class="route-arrow">→</div>
+        <div class="route-node node-C">C</div>
+        <div class="route-arrow">→</div>
+      </div>
+    </div>
+    <div class="route-col"><div class="route-node node-sum">Σ</div></div>
+    <div class="route-arrow">→</div>
+    <div class="route-col"><div class="route-node node-out">OUTPUT</div></div>
+  </div>
+  <div class="branch-label" style="margin-top:10px;">
+    Compensación fija: −3 dB (2 caminos paralelos)
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s2">§2 — Cadena de procesamiento por loader (processOne)</h2>
+
+<p>Cada loader ejecuta la misma cadena de 10 pasos, independientemente del routing:</p>
+
+<div class="diagram">
+  <div class="diagram-title">processOne — Cadena interna de cada loader</div>
+  <div class="flow flow-row">
+    <span class="block block-input">DRY save</span>
+    <span class="arrow">→</span>
+    <span class="block block-mode">Mode IN</span>
+    <span class="arrow">→</span>
+    <span class="block block-loader">CONVOLUTION</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">HP filter</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">LP filter</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">DISTANCE</span>
+  </div>
+  <div class="flow flow-row" style="margin-top:6px;">
+    <span class="arrow" style="visibility:hidden">→</span>
+    <span class="block block-process">PAN</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">DELAY</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">ANGLE (Fred)</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">CHAOS</span>
+    <span class="arrow">→</span>
+    <span class="block block-process">OUT GAIN</span>
+    <span class="arrow">→</span>
+    <span class="block block-mode">Mode OUT</span>
+    <span class="arrow">→</span>
+    <span class="block block-input">MIX dry/wet</span>
+  </div>
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">Orden crítico</div>
+  <strong>PAN</strong> se aplica DENTRO de <code>processLoader</code> (paso 5), y <strong>Mode OUT</strong> se aplica DESPUÉS de processLoader.
+  Esto significa que Mode OUT opera sobre una señal <em>ya paneada</em> en el campo estéreo.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s3">§3 — Mode In / Mode Out — Opciones actuales</h2>
+
+<table>
+  <thead>
+    <tr><th>Valor</th><th>Label</th><th>Fórmula</th><th>Efecto</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td class="mono">L+R</td>
+      <td class="mono">sin cambio</td>
+      <td>Pass-through estéreo (default)</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td class="mono">MID</td>
+      <td class="mono">L = R = (L+R) × 0.707</td>
+      <td>Extrae componente centro → <span class="warn">ambos canales iguales (mono)</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td class="mono">SIDE</td>
+      <td class="mono">L = R = (L−R) × 0.707</td>
+      <td>Extrae componente ancho → <span class="warn">ambos canales iguales (mono)</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <div class="callout-title">⚠ Limitación clave</div>
+  Tanto MID como SIDE <strong>colapsan a mono</strong>: ponen la misma señal en L y R.
+  Después de aplicar Mode Out, <strong>se pierde toda información espacial</strong> del PAN.
+  Además, solo hay 3 opciones — no hay <code>LEFT</code>, <code>RIGHT</code>, ni <code>M/S encode</code> sin colapso.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s4">§4 — El escenario: 3 cabs mono en paralelo</h2>
+
+<p>Imaginemos esta configuración con <strong>Route 1 (A|B|C)</strong> y tres impulsos mono:</p>
+
+<div class="diagram">
+  <div class="diagram-title">Setup del usuario</div>
+  <div class="scenario-visual">
+    <div class="cab-column">
+      <div class="cab-icon node-A" style="width:80px;height:80px;">A</div>
+      <div class="cab-label">Cab Mono</div>
+      <div style="color:var(--accent);font-weight:700;margin-top:4px;">PAN → LEFT</div>
+      <div style="color:var(--textDim);font-size:11px;">pan = 0.0</div>
+    </div>
+    <div class="cab-column">
+      <div class="cab-icon node-B" style="width:80px;height:80px;">B</div>
+      <div class="cab-label">Cab Mono</div>
+      <div style="color:var(--green);font-weight:700;margin-top:4px;">PAN → CENTER</div>
+      <div style="color:var(--textDim);font-size:11px;">pan = 0.5</div>
+    </div>
+    <div class="cab-column">
+      <div class="cab-icon node-C" style="width:80px;height:80px;">C</div>
+      <div class="cab-label">Cab Mono</div>
+      <div style="color:var(--purple);font-weight:700;margin-top:4px;">PAN → RIGHT</div>
+      <div style="color:var(--textDim);font-size:11px;">pan = 1.0</div>
+    </div>
+  </div>
+
+  <div class="stereo-field">
+    <span class="stereo-L">◀ L: cab A</span>
+    <span class="stereo-C">● C: cab B</span>
+    <span class="stereo-R">cab C: R ▶</span>
+  </div>
+</div>
+
+<h4>¿Qué quiere el usuario?</h4>
+<table>
+  <thead><tr><th>Objetivo</th><th>Contenido deseado</th><th>¿Posible hoy?</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Solo el componente <strong>SIDE</strong> de la suma</td>
+      <td>Solo A+C (anchura estéreo), sin B</td>
+      <td class="bad">No — no hay modo post-suma</td>
+    </tr>
+    <tr>
+      <td>Solo el componente <strong>MID</strong> de B</td>
+      <td>Solo B (centro), sin A ni C</td>
+      <td class="bad">No — requiere separación por bus</td>
+    </tr>
+    <tr>
+      <td>Imagen estéreo: A+C en sides, B en mid</td>
+      <td>B contribuye solo al centro, A+C solo a los lados</td>
+      <td class="bad">No — la suma mezcla todo</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s5">§5 — Análisis matemático</h2>
+
+<h3>5.1 — Señal actual tras PAN y suma (Route 1, todo Mode Out = L+R)</h3>
+
+<p>Después de convolución con IR mono, PAN aplica constant-power panning:</p>
+
+<div class="math">
+  <span class="label">PAN constant-power: </span><br>
+  L_gain = cos(pan × π/2)&nbsp;&nbsp;&nbsp;R_gain = sin(pan × π/2)<br><br>
+
+  <span class="label">Loader A (pan=0.0):</span> L<sub>A</sub> = 1.000 × S<sub>A</sub> , R<sub>A</sub> = 0.000 × S<sub>A</sub><br>
+  <span class="label">Loader B (pan=0.5):</span> L<sub>B</sub> = 0.707 × S<sub>B</sub> , R<sub>B</sub> = 0.707 × S<sub>B</sub><br>
+  <span class="label">Loader C (pan=1.0):</span> L<sub>C</sub> = 0.000 × S<sub>C</sub> , R<sub>C</sub> = 1.000 × S<sub>C</sub><br><br>
+
+  <span class="label">Suma paralela (con comp. −4.77 dB):</span><br>
+  <span class="eq">L_sum = (S<sub>A</sub> + 0.707 × S<sub>B</sub>) × 0.577</span><br>
+  <span class="eq">R_sum = (0.707 × S<sub>B</sub> + S<sub>C</sub>) × 0.577</span>
+</div>
+
+<h3>5.2 — Descomposición M/S de la suma</h3>
+
+<div class="math">
+  <span class="label">Mid = (L + R) / √2 :</span><br>
+  <span class="eq">Mid = (S<sub>A</sub> + 1.414 × S<sub>B</sub> + S<sub>C</sub>) × 0.408</span><br>
+  <span class="bad-result">↑ Contiene A, B y C — B NO está aislado en mid</span><br><br>
+
+  <span class="label">Side = (L − R) / √2 :</span><br>
+  <span class="eq">Side = (S<sub>A</sub> − S<sub>C</sub>) × 0.408</span><br>
+  <span class="result">↑ Solo A y C — B desaparece del side completamente ✓</span>
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">Hallazgo clave</div>
+  Cuando B está perfectamente centrado (pan=0.5), su contribución al <strong>Side</strong> es <strong>exactamente cero</strong>,
+  porque L<sub>B</sub> = R<sub>B</sub> → (L<sub>B</sub> − R<sub>B</sub>) = 0.<br><br>
+  Pero en el <strong>Mid</strong>, A y C sí se filtran: sus señales hard-panned contribuyen como <code>(S<sub>A</sub> + S<sub>C</sub>) × 0.408</code>.
+  Para aislar B perfectamente en mid, necesitamos que A y C <strong>no pasen por el bus mid</strong>.
+</div>
+
+<h3>5.3 — ¿Y si usamos Mode Out per-loader?</h3>
+
+<table>
+  <thead><tr><th>Config.</th><th>Mode Out A</th><th>Mode Out B</th><th>Mode Out C</th><th>Resultado</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Intento 1</td>
+      <td class="mono">SIDE</td>
+      <td class="mono">MID</td>
+      <td class="mono">SIDE</td>
+      <td class="bad">Todos colapsan a mono → pierde toda la imagen estéreo</td>
+    </tr>
+    <tr>
+      <td>Intento 2</td>
+      <td class="mono">L+R</td>
+      <td class="mono">MID</td>
+      <td class="mono">L+R</td>
+      <td class="bad">B colapsa a mono, A+C mantienen PAN → B aún se mezcla con A+C en mid de la suma</td>
+    </tr>
+    <tr>
+      <td>Intento 3</td>
+      <td class="mono">SIDE</td>
+      <td class="mono">L+R</td>
+      <td class="mono">SIDE</td>
+      <td class="bad">A: (L−0)/√2 = A/√2 mono. C: (0−R)/√2 = −C/√2 mono. Imagen destruida.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-bad">
+  <div class="callout-title">✗ Conclusión</div>
+  Con las 3 opciones actuales de Mode Out (L+R, MID, SIDE) <strong>no hay combinación</strong> que permita aislar loaders
+  en buses M/S separados cuando se trabaja en paralelo. El problema raíz: MID y SIDE colapsan a mono,
+  destruyendo la separación espacial que PAN había creado.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s6">§6 — Propuestas de solución</h2>
+
+<!-- PROPOSAL A -->
+<div class="proposal">
+  <div class="proposal-header">
+    <h3 style="margin:0;">Propuesta A — Global Post-Sum Output Mode</h3>
+    <span class="proposal-badge badge-easy">Fácil</span>
+  </div>
+
+  <p>Un nuevo parámetro <strong>global</strong> que se aplica DESPUÉS del routing/suma y ANTES de Match Tilt EQ:</p>
+
+  <table>
+    <thead><tr><th>Valor</th><th>Label</th><th>Efecto post-suma</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td class="mono">ST</td><td>Sin cambio (comportamiento actual)</td></tr>
+      <tr><td>1</td><td class="mono">MID</td><td>L = R = (L+R) × 0.707 — solo componente centro</td></tr>
+      <tr><td>2</td><td class="mono">SIDE</td><td>L = R = (L−R) × 0.707 — solo componente ancho</td></tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <div class="diagram-title">Flujo con Propuesta A</div>
+    <div class="flow">
+      <span class="block block-input">INPUT</span>
+      <span class="arrow">→</span>
+      <span class="block block-loader">ROUTING (A|B|C)</span>
+      <span class="arrow">→</span>
+      <span class="block block-sum">Σ parallel sum</span>
+      <span class="arrow">→</span>
+      <span class="block block-new">OUTPUT MODE ★</span>
+      <span class="arrow">→</span>
+      <span class="block block-process">Tilt EQ</span>
+      <span class="arrow">→</span>
+      <span class="block block-output">OUTPUT</span>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--green)">✓ Ventajas</h4>
+      <ul>
+        <li>Extremadamente simple: ~10 líneas de DSP</li>
+        <li>1 solo parámetro nuevo</li>
+        <li>SIDE post-suma aísla B perfectamente (B centrado → 0 en side)</li>
+        <li>Útil para monitoreo rápido de imagen estéreo</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color:var(--red)">✗ Limitaciones</h4>
+      <ul>
+        <li>MID post-suma <strong>no aísla B</strong> (A y C se filtran en mid)</li>
+        <li>No permite routing por bus M/S per-loader</li>
+        <li>Es todo-o-nada: o escuchas mid, o side, no combinación selectiva</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <span style="font-size:13px;color:var(--textDim);">Impacto en código:</span>
+    <div class="impact-bar"><div class="impact-fill impact-low"></div></div>
+    <span style="font-size:12px;color:var(--green);">~10 líneas DSP · 1 parámetro · 1 combo UI</span>
+  </div>
+</div>
+
+<!-- PROPOSAL B -->
+<div class="proposal">
+  <div class="proposal-header">
+    <h3 style="margin:0;">Propuesta B — Mode Out extendido: LEFT / RIGHT</h3>
+    <span class="proposal-badge badge-easy">Fácil</span>
+  </div>
+
+  <p>Añadir 2 nuevas opciones a Mode Out per-loader:</p>
+
+  <table>
+    <thead><tr><th>Valor</th><th>Label</th><th>Efecto</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td class="mono">L+R</td><td>Sin cambio</td><td style="color:var(--textDim)">Existente</td></tr>
+      <tr><td>1</td><td class="mono">MID</td><td>L = R = (L+R) × 0.707</td><td style="color:var(--textDim)">Existente</td></tr>
+      <tr><td>2</td><td class="mono">SIDE</td><td>L = R = (L−R) × 0.707</td><td style="color:var(--textDim)">Existente</td></tr>
+      <tr><td>3</td><td class="mono">→ L</td><td>R = 0, L sin cambio</td><td style="color:var(--purple)">★ Nuevo</td></tr>
+      <tr><td>4</td><td class="mono">→ R</td><td>L = 0, R sin cambio</td><td style="color:var(--purple)">★ Nuevo</td></tr>
+    </tbody>
+  </table>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--green)">✓ Ventajas</h4>
+      <ul>
+        <li>Simple: ~8 líneas en <code>applyMode</code></li>
+        <li>Útil con PAN parcial (no solo hard-pan)</li>
+        <li>No requiere nuevos parámetros — solo extiende rango existente</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color:var(--red)">✗ Limitaciones</h4>
+      <ul>
+        <li>Redundante con PAN hard-left / hard-right</li>
+        <li>No resuelve separación M/S por bus</li>
+        <li>Valor limitado como herramienta creativa</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <span style="font-size:13px;color:var(--textDim);">Impacto en código:</span>
+    <div class="impact-bar"><div class="impact-fill impact-low"></div></div>
+    <span style="font-size:12px;color:var(--green);">~8 líneas DSP · 0 parámetros nuevos · solo cambio de rango en combos</span>
+  </div>
+</div>
+
+<!-- PROPOSAL C — THE BIG ONE -->
+<div class="proposal recommended">
+  <div class="proposal-header">
+    <h3 style="margin:0;">Propuesta C — Per-Loader "Sum Bus" (M/S Bus Routing)</h3>
+    <div>
+      <span class="proposal-badge badge-medium">Media</span>
+      <span class="proposal-badge badge-rec" style="margin-left:4px;">★ RECOMENDADA</span>
+    </div>
+  </div>
+
+  <p>
+    Nuevo parámetro per-loader: <strong>SUM BUS</strong> — controla <em>cómo</em> la salida de ese loader
+    se inyecta en la suma paralela. Solo tiene efecto en modos con ramas paralelas (Routes 1, 2, 3).
+  </p>
+
+  <table>
+    <thead><tr><th>Valor</th><th>Label</th><th>Comportamiento en la suma</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td class="mono">ST</td>
+        <td>Suma directa L+R (actual) — contribuye a todo el campo estéreo</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td class="mono">→ M</td>
+        <td>Se colapsa a mono: <code>mono = (L+R)/2</code> → se suma a ambos canales iguales (solo mid)</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td class="mono">→ S</td>
+        <td>Se extrae diferencia: <code>side = (L−R)/2</code> → se suma como <code>L += side, R −= side</code> (solo side)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h4>Flujo en Route 1 (A|B|C) con Sum Bus</h4>
+  <div class="diagram">
+    <div class="diagram-title">Paralelo con M/S bus assignment</div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <div class="route-col"><div class="route-node node-input">INPUT</div></div>
+      <div class="route-arrow">→</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="route-node node-A" style="padding:4px 10px;">A</div>
+          <span class="arrow">→</span>
+          <span class="block block-new" style="font-size:11px;">BUS: → S</span>
+          <span class="arrow">→</span>
+          <span style="font-size:11px;color:var(--pink);font-family:monospace;">side = (L−R)/2</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="route-node node-B" style="padding:4px 10px;">B</div>
+          <span class="arrow">→</span>
+          <span class="block block-new" style="font-size:11px;">BUS: → M</span>
+          <span class="arrow">→</span>
+          <span style="font-size:11px;color:var(--green);font-family:monospace;">mono = (L+R)/2</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="route-node node-C" style="padding:4px 10px;">C</div>
+          <span class="arrow">→</span>
+          <span class="block block-new" style="font-size:11px;">BUS: → S</span>
+          <span class="arrow">→</span>
+          <span style="font-size:11px;color:var(--pink);font-family:monospace;">side = (L−R)/2</span>
+        </div>
+      </div>
+      <div class="route-arrow">→</div>
+      <div class="route-col"><div class="route-node node-sum">Σ M/S</div></div>
+      <div class="route-arrow">→</div>
+      <div class="route-col"><div class="route-node node-out">OUTPUT</div></div>
+    </div>
+  </div>
+
+  <h4>Demostración matemática — el escenario del usuario</h4>
+  <p>Config: A(pan=0,bus=→S), B(pan=0.5,bus=→M), C(pan=1,bus=→S)</p>
+
+  <div class="math">
+    <span class="label">Tras processOne + PAN:</span><br>
+    A: L<sub>A</sub> = S<sub>A</sub>, R<sub>A</sub> = 0<br>
+    B: L<sub>B</sub> = 0.707 × S<sub>B</sub>, R<sub>B</sub> = 0.707 × S<sub>B</sub><br>
+    C: L<sub>C</sub> = 0, R<sub>C</sub> = S<sub>C</sub><br><br>
+
+    <span class="label">Bus routing:</span><br>
+    A → SIDE bus: side<sub>A</sub> = (S<sub>A</sub> − 0) / 2 = S<sub>A</sub>/2<br>
+    B → MID bus:  mono<sub>B</sub> = (0.707S<sub>B</sub> + 0.707S<sub>B</sub>) / 2 = 0.707 × S<sub>B</sub><br>
+    C → SIDE bus: side<sub>C</sub> = (0 − S<sub>C</sub>) / 2 = −S<sub>C</sub>/2<br><br>
+
+    <span class="label">Acumuladores:</span><br>
+    mid_total = 0.707 × S<sub>B</sub><br>
+    side_total = S<sub>A</sub>/2 + (−S<sub>C</sub>/2) = (S<sub>A</sub> − S<sub>C</sub>) / 2<br><br>
+
+    <span class="label">Reconstrucción a estéreo:</span><br>
+    <span class="eq">L = mid_total + side_total = 0.707 × S<sub>B</sub> + (S<sub>A</sub> − S<sub>C</sub>) / 2</span><br>
+    <span class="eq">R = mid_total − side_total = 0.707 × S<sub>B</sub> − (S<sub>A</sub> − S<sub>C</sub>) / 2</span><br><br>
+
+    <span class="label">Verificación M/S del output:</span><br>
+    <span class="result">Mid(output) = (L+R)/√2 = √2 × 0.707 × S<sub>B</sub> = S<sub>B</sub> → ✓ ¡SOLO B!</span><br>
+    <span class="result">Side(output) = (L−R)/√2 = √2 × (S<sub>A</sub>−S<sub>C</sub>)/2 = (S<sub>A</sub>−S<sub>C</sub>)/√2 → ✓ ¡SOLO A y C!</span>
+  </div>
+
+  <div class="callout callout-good">
+    <div class="callout-title">✓ Separación perfecta</div>
+    Con Sum Bus <code>→ M</code> en B y <code>→ S</code> en A+C, la salida tiene:
+    <ul>
+      <li><strong>Mid:</strong> Exclusivamente S<sub>B</sub> — sin contaminación de A ni C</li>
+      <li><strong>Side:</strong> Exclusivamente (S<sub>A</sub> − S<sub>C</sub>) — sin contaminación de B</li>
+    </ul>
+    El resultado es un campo estéreo donde B está perfectamente centrado y A/C crean la anchura,
+    sin mez entre buses. Sí un DAW downstream aplica M/S decode, obtiene extraccion perfecta.
+  </div>
+
+  <h4>¿Cómo afecta a cada routing mode?</h4>
+  <table>
+    <thead><tr><th>Route</th><th>Topología</th><th>¿Sum Bus aplica?</th><th>¿Dónde?</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>A→B→C</td>
+        <td class="warn">No (1 solo camino)</td>
+        <td>En serie no hay suma — Sum Bus no tiene efecto</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>A|B|C</td>
+        <td class="good">Sí — 3 loaders</td>
+        <td>Cada loader puede asignarse a ST, →M o →S antes de la suma final</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>A→B | C</td>
+        <td class="good">Sí — 2 ramas</td>
+        <td>La rama serie (A→B) y C pueden asignarse a buses distintos</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>A | B→C</td>
+        <td class="good">Sí — 2 ramas</td>
+        <td>A y la rama serie (B→C) pueden asignarse a buses distintos</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-info">
+    <div class="callout-title">Nota sobre Routes 2/3</div>
+    En Routes 2 y 3, el Sum Bus aplica a cada <strong>rama paralela</strong> (no a cada loader individual dentro de la serie).
+    El último loader de la cadena serie determina el bus. En Route 2: bus del path (A→B) se toma de B, y bus de C es independiente.
+    En Route 3: bus de A es independiente, y bus del path (B→C) se toma de C.
+    <br><br>
+    <strong>Alternativa:</strong> Ignorar Sum Bus en Routes 0/2/3 y reservarlo exclusivamente para Route 1. Esto simplifica la implementación
+    y el concepto es más claro: "M/S bus routing = solo en modo full parallel". Si lo necesitas en Routes 2/3, se implementa después.
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--green)">✓ Ventajas</h4>
+      <ul>
+        <li>Separación M/S perfecta per-loader</li>
+        <li>Compatible con todos los parámetros existentes (PAN, Mode In/Out, etc.)</li>
+        <li>Concepto intuitivo: "este cab va al centro / a los lados"</li>
+        <li>Único en el mercado — ningún otro cab sim ofrece M/S bus routing</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color:var(--red)">✗ Consideraciones</h4>
+      <ul>
+        <li>3 nuevos parámetros (1 por loader) — requieren automación/estado</li>
+        <li>La compensación de ganancia varía según la combinación de buses</li>
+        <li>Sin efecto en Route 0 (serie) — el UI podría ocultar/deshabilitar</li>
+        <li>La interacción con Mode Out existente requiere documentación</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <span style="font-size:13px;color:var(--textDim);">Impacto en código:</span>
+    <div class="impact-bar"><div class="impact-fill impact-med"></div></div>
+    <span style="font-size:12px;color:var(--yellow);">~35 líneas DSP (mayormente en suma paralela) · 3 parámetros nuevos · 3 combos UI</span>
+  </div>
+</div>
+
+<!-- PROPOSAL A+C COMBINED -->
+<div class="proposal recommended" style="border-color:var(--cyan);">
+  <div class="proposal-header">
+    <h3 style="margin:0;color:var(--cyan);">Propuesta A+C — Global Post-Sum + Per-Loader Bus</h3>
+    <span class="proposal-badge badge-rec">★★ MÁXIMA FLEXIBILIDAD</span>
+  </div>
+  <p>
+    Combinar <strong>Propuesta A</strong> (global output mode) con <strong>Propuesta C</strong> (per-loader sum bus).
+    El global output mode sirve como herramienta de monitoreo rápido, y el per-loader bus para routing preciso.
+  </p>
+
+  <div class="diagram">
+    <div class="diagram-title">Flujo completo con A+C</div>
+    <div class="flow flow-row">
+      <span class="block block-input">INPUT</span>
+      <span class="arrow">→</span>
+      <span class="block block-mode">Mode In</span>
+      <span class="arrow">→</span>
+      <span class="block block-loader">processLoader</span>
+      <span class="arrow">→</span>
+      <span class="block block-mode">Mode Out</span>
+      <span class="arrow">→</span>
+      <span class="block block-new">Sum Bus ★</span>
+      <span class="arrow">→</span>
+      <span class="block block-sum">Σ M/S-aware</span>
+      <span class="arrow">→</span>
+      <span class="block block-new">Output Mode ★</span>
+      <span class="arrow">→</span>
+      <span class="block block-process">Tilt EQ</span>
+      <span class="arrow">→</span>
+      <span class="block block-output">OUTPUT</span>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <span style="font-size:13px;color:var(--textDim);">Impacto total:</span>
+    <div class="impact-bar"><div class="impact-fill impact-med"></div></div>
+    <span style="font-size:12px;color:var(--yellow);">~45 líneas DSP · 4 parámetros nuevos · 4 combos UI</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s7">§7 — Impacto en código: estimación detallada</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Componente</th>
+      <th>Prop. A (Global)</th>
+      <th>Prop. B (L/R)</th>
+      <th>Prop. C (Sum Bus)</th>
+      <th>A+C combinado</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>PluginProcessor.h</strong></td>
+      <td>+1 param ID<br>+1 atomic</td>
+      <td>Cambiar rango 0→2 a 0→4</td>
+      <td>+3 param IDs<br>+3 atomics</td>
+      <td>+4 params<br>+4 atomics</td>
+    </tr>
+    <tr>
+      <td><strong>PluginProcessor.cpp — params</strong></td>
+      <td>+1 AudioParameterChoice</td>
+      <td>Añadir "→ L","→ R" a strings</td>
+      <td>+3 AudioParameterChoice</td>
+      <td>+4 AudioParameterChoice</td>
+    </tr>
+    <tr>
+      <td><strong>PluginProcessor.cpp — applyMode</strong></td>
+      <td>—</td>
+      <td>+6 líneas (cases 3,4)</td>
+      <td>—</td>
+      <td>+6 líneas</td>
+    </tr>
+    <tr>
+      <td><strong>PluginProcessor.cpp — routing</strong></td>
+      <td>+10 líneas post-suma</td>
+      <td>—</td>
+      <td>+25 líneas (suma M/S-aware)</td>
+      <td>+35 líneas</td>
+    </tr>
+    <tr>
+      <td><strong>PluginProcessor.cpp — offline</strong></td>
+      <td>—</td>
+      <td>+4 líneas en offlineProcess</td>
+      <td>—</td>
+      <td>+4 líneas</td>
+    </tr>
+    <tr>
+      <td><strong>PluginEditor.h</strong></td>
+      <td>+1 combo component</td>
+      <td>—</td>
+      <td>+3 combo components</td>
+      <td>+4 combos</td>
+    </tr>
+    <tr>
+      <td><strong>PluginEditor.cpp — UI</strong></td>
+      <td>+~15 líneas layout</td>
+      <td>—</td>
+      <td>+~20 líneas layout</td>
+      <td>+~35 líneas</td>
+    </tr>
+    <tr>
+      <td><strong>Total líneas nuevas</strong></td>
+      <td class="good">~25</td>
+      <td class="good">~10</td>
+      <td style="color:var(--yellow)">~50</td>
+      <td style="color:var(--yellow)">~80</td>
+    </tr>
+    <tr>
+      <td><strong>Nuevos parámetros</strong></td>
+      <td>1</td>
+      <td>0</td>
+      <td>3</td>
+      <td>4</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s8">§8 — Mode Out extendidos por routing: tabla completa</h2>
+
+<p>Resumen de qué Mode Out opciones tienen efecto según el routing:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Mode Out</th>
+      <th>Route 0<br>A→B→C</th>
+      <th>Route 1<br>A|B|C</th>
+      <th>Route 2<br>A→B|C</th>
+      <th>Route 3<br>A|B→C</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">L+R</td>
+      <td>✓ pass-through entre etapas</td>
+      <td>✓ contribución normal a suma</td>
+      <td>✓ normal</td>
+      <td>✓ normal</td>
+    </tr>
+    <tr>
+      <td class="mono">MID</td>
+      <td>✓ mono-iza entre etapas</td>
+      <td>✓ colapsa loader a mono antes de sumar</td>
+      <td>✓ normal</td>
+      <td>✓ normal</td>
+    </tr>
+    <tr>
+      <td class="mono">SIDE</td>
+      <td>✓ extrae diferencia entre etapas</td>
+      <td>✓ extrae diferencia antes de sumar</td>
+      <td>✓ normal</td>
+      <td>✓ normal</td>
+    </tr>
+    <tr>
+      <td class="mono" style="color:var(--purple)">→ L ★</td>
+      <td>Silencia R entre etapas</td>
+      <td>Loader solo contribuye al L de la suma</td>
+      <td>Normal</td>
+      <td>Normal</td>
+    </tr>
+    <tr>
+      <td class="mono" style="color:var(--purple)">→ R ★</td>
+      <td>Silencia L entre etapas</td>
+      <td>Loader solo contribuye al R de la suma</td>
+      <td>Normal</td>
+      <td>Normal</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Sum Bus per-loader (Propuesta C) — efecto por routing</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Sum Bus</th>
+      <th>Route 0</th>
+      <th>Route 1</th>
+      <th>Route 2</th>
+      <th>Route 3</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">ST</td>
+      <td style="color:var(--textDim)">n/a</td>
+      <td>Suma directa (actual)</td>
+      <td>Suma directa</td>
+      <td>Suma directa</td>
+    </tr>
+    <tr>
+      <td class="mono" style="color:var(--purple)">→ M ★</td>
+      <td style="color:var(--textDim)">n/a</td>
+      <td>Colapsa a mono → solo mid bus</td>
+      <td>Solo rama paralela</td>
+      <td>Solo rama paralela</td>
+    </tr>
+    <tr>
+      <td class="mono" style="color:var(--purple)">→ S ★</td>
+      <td style="color:var(--textDim)">n/a</td>
+      <td>Extrae diferencia → solo side bus</td>
+      <td>Solo rama paralela</td>
+      <td>Solo rama paralela</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="s9">§9 — Recomendación final</h2>
+
+<div class="callout callout-good" style="font-size:14px;">
+  <div class="callout-title" style="font-size:16px;">Implementación recomendada: Propuesta C sola</div>
+  <ol style="margin-top:8px;padding-left:20px;">
+    <li style="margin-bottom:8px;">
+      <strong>Implementar Sum Bus per-loader (Propuesta C)</strong> solo para <strong>Route 1 (A|B|C)</strong> inicialmente.
+      Es la configuración más usada y donde la funcionalidad tiene más sentido.
+    </li>
+    <li style="margin-bottom:8px;">
+      <strong>3 nuevos parámetros:</strong> <code>sum_bus_a</code>, <code>sum_bus_b</code>, <code>sum_bus_c</code>
+      — cada uno con opciones <code>ST</code> / <code>→ M</code> / <code>→ S</code>
+    </li>
+    <li style="margin-bottom:8px;">
+      <strong>~35 líneas de DSP</strong> en la sección de suma paralela de <code>processBlock</code>.
+      El resto del código (processOne, processLoader, Mode In/Out) no cambia.
+    </li>
+    <li style="margin-bottom:8px;">
+      <strong>Extensión futura:</strong> Si se necesita, extender a Routes 2/3 (ramas paralelas) y añadir
+      la Propuesta A (global output mode) como herramienta de monitoreo.
+    </li>
+  </ol>
+</div>
+
+<h3>Pseudocódigo de la suma M/S-aware (Route 1)</h3>
+<pre>
+<span class="comment">// — Dentro del bloque if (route == 1) — A|B|C paralelo —</span>
+
+<span class="comment">// 1. Procesar cada loader como siempre</span>
+<span class="keyword">if</span> (enableA) processOne (stateA, tempBufferA, <span class="number">0</span>, modeInA, modeOutA, mixA);
+<span class="keyword">if</span> (enableB) processOne (stateB, tempBufferB, <span class="number">1</span>, modeInB, modeOutB, mixB);
+<span class="keyword">if</span> (enableC) processOne (stateC, tempBufferC, <span class="number">2</span>, modeInC, modeOutC, mixC);
+
+<span class="comment">// 2. Acumular según Sum Bus</span>
+buffer.clear();
+<span class="keyword">float</span> midAccum = <span class="number">0</span>, sideAccum = <span class="number">0</span>;  <span class="comment">// per-sample, dentro del loop</span>
+
+<span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i < numSamples; ++i)
+{
+    <span class="keyword">float</span> sumL = <span class="number">0</span>, sumR = <span class="number">0</span>;
+    <span class="keyword">float</span> midBus = <span class="number">0</span>, sideBus = <span class="number">0</span>;
+    <span class="keyword">bool</span> hasMSBus = <span class="keyword">false</span>;
+
+    <span class="comment">// Para cada loader activo:</span>
+    <span class="keyword">auto</span> accumulate = [&] (<span class="keyword">auto</span>& buf, <span class="keyword">int</span> bus) {
+        <span class="keyword">float</span> l = buf.getReadPointer(<span class="number">0</span>)[i];
+        <span class="keyword">float</span> r = buf.getReadPointer(<span class="number">1</span>)[i];
+
+        <span class="keyword">if</span> (bus == <span class="number">0</span>)      <span class="comment">// ST — suma directa</span>
+        {   sumL += l; sumR += r;   }
+        <span class="keyword">else if</span> (bus == <span class="number">1</span>) <span class="comment">// → M — solo contribuye a mid</span>
+        {   midBus += (l + r) * <span class="number">0.5f</span>; hasMSBus = <span class="keyword">true</span>;   }
+        <span class="keyword">else</span>               <span class="comment">// → S — solo contribuye a side</span>
+        {   sideBus += (l - r) * <span class="number">0.5f</span>; hasMSBus = <span class="keyword">true</span>;   }
+    };
+
+    <span class="keyword">if</span> (enableA) accumulate (tempBufferA, sumBusA);
+    <span class="keyword">if</span> (enableB) accumulate (tempBufferB, sumBusB);
+    <span class="keyword">if</span> (enableC) accumulate (tempBufferC, sumBusC);
+
+    <span class="comment">// 3. Reconstruir estéreo: L = mid + side, R = mid − side</span>
+    <span class="keyword">if</span> (hasMSBus)
+    {   sumL += midBus + sideBus;  sumR += midBus - sideBus;   }
+
+    buffer.getWritePointer(<span class="number">0</span>)[i] = sumL;
+    buffer.getWritePointer(<span class="number">1</span>)[i] = sumR;
+}
+
+<span class="comment">// 4. Compensación</span>
+buffer.applyGain (<span class="number">1.0f</span> / std::sqrt ((<span class="keyword">float</span>) numActive));
+</pre>
+
+<div class="callout callout-info" style="margin-top:24px;">
+  <div class="callout-title">¿Tiene sentido?</div>
+  <strong>Absolutamente sí.</strong> El escenario que describes (3 cabs mono → L/C/R → control M/S independiente)
+  es un caso de uso real en producción de guitarra. La técnica de colocar cabs distintos en los lados y uno
+  neutral en el centro es común, y poder controlar cuánto "centro" vs "anchura" aporta cada cab es una herramienta
+  poderosa que actualmente no ofrece ningún cab sim del mercado que yo conozca.
+  <br><br>
+  El coste de implementación es moderado (~35 líneas DSP, 3 params, 3 combos) y no rompe ningún comportamiento existente
+  (Sum Bus = ST por defecto = comportamiento actual).
+</div>
+
+<div class="version">CAB-TR Routing Analysis v1.0 — Generado para análisis de diseño DSP</div>
+
+</body>
+</html>

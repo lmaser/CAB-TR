@@ -1143,7 +1143,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamDelayA,  CABTRAudioProcessor::kParamPanA,    CABTRAudioProcessor::kParamFredA, CABTRAudioProcessor::kParamPosA,
 		CABTRAudioProcessor::kParamInvA,    CABTRAudioProcessor::kParamNormA,   CABTRAudioProcessor::kParamRvsA,  CABTRAudioProcessor::kParamChaosA,
 		CABTRAudioProcessor::kParamChaosAmtA, CABTRAudioProcessor::kParamChaosSpdA,
-		CABTRAudioProcessor::kParamModeInA, CABTRAudioProcessor::kParamModeOutA, CABTRAudioProcessor::kParamMixA
+		CABTRAudioProcessor::kParamModeInA, CABTRAudioProcessor::kParamModeOutA, CABTRAudioProcessor::kParamSumBusA, CABTRAudioProcessor::kParamMixA
 	},
 	{ // B
 		CABTRAudioProcessor::kParamEnableB,
@@ -1152,7 +1152,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamDelayB,  CABTRAudioProcessor::kParamPanB,    CABTRAudioProcessor::kParamFredB, CABTRAudioProcessor::kParamPosB,
 		CABTRAudioProcessor::kParamInvB,    CABTRAudioProcessor::kParamNormB,   CABTRAudioProcessor::kParamRvsB,  CABTRAudioProcessor::kParamChaosB,
 		CABTRAudioProcessor::kParamChaosAmtB, CABTRAudioProcessor::kParamChaosSpdB,
-		CABTRAudioProcessor::kParamModeInB, CABTRAudioProcessor::kParamModeOutB, CABTRAudioProcessor::kParamMixB
+		CABTRAudioProcessor::kParamModeInB, CABTRAudioProcessor::kParamModeOutB, CABTRAudioProcessor::kParamSumBusB, CABTRAudioProcessor::kParamMixB
 	},
 	{ // C
 		CABTRAudioProcessor::kParamEnableC,
@@ -1161,7 +1161,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamDelayC,  CABTRAudioProcessor::kParamPanC,    CABTRAudioProcessor::kParamFredC, CABTRAudioProcessor::kParamPosC,
 		CABTRAudioProcessor::kParamInvC,    CABTRAudioProcessor::kParamNormC,   CABTRAudioProcessor::kParamRvsC,  CABTRAudioProcessor::kParamChaosC,
 		CABTRAudioProcessor::kParamChaosAmtC, CABTRAudioProcessor::kParamChaosSpdC,
-		CABTRAudioProcessor::kParamModeInC, CABTRAudioProcessor::kParamModeOutC, CABTRAudioProcessor::kParamMixC
+		CABTRAudioProcessor::kParamModeInC, CABTRAudioProcessor::kParamModeOutC, CABTRAudioProcessor::kParamSumBusC, CABTRAudioProcessor::kParamMixC
 	}
 };
 
@@ -1177,17 +1177,17 @@ CABTRAudioProcessorEditor::LoaderRefs CABTRAudioProcessorEditor::getLoaderRefs (
 		                 hpFreqSliderB, lpFreqSliderB, outSliderB, startSliderB, endSliderB,
 		                 pitchSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB,
 		                 invButtonB, normButtonB, rvsButtonB, chaosButtonB, chaosDisplayB,
-		                 modeInComboB, modeOutComboB, filterBarB_, mixSliderB };
+		                 modeInComboB, modeOutComboB, sumBusComboB, filterBarB_, mixSliderB };
 		case 2: return { enableButtonC, browseButtonC, fileDisplayC,
 		                 hpFreqSliderC, lpFreqSliderC, outSliderC, startSliderC, endSliderC,
 		                 pitchSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC,
 		                 invButtonC, normButtonC, rvsButtonC, chaosButtonC, chaosDisplayC,
-		                 modeInComboC, modeOutComboC, filterBarC_, mixSliderC };
+		                 modeInComboC, modeOutComboC, sumBusComboC, filterBarC_, mixSliderC };
 		default: return { enableButtonA, browseButtonA, fileDisplayA,
 		                  hpFreqSliderA, lpFreqSliderA, outSliderA, startSliderA, endSliderA,
 		                  pitchSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA,
 		                  invButtonA, normButtonA, rvsButtonA, chaosButtonA, chaosDisplayA,
-		                  modeInComboA, modeOutComboA, filterBarA_, mixSliderA };
+		                  modeInComboA, modeOutComboA, sumBusComboA, filterBarA_, mixSliderA };
 	}
 }
 
@@ -1199,17 +1199,17 @@ CABTRAudioProcessorEditor::AttachRefs CABTRAudioProcessorEditor::getAttachRefs (
 		                 hpFreqAttachB, lpFreqAttachB, outAttachB, startAttachB, endAttachB,
 		                 pitchAttachB, delayAttachB, panAttachB, fredAttachB, posAttachB,
 		                 invAttachB, normAttachB, rvsAttachB, chaosAttachB,
-		                 modeInAttachB, modeOutAttachB, mixAttachB };
+		                 modeInAttachB, modeOutAttachB, sumBusAttachB, mixAttachB };
 		case 2: return { enableAttachC,
 		                 hpFreqAttachC, lpFreqAttachC, outAttachC, startAttachC, endAttachC,
 		                 pitchAttachC, delayAttachC, panAttachC, fredAttachC, posAttachC,
 		                 invAttachC, normAttachC, rvsAttachC, chaosAttachC,
-		                 modeInAttachC, modeOutAttachC, mixAttachC };
+		                 modeInAttachC, modeOutAttachC, sumBusAttachC, mixAttachC };
 		default: return { enableAttachA,
 		                  hpFreqAttachA, lpFreqAttachA, outAttachA, startAttachA, endAttachA,
 		                  pitchAttachA, delayAttachA, panAttachA, fredAttachA, posAttachA,
 		                  invAttachA, normAttachA, rvsAttachA, chaosAttachA,
-		                  modeInAttachA, modeOutAttachA, mixAttachA };
+		                  modeInAttachA, modeOutAttachA, sumBusAttachA, mixAttachA };
 	}
 }
 
@@ -1282,6 +1282,16 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	setupModeCombo (r.modeIn);
 	setupModeCombo (r.modeOut);
 
+	{
+		addAndMakeVisible (r.sumBus);
+		r.sumBus.addItem ("ST",  1);
+		r.sumBus.addItem (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "M", 2);
+		r.sumBus.addItem (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "S", 3);
+		r.sumBus.setJustificationType (juce::Justification::centred);
+		r.sumBus.setLookAndFeel (&lnf);
+		r.sumBus.addListener (this);
+	}
+
 	r.filterBar.setOwner (this, loaderIndex);
 	r.filterBar.setScheme (activeScheme);
 	addAndMakeVisible (r.filterBar);
@@ -1315,6 +1325,7 @@ void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorVal
 	a.chaosAtt   = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.chaos,   ui.chaos);
 	a.modeInAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeIn,  ui.modeIn);
 	a.modeOutAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeOut, ui.modeOut);
+	a.sumBusAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.sumBus, ui.sumBus);
 	a.mixAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.mix,     ui.mix);
 }
 
@@ -1827,6 +1838,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& filterBar  = pick (filterBarA_,      filterBarB_,      filterBarC_);
 	auto& modeInCmb  = pick (modeInComboA,     modeInComboB,     modeInComboC);
 	auto& modeOutCmb = pick (modeOutComboA,    modeOutComboB,    modeOutComboC);
+	auto& sumBusCmb  = pick (sumBusComboA,     sumBusComboB,     sumBusComboC);
 	auto& chaosDisp  = pick (chaosDisplayA,    chaosDisplayB,    chaosDisplayC);
 
 	if (ioSectionExpanded_)
@@ -1853,14 +1865,16 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		mix.setVisible (true);
 		area.removeFromTop (gap);
 
-		// MODE IN / MODE OUT combos
+		// MODE IN / MODE OUT / SUM BUS combos
 		area.removeFromTop (modeLabelGap);
 		auto modeRow = area.removeFromTop (comboH);
-		const int modeComboW = sliderW / 2 - gap / 2;
+		const int modeComboW = (sliderW - gap * 2) / 3;
 		modeInCmb.setBounds  (modeRow.getX(), modeRow.getY(), modeComboW, comboH);
 		modeOutCmb.setBounds (modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, comboH);
+		sumBusCmb.setBounds  (modeRow.getX() + (modeComboW + gap) * 2, modeRow.getY(), modeComboW, comboH);
 		modeInCmb.setVisible (true);
 		modeOutCmb.setVisible (true);
+		sumBusCmb.setVisible (true);
 		area.removeFromTop (gap * 2);
 
 		// CHAOS checkbox — full column width since it's alone in its row
@@ -1938,7 +1952,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		// Hide expanded-only controls
 		out.setVisible (false);        filterBar.setVisible (false);
 		mix.setVisible (false);
-		modeInCmb.setVisible (false);    modeOutCmb.setVisible (false);
+		modeInCmb.setVisible (false);    modeOutCmb.setVisible (false);    sumBusCmb.setVisible (false);
 		chaos.setVisible (false);      chaosDisp.setVisible (false);
 		hp.setVisible (false);         lp.setVisible (false);
 	}

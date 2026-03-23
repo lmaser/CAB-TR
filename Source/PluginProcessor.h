@@ -40,6 +40,7 @@ public:
 	static constexpr const char* kParamChaosSpdA    = "chaos_spd_a";
 	static constexpr const char* kParamModeInA      = "mode_in_a";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutA     = "mode_out_a"; // 0=L+R, 1=MID, 2=SIDE
+	static constexpr const char* kParamSumBusA      = "sum_bus_a"; // 0=ST, 1=→M, 2=→S
 	static constexpr const char* kParamMixA         = "mix_a";     // Per-loader dry/wet
 
 	// ══════════════════════════════════════════════════════════════
@@ -69,6 +70,7 @@ public:
 	static constexpr const char* kParamChaosSpdB    = "chaos_spd_b";
 	static constexpr const char* kParamModeInB      = "mode_in_b";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutB     = "mode_out_b"; // 0=L+R, 1=MID, 2=SIDE
+	static constexpr const char* kParamSumBusB      = "sum_bus_b"; // 0=ST, 1=→M, 2=→S
 	static constexpr const char* kParamMixB         = "mix_b";     // Per-loader dry/wet
 
 	// ══════════════════════════════════════════════════════════════
@@ -98,6 +100,7 @@ public:
 	static constexpr const char* kParamChaosSpdC    = "chaos_spd_c";
 	static constexpr const char* kParamModeInC      = "mode_in_c";
 	static constexpr const char* kParamModeOutC     = "mode_out_c";
+	static constexpr const char* kParamSumBusC      = "sum_bus_c"; // 0=ST, 1=→M, 2=→S
 	static constexpr const char* kParamMixC         = "mix_c";
 
 	// ══════════════════════════════════════════════════════════════
@@ -207,6 +210,9 @@ public:
 	static constexpr int   kModeMin                 = 0;
 	static constexpr int   kModeMax                 = 2;          // L+R, MID, SIDE
 	static constexpr int   kModeDefault             = 0;          // L+R
+
+	static constexpr int   kSumBusMax               = 2;          // 0=ST, 1=→M, 2=→S
+	static constexpr int   kSumBusDefault           = 0;          // ST (unchanged)
 
 	static constexpr int   kRouteMin                = 0;
 	static constexpr int   kRouteMax                = 3;          // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
@@ -454,11 +460,13 @@ private:
 	std::atomic<float>* pChaosSpdA = nullptr;
 	std::atomic<float>* pModeInA = nullptr;
 	std::atomic<float>* pModeOutA = nullptr;
+	std::atomic<float>* pSumBusA = nullptr;
 	std::atomic<float>* pChaosB = nullptr;
 	std::atomic<float>* pChaosAmtB = nullptr;
 	std::atomic<float>* pChaosSpdB = nullptr;
 	std::atomic<float>* pModeInB = nullptr;
 	std::atomic<float>* pModeOutB = nullptr;
+	std::atomic<float>* pSumBusB = nullptr;
 	std::atomic<float>* pMixA = nullptr;
 	std::atomic<float>* pMixB = nullptr;
 	std::atomic<float>* pHpFreqC = nullptr;
@@ -477,6 +485,7 @@ private:
 	std::atomic<float>* pChaosSpdC = nullptr;
 	std::atomic<float>* pModeInC = nullptr;
 	std::atomic<float>* pModeOutC = nullptr;
+	std::atomic<float>* pSumBusC = nullptr;
 	std::atomic<float>* pMixC = nullptr;
 	std::atomic<float>* pMatch = nullptr;
 	std::atomic<float>* pTrim  = nullptr;

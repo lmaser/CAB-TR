@@ -269,6 +269,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeInA, "Mode In A", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutA, "Mode Out A", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamSumBusA, "Sum Bus A", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixA, "Mix A", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -339,6 +341,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeInB, "Mode In B", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutB, "Mode Out B", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamSumBusB, "Sum Bus B", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixB, "Mix B", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -409,6 +413,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeInC, "Mode In C", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutC, "Mode Out C", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamSumBusC, "Sum Bus C", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixC, "Mix C", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -578,11 +584,13 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pChaosSpdA = parameters.getRawParameterValue (kParamChaosSpdA);
 	pModeInA   = parameters.getRawParameterValue (kParamModeInA);
 	pModeOutA  = parameters.getRawParameterValue (kParamModeOutA);
+	pSumBusA   = parameters.getRawParameterValue (kParamSumBusA);
 	pChaosB    = parameters.getRawParameterValue (kParamChaosB);
 	pChaosAmtB = parameters.getRawParameterValue (kParamChaosAmtB);
 	pChaosSpdB = parameters.getRawParameterValue (kParamChaosSpdB);
 	pModeInB   = parameters.getRawParameterValue (kParamModeInB);
 	pModeOutB  = parameters.getRawParameterValue (kParamModeOutB);
+	pSumBusB   = parameters.getRawParameterValue (kParamSumBusB);
 	pMixA      = parameters.getRawParameterValue (kParamMixA);
 	pMixB      = parameters.getRawParameterValue (kParamMixB);
 	pEnableC   = parameters.getRawParameterValue (kParamEnableC);
@@ -602,6 +610,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pChaosSpdC = parameters.getRawParameterValue (kParamChaosSpdC);
 	pModeInC   = parameters.getRawParameterValue (kParamModeInC);
 	pModeOutC  = parameters.getRawParameterValue (kParamModeOutC);
+	pSumBusC   = parameters.getRawParameterValue (kParamSumBusC);
 	pMixC      = parameters.getRawParameterValue (kParamMixC);
 	pMatch     = parameters.getRawParameterValue (kParamMatch);
 	pTrim      = parameters.getRawParameterValue (kParamTrim);
@@ -745,6 +754,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const int modeOutB = static_cast<int> (pModeOutB->load());
 	const int modeInC  = static_cast<int> (pModeInC->load());
 	const int modeOutC = static_cast<int> (pModeOutC->load());
+	const int sumBusA  = static_cast<int> (pSumBusA->load());
+	const int sumBusB  = static_cast<int> (pSumBusB->load());
+	const int sumBusC  = static_cast<int> (pSumBusC->load());
 	const float mixA = pMixA->load();
 	const float mixB = pMixB->load();
 	const float mixC = pMixC->load();
@@ -870,17 +882,60 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			if (enableB) processOne (stateB, tempBufferB, 1, modeInB, modeOutB, mixB);
 			if (enableC) processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
 
-			// Sum active buffers
-			buffer.clear();
-			if (enableA)
-				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
-			if (enableB)
-				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferB.getReadPointer (ch), numSamples);
-			if (enableC)
-				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
+			// Sum active buffers — M/S bus-aware
+			const bool anyMSBus = (enableA && sumBusA != 0)
+			                   || (enableB && sumBusB != 0)
+			                   || (enableC && sumBusC != 0);
+
+			if (anyMSBus && buffer.getNumChannels() >= 2)
+			{
+				// M/S bus routing: each loader contributes to ST, →M, or →S bus
+				auto* outL = buffer.getWritePointer (0);
+				auto* outR = buffer.getWritePointer (1);
+
+				const float* srcL[3] = { nullptr, nullptr, nullptr };
+				const float* srcR[3] = { nullptr, nullptr, nullptr };
+				int buses[3] = { sumBusA, sumBusB, sumBusC };
+				bool active[3] = { enableA, enableB, enableC };
+
+				if (enableA) { srcL[0] = tempBufferA.getReadPointer (0); srcR[0] = tempBufferA.getReadPointer (1); }
+				if (enableB) { srcL[1] = tempBufferB.getReadPointer (0); srcR[1] = tempBufferB.getReadPointer (1); }
+				if (enableC) { srcL[2] = tempBufferC.getReadPointer (0); srcR[2] = tempBufferC.getReadPointer (1); }
+
+				for (int i = 0; i < numSamples; ++i)
+				{
+					float stL = 0.0f, stR = 0.0f;
+					float midBus = 0.0f, sideBus = 0.0f;
+
+					for (int k = 0; k < 3; ++k)
+					{
+						if (!active[k]) continue;
+						const float l = srcL[k][i];
+						const float r = srcR[k][i];
+
+						if (buses[k] == 0)      { stL += l; stR += r; }           // ST — direct
+						else if (buses[k] == 1)  { midBus += (l + r) * 0.5f; }    // →M
+						else                     { sideBus += (l - r) * 0.5f; }    // →S
+					}
+
+					outL[i] = stL + midBus + sideBus;
+					outR[i] = stR + midBus - sideBus;
+				}
+			}
+			else
+			{
+				// Fast path: all ST — simple L+R addition (no M/S overhead)
+				buffer.clear();
+				if (enableA)
+					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
+				if (enableB)
+					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferB.getReadPointer (ch), numSamples);
+				if (enableC)
+					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
+			}
 
 			// Parallel compensation: 1/sqrt(N)
 			buffer.applyGain (1.0f / std::sqrt (static_cast<float> (numActive)));
@@ -905,9 +960,35 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 			// Parallel path C
 			processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
-			// Sum both paths and compensate
-			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-				juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
+			// Sum both paths and compensate — M/S bus-aware
+			// Series path bus = sumBusB (last in chain), parallel path bus = sumBusC
+			const int seriesBus = sumBusB;
+			const int parallelBus = sumBusC;
+			if ((seriesBus != 0 || parallelBus != 0) && buffer.getNumChannels() >= 2)
+			{
+				auto* bL = buffer.getWritePointer (0);
+				auto* bR = buffer.getWritePointer (1);
+				const auto* cL = tempBufferC.getReadPointer (0);
+				const auto* cR = tempBufferC.getReadPointer (1);
+				for (int i = 0; i < numSamples; ++i)
+				{
+					float stL = 0.0f, stR = 0.0f, midBus = 0.0f, sideBus = 0.0f;
+					auto inject = [&] (float l, float r, int bus) {
+						if (bus == 0)      { stL += l; stR += r; }
+						else if (bus == 1) { midBus += (l + r) * 0.5f; }
+						else               { sideBus += (l - r) * 0.5f; }
+					};
+					inject (bL[i], bR[i], seriesBus);
+					inject (cL[i], cR[i], parallelBus);
+					bL[i] = stL + midBus + sideBus;
+					bR[i] = stR + midBus - sideBus;
+				}
+			}
+			else
+			{
+				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
+			}
 			buffer.applyGain (0.707106781f); // -3dB for 2 parallel paths
 		}
 		else
@@ -931,9 +1012,35 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			// Series path: B→C stays in buffer
 			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 			if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
-			// Sum both paths and compensate
-			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-				juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
+			// Sum both paths and compensate — M/S bus-aware
+			// Parallel path bus = sumBusA, series path bus = sumBusC (last in chain)
+			const int parallelBus = sumBusA;
+			const int seriesBus = sumBusC;
+			if ((parallelBus != 0 || seriesBus != 0) && buffer.getNumChannels() >= 2)
+			{
+				auto* bL = buffer.getWritePointer (0);
+				auto* bR = buffer.getWritePointer (1);
+				const auto* aL = tempBufferA.getReadPointer (0);
+				const auto* aR = tempBufferA.getReadPointer (1);
+				for (int i = 0; i < numSamples; ++i)
+				{
+					float stL = 0.0f, stR = 0.0f, midBus = 0.0f, sideBus = 0.0f;
+					auto inject = [&] (float l, float r, int bus) {
+						if (bus == 0)      { stL += l; stR += r; }
+						else if (bus == 1) { midBus += (l + r) * 0.5f; }
+						else               { sideBus += (l - r) * 0.5f; }
+					};
+					inject (bL[i], bR[i], seriesBus);
+					inject (aL[i], aR[i], parallelBus);
+					bL[i] = stL + midBus + sideBus;
+					bR[i] = stR + midBus - sideBus;
+				}
+			}
+			else
+			{
+				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
+			}
 			buffer.applyGain (0.707106781f); // -3dB for 2 parallel paths
 		}
 		else

@@ -231,7 +231,7 @@ private:
 		juce::ToggleButton &enableBtn;  juce::TextButton &browseBtn;  juce::Label &fileDisp;
 		BarSlider &hp, &lp, &out, &start, &end, &pitch, &delay, &pan, &fred, &pos;
 		juce::ToggleButton &inv, &norm, &rvs, &chaos;  juce::Label &chaosDisp;
-		juce::ComboBox &modeIn, &modeOut;
+		juce::ComboBox &modeIn, &modeOut, &sumBus;
 		FilterBarComponent &filterBar;  BarSlider &mix;
 	};
 	struct AttachRefs
@@ -239,7 +239,7 @@ private:
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &outAtt, &startAtt, &endAtt, &pitchAtt, &delayAtt, &panAtt, &fredAtt, &posAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt;
-		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt, &sumBusAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
 	};
 	LoaderRefs  getLoaderRefs (int index);
@@ -256,7 +256,7 @@ private:
 		const char* delay;   const char* pan;     const char* fred;   const char* pos;
 		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;
 		const char* chaosAmt; const char* chaosSpd;
-		const char* modeIn;  const char* modeOut; const char* mix;
+		const char* modeIn;  const char* modeOut; const char* sumBus; const char* mix;
 	};
 	static const LoaderParamIds kLoaderParams[3];
 
@@ -311,8 +311,10 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachA;
 	juce::ComboBox modeInComboA;
 	juce::ComboBox modeOutComboA;
+	juce::ComboBox sumBusComboA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachA;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — IR Loader B
@@ -355,8 +357,10 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachB;
 	juce::ComboBox modeInComboB;
 	juce::ComboBox modeOutComboB;
+	juce::ComboBox sumBusComboB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachB;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — IR Loader C
@@ -399,8 +403,10 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachC;
 	juce::ComboBox modeInComboC;
 	juce::ComboBox modeOutComboC;
+	juce::ComboBox sumBusComboC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeInAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachC;
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — Filter Bars & per-loader MIX
