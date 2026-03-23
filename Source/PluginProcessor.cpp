@@ -118,9 +118,7 @@ CABTRAudioProcessor::CABTRAudioProcessor()
 #endif
       parameters (*this, nullptr, juce::Identifier ("CABTRState"), createParameterLayout())
 {
-	// Initialize convolution processors
-	stateA.convolution.reset();
-	stateB.convolution.reset();
+	// Convolution engines (StereoThreadedConvolver) — prepared in prepareToPlay()
 	
 	// Register audio formats once
 	formatManager.registerBasicFormats();
@@ -486,9 +484,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	spec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
 	spec.numChannels = 2;
 
-	stateA.convolution.prepare (spec);
-	stateB.convolution.prepare (spec);
-	stateC.convolution.prepare (spec);
+	stateA.convolution.prepare (sampleRate, samplesPerBlock);
+	stateB.convolution.prepare (sampleRate, samplesPerBlock);
+	stateC.convolution.prepare (sampleRate, samplesPerBlock);
 
 	// FFT runtime benchmark — verify FFTW engine is actually active
 	{
@@ -1208,16 +1206,9 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	LOG_IR_EVENT ("IR final length: " + juce::String (state.impulseResponse.getNumSamples()) +
 	              " samples (" + juce::String (state.impulseResponse.getNumSamples() / reader->sampleRate * 1000.0, 1) + " ms)");
 
-	// Head size configured in Convolution constructor (NonUniform{256})
-	// IMPORTANT: Copy the buffer — do NOT std::move it, we need state.impulseResponse
-	// for cross-correlation alignment (calculateAutoAlignment)
-	juce::AudioBuffer<float> convCopy (state.impulseResponse);
-	state.convolution.loadImpulseResponse (
-		std::move (convCopy),
-		reader->sampleRate,
-		juce::dsp::Convolution::Stereo::yes,
-		juce::dsp::Convolution::Trim::no,
-		juce::dsp::Convolution::Normalise::no);
+	// Load IR into two-stage threaded convolver (head on audio thread, tail on background)
+	// We pass state.impulseResponse directly — loadIR copies internally
+	state.convolution.loadIR (state.impulseResponse, reader->sampleRate);
 	
 	// Update cached parameter values AFTER successful load
 	state.lastPitch.store (pitch);
@@ -1937,12 +1928,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// (FRED processing happens after convolution + filters)
 	
-	// 1. CONVOLUTION (NonUniform{1024} — partitioned FFT)
+	// 1. CONVOLUTION (TwoStageFFTConvolver — head on audio thread, tail on background)
 	{
 		const auto convStart = juce::Time::getHighResolutionTicks();
-		juce::dsp::AudioBlock<float> block (buffer);
-		juce::dsp::ProcessContextReplacing<float> context (block);
-		state.convolution.process (context);
+		state.convolution.process (buffer);
 		const double convUs = juce::Time::highResolutionTicksToSeconds (
 			juce::Time::getHighResolutionTicks() - convStart) * 1e6;
 		double curConv = worstConvTimeUs.load();

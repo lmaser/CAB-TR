@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "ThreadedConvolver.h"
 #include <array>
 #include <atomic>
 #include <vector>
@@ -308,7 +309,7 @@ public:
 	struct IRLoaderState
 	{
 		juce::AudioBuffer<float> impulseResponse;
-		juce::dsp::Convolution convolution { juce::dsp::Convolution::NonUniform { 1024 } };
+		StereoThreadedConvolver convolution;
 		std::atomic<bool> needsUpdate { false };
 		juce::String currentFilePath;
 		double irSampleRate = 44100.0;  // Sample rate of stored impulseResponse buffer
