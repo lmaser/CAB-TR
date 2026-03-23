@@ -389,12 +389,16 @@ private:
 	// ══════════════════════════════════════════════════════════════
 	juce::ComboBox routeCombo;
 	juce::ToggleButton alignButton;
+	juce::ComboBox matchCombo;
+	juce::ComboBox trimCombo;
 
 	BarSlider globalMixSlider;   // Global dry/wet MIX (kParamMix)
 	BarSlider globalOutputSlider; // Global output gain (kParamOutput)
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> routeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> alignAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> matchAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> trimAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalMixAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalOutputAttach;
 

@@ -1337,6 +1337,28 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	alignButton.setButtonText ("ALIGN");
 	alignButton.addListener (this);
 
+	addAndMakeVisible (matchCombo);
+	matchCombo.addItem ("None", 1);
+	matchCombo.addItem ("White", 2);
+	matchCombo.addItem ("Pink (-3dB)", 3);
+	matchCombo.addItem ("Brown (-6dB)", 4);
+	matchCombo.addItem ("Bright (+3dB)", 5);
+	matchCombo.addItem ("Bright+ (+6dB)", 6);
+	matchCombo.setJustificationType (juce::Justification::centred);
+	matchCombo.setLookAndFeel (&lnf);
+	matchCombo.setTooltip ("Match: apply tilt EQ to wet signal (pivot 1kHz)");
+
+	addAndMakeVisible (trimCombo);
+	trimCombo.addItem ("Off", 1);
+	trimCombo.addItem ("0 dB", 2);
+	trimCombo.addItem ("-3 dB", 3);
+	trimCombo.addItem ("-6 dB", 4);
+	trimCombo.addItem ("-12 dB", 5);
+	trimCombo.addItem ("-18 dB", 6);
+	trimCombo.setJustificationType (juce::Justification::centred);
+	trimCombo.setLookAndFeel (&lnf);
+	trimCombo.setTooltip ("Norm: auto-normalize wet signal peak to target level");
+
 	// Global MIX bar slider (footer)
 	setupSliderWithTooltip (globalMixSlider, "Global Mix (Dry/Wet)");
 
@@ -1455,6 +1477,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamRoute, routeCombo);
 	alignAttach = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
 		params, CABTRAudioProcessor::kParamAlign, alignButton);
+	matchAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+		params, CABTRAudioProcessor::kParamMatch, matchCombo);
+	trimAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+		params, CABTRAudioProcessor::kParamTrim, trimCombo);
 	mixAttachA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
 		params, CABTRAudioProcessor::kParamMixA, mixSliderA);
 	mixAttachB = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
@@ -1588,6 +1614,12 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			            juce::Justification::bottomRight, false);
 		const auto routeArea = routeCombo.getBounds().withHeight (16).translated (0, -18);
 		g.drawText ("ROUTE", routeArea, juce::Justification::centred);
+
+		const auto matchArea = matchCombo.getBounds().withHeight (16).translated (0, -18);
+		g.drawText ("MATCH", matchArea, juce::Justification::centred);
+
+		const auto trimArea = trimCombo.getBounds().withHeight (16).translated (0, -18);
+		g.drawText ("NORM", trimArea, juce::Justification::centred);
 
 		// Global MIX label + value (right of bar)
 		if (globalMixSlider.isVisible())
@@ -1777,15 +1809,21 @@ void CABTRAudioProcessorEditor::resized()
 	const int barH         = 22;
 	const int colW         = getWidth() / 3;
 
-	// Column A area: ROUTE + ALIGN
+	// Column A area: ROUTE + ALIGN + MATCH + TRIM
 	{
 		auto colA = footer.withWidth (colW).reduced (footerMargin, 0);
 		auto row = colA.withSizeKeepingCentre (colA.getWidth(), 30);
 		const int comboW = 80;
 		const int btnW   = 70;
+		const int matchW = 105;
+		const int trimW  = 70;
 		routeCombo.setBounds (row.removeFromLeft (comboW));
 		row.removeFromLeft (footerGap);
 		alignButton.setBounds (row.removeFromLeft (btnW));
+		row.removeFromLeft (footerGap);
+		matchCombo.setBounds (row.removeFromLeft (matchW));
+		row.removeFromLeft (footerGap);
+		trimCombo.setBounds (row.removeFromLeft (trimW));
 	}
 
 	// Column B area: MIX bar + value text to the right

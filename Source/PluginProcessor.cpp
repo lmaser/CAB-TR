@@ -425,6 +425,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamAlign, "Align", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMix, "Mix", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamMatch, "Match", juce::StringArray { "None", "White", "Pink (-3dB)", "Brown (-6dB)", "Bright (+3dB)", "Bright+ (+6dB)" }, kMatchDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamTrim, "Norm", juce::StringArray { "Off", "0 dB", "-3 dB", "-6 dB", "-12 dB", "-18 dB" }, kTrimDefault));
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from automation)
@@ -599,7 +603,17 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pModeInC   = parameters.getRawParameterValue (kParamModeInC);
 	pModeOutC  = parameters.getRawParameterValue (kParamModeOutC);
 	pMixC      = parameters.getRawParameterValue (kParamMixC);
-	
+	pMatch     = parameters.getRawParameterValue (kParamMatch);
+	pTrim      = parameters.getRawParameterValue (kParamTrim);
+
+	// Reset tilt EQ state
+	tiltState_[0] = tiltState_[1] = 0.0f;
+	tiltLastProfile_ = -1;
+
+	// Reset wet NORM AGC state
+	normPeakFollower_ = 0.0f;
+	normSmoothedGain_ = 1.0f;
+
 	// Reset FRED and CHAOS state for all loaders
 	for (auto* state : { &stateA, &stateB, &stateC })
 	{
@@ -935,6 +949,127 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		if (enableA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
 		if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 		if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
+	}
+
+	// ── MATCH: Tilt EQ on wet signal (before dry/wet mix) ──
+	// Applies a 1st-order shelf tilt centred at 1 kHz.
+	// Profile slopes: None=0, White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6 dB/oct
+	{
+		const int matchProfile = static_cast<int> (pMatch->load());
+
+		if (matchProfile != 0) // 0 = None
+		{
+			// dB/oct per profile: White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6
+			static constexpr float kSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
+			const float slopeDbPerOct = kSlopes[matchProfile];
+
+			// Recalculate coefficients only when profile changes
+			if (matchProfile != tiltLastProfile_)
+			{
+				tiltLastProfile_ = matchProfile;
+
+				// 1st-order tilt filter: shelving at pivot 1 kHz
+				// Gain at Nyquist relative to pivot = slope * log2(Nyquist/pivot)
+				const double sr = getSampleRate();
+				const double pivot = 1000.0;
+				const double octavesToNyquist = std::log2 ((sr * 0.5) / pivot);
+				const double gainAtNyquistDb = slopeDbPerOct * octavesToNyquist;
+
+				// Convert to linear gain factor at Nyquist (pivot = 0 dB)
+				const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+
+				// 1st-order shelf: H(z) = (b0 + b1*z^-1) / (1 + a1*z^-1)
+				// warp pivot to digital
+				const double wc = 2.0 * sr * std::tan (juce::MathConstants<double>::pi * pivot / sr);
+				const double K = wc / (2.0 * sr);  // pre-warped analog freq
+
+				// Design: low-shelf when slope < 0, high-shelf when slope > 0
+				// Using standard 1st-order shelf formulae:
+				//   g = sqrt(linear_gain_at_nyquist)  for shelf gain
+				const double g = std::sqrt (gNy);
+				// Single 1st-order shelf works for both directions:
+				//   g < 1 (neg slope): boosts lows, cuts highs (Pink/Brown)
+				//   g > 1 (pos slope): cuts lows, boosts highs (Bright)
+				const double norm = 1.0 / (1.0 + K * g);
+				tiltB0_ = static_cast<float> ((g + K) * norm);
+				tiltB1_ = static_cast<float> ((K - g) * norm);
+				tiltA1_ = static_cast<float> ((K * g - 1.0) * norm);
+			}
+
+			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+			{
+				auto* data = buffer.getWritePointer (ch);
+				float s = tiltState_[ch];
+				const float b0 = tiltB0_, b1 = tiltB1_, a1 = tiltA1_;
+				for (int i = 0; i < numSamples; ++i)
+				{
+					const float x = data[i];
+					const float y = b0 * x + s;
+					s = b1 * x - a1 * y;
+					data[i] = y;
+				}
+				tiltState_[ch] = s;
+			}
+		}
+		else
+		{
+			// Reset state when match is off to avoid click on re-enable
+			if (tiltLastProfile_ != 0)
+			{
+				tiltState_[0] = tiltState_[1] = 0.0f;
+				tiltLastProfile_ = 0;
+			}
+		}
+	}
+
+	// ── NORM: static peak-normalize wet signal to target level ──
+	// Captures maximum peak (no release) and applies fixed gain.
+	// Toggling NORM off/on resets the peak measurement.
+	{
+		const int normIdx = static_cast<int> (pTrim->load());
+		if (normIdx > 0)
+		{
+			// Target peak levels: 0 dB, -3 dB, -6 dB, -12 dB, -18 dB
+			static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
+			const float target = kNormTargets[normIdx];
+
+			// Measure block peak across all channels
+			float blockPeak = 0.0f;
+			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+				blockPeak = std::max (blockPeak, buffer.getMagnitude (ch, 0, numSamples));
+
+			// Peak-hold: only goes up, never down (static normalization)
+			if (blockPeak > normPeakFollower_)
+				normPeakFollower_ = blockPeak;
+
+			// Calculate and apply gain once peak exceeds threshold (-60 dB)
+			if (normPeakFollower_ > 0.001f)
+			{
+				const float desiredGain = target / normPeakFollower_;
+				const float clampedGain = juce::jlimit (0.01f, 7.94f, desiredGain);
+
+				// Smooth only towards lower gain (new louder peak detected)
+				// to avoid click; ramp up is instant since peak only grows
+				if (clampedGain < normSmoothedGain_)
+				{
+					const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * 0.01f / static_cast<float> (numSamples)));
+					normSmoothedGain_ += (clampedGain - normSmoothedGain_) * coeff;
+				}
+				else
+				{
+					normSmoothedGain_ = clampedGain;
+				}
+
+				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+					juce::FloatVectorOperations::multiply (buffer.getWritePointer (ch), normSmoothedGain_, numSamples);
+			}
+		}
+		else
+		{
+			// Reset state when off — next enable will re-measure
+			normPeakFollower_ = 0.0f;
+			normSmoothedGain_ = 1.0f;
+		}
 	}
 
 	// Global MIX: blend unprocessed dry with fully processed wet

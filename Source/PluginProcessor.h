@@ -108,6 +108,8 @@ public:
 	static constexpr const char* kParamRoute        = "route";     // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
 	static constexpr const char* kParamAlign        = "align";     // Auto phase alignment
 	static constexpr const char* kParamMix          = "mix";       // Global dry/wet mix
+	static constexpr const char* kParamMatch        = "match";
+	static constexpr const char* kParamTrim         = "trim";     // Tilt EQ profile (0=None..5=Bright+)
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from DAW automation)
@@ -209,6 +211,8 @@ public:
 	static constexpr int   kRouteMin                = 0;
 	static constexpr int   kRouteMax                = 3;          // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
 	static constexpr int   kRouteDefault            = 1;          // Parallel by default
+	static constexpr int   kMatchDefault            = 0;
+	static constexpr int   kTrimDefault             = 0;          // None (no tilt)
 
 	// ══════════════════════════════════════════════════════════════
 	//  AudioProcessor overrides
@@ -471,6 +475,17 @@ private:
 	std::atomic<float>* pModeInC = nullptr;
 	std::atomic<float>* pModeOutC = nullptr;
 	std::atomic<float>* pMixC = nullptr;
+	std::atomic<float>* pMatch = nullptr;
+	std::atomic<float>* pTrim  = nullptr;
+
+	// Tilt EQ filter state (1st-order shelf, per-channel)
+	float tiltState_[2] = { 0.0f, 0.0f };
+	int   tiltLastProfile_ = -1;
+	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;
+
+	// Wet NORM AGC state (peak follower + gain smoothing)
+	float normPeakFollower_  = 0.0f;
+	float normSmoothedGain_  = 1.0f;
 
 	// Reusable format manager (avoid re-creating on every IR load)
 	juce::AudioFormatManager formatManager;
