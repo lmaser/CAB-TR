@@ -259,6 +259,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamFredA, "Angle A", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosA, "Distance A", kPosMin, kPosMax, kPosDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamResoA, "Reso A",
+		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamInvA, "Invert A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -339,6 +342,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamFredB, "Angle B", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosB, "Distance B", kPosMin, kPosMax, kPosDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamResoB, "Reso B",
+		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamInvB, "Invert B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -419,6 +425,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamFredC, "Angle C", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosC, "Distance C", kPosMin, kPosMax, kPosDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamResoC, "Reso C",
+		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamInvC, "Invert C", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -653,6 +662,10 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	// Reset wet NORM AGC state
 	normPeakFollower_ = 0.0f;
 	normSmoothedGain_ = 1.0f;
+
+	// Fade-in to suppress convolver/filter warmup transients (~5ms)
+	fadeInTotalSamples_     = juce::jmax (64, (int) (sampleRate * 0.005));
+	fadeInSamplesRemaining_ = fadeInTotalSamples_;
 
 	// Reset FRED and CHAOS state for all loaders
 	for (auto* state : { &stateA, &stateB, &stateC })
@@ -1295,6 +1308,23 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const float outputGain = juce::Decibels::decibelsToGain (pOutput->load());
 	buffer.applyGain (outputGain);
 
+	// Post-prepare fade-in: suppress convolver/filter warmup transients
+	if (fadeInSamplesRemaining_ > 0)
+	{
+		const int fadeThisBlock = juce::jmin (fadeInSamplesRemaining_, numSamples);
+		const float invTotal = 1.0f / static_cast<float> (fadeInTotalSamples_);
+		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+		{
+			auto* data = buffer.getWritePointer (ch);
+			for (int i = 0; i < fadeThisBlock; ++i)
+			{
+				const int pos = fadeInTotalSamples_ - fadeInSamplesRemaining_ + i;
+				data[i] *= static_cast<float> (pos) * invTotal;
+			}
+		}
+		fadeInSamplesRemaining_ -= fadeThisBlock;
+	}
+
 	// Safety hard-limiter: prevent catastrophic output only (NaN/Inf runaway).
 	// Set very high (+48 dBFS) so it never engages during normal operation.
 	{
@@ -1451,6 +1481,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	const char* invParam = pickParam (kParamInvA, kParamInvB, kParamInvC);
 	const char* normParam = pickParam (kParamNormA, kParamNormB, kParamNormC);
 	const char* rvsParam = pickParam (kParamRvsA, kParamRvsB, kParamRvsC);
+	const char* resoParam = pickParam (kParamResoA, kParamResoB, kParamResoC);
 	
 	const float startMs = parameters.getRawParameterValue (startParam)->load();
 	const float endMs = parameters.getRawParameterValue (endParam)->load();
@@ -1458,6 +1489,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	const bool invert = parameters.getRawParameterValue (invParam)->load() > 0.5f;
 	const bool normalize = parameters.getRawParameterValue (normParam)->load() > 0.5f;
 	const bool reverse = parameters.getRawParameterValue (rvsParam)->load() > 0.5f;
+	const float reso = parameters.getRawParameterValue (resoParam)->load();
 	
 	// Now trim within the already-cropped buffer (offsets are relative to readStart)
 	const int totalSamples = static_cast<int> (samplesToRead);
@@ -1532,6 +1564,46 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	
 	const int finalLength = state.impulseResponse.getNumSamples();
 	
+	// Apply RESO envelope (modifies IR decay rate)
+	// reso < 1.0: faster decay (less resonance), reso = 1.0: unchanged, reso > 1.0: slower decay (more resonance)
+	if (std::abs (reso - 1.0f) > 0.001f && finalLength > 1)
+	{
+		const int numCh = state.impulseResponse.getNumChannels();
+		
+		// Measure peak before envelope
+		float peakBefore = 0.0f;
+		for (int ch = 0; ch < numCh; ++ch)
+			peakBefore = juce::jmax (peakBefore, state.impulseResponse.getMagnitude (ch, 0, finalLength));
+		
+		// k maps reso to exponential rate: 0→-4, 1→0, 2→+4
+		// At 0%: tail attenuated ~35dB. At 200%: tail boosted ~35dB (peak-compensated)
+		const float k = (reso - 1.0f) * 4.0f;
+		const float invLen = 1.0f / juce::jmax (1.0f, static_cast<float> (finalLength - 1));
+		
+		for (int ch = 0; ch < numCh; ++ch)
+		{
+			float* data = state.impulseResponse.getWritePointer (ch);
+			for (int i = 0; i < finalLength; ++i)
+			{
+				const float t = static_cast<float> (i) * invLen;
+				data[i] *= std::exp (k * t);
+			}
+		}
+		
+		// Re-normalize to preserve original peak level (reso changes shape, not loudness)
+		float peakAfter = 0.0f;
+		for (int ch = 0; ch < numCh; ++ch)
+			peakAfter = juce::jmax (peakAfter, state.impulseResponse.getMagnitude (ch, 0, finalLength));
+		
+		if (peakAfter > 0.0001f && peakBefore > 0.0001f)
+		{
+			const float compensationGain = peakBefore / peakAfter;
+			state.impulseResponse.applyGain (compensationGain);
+		}
+		
+		LOG_IR_EVENT ("RESO applied: " + juce::String (reso * 100.0f, 0) + "% (k=" + juce::String (k, 2) + ")");
+	}
+	
 	// Apply INVERT if enabled (multiply all samples by -1)
 	if (invert)
 	{
@@ -1602,6 +1674,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.lastRvs.store (reverse);
 	state.lastStart.store (startMs);
 	state.lastEnd.store (endMs);
+	state.lastReso.store (reso);
 
 	state.currentFilePath = filePath;
 	state.irSampleRate = reader->sampleRate;
@@ -3198,7 +3271,7 @@ void CABTRAudioProcessor::timerCallback()
 	// Helper lambda: check if IR-affecting params changed for a loader
 	auto checkLoader = [&] (IRLoaderState& state, const char* pitchId, const char* invId,
 	                         const char* normId, const char* rvsId, const char* startId,
-	                         const char* endId)
+	                         const char* endId, const char* resoId)
 	{
 		if (state.currentFilePath.isEmpty())
 			return;
@@ -3209,6 +3282,7 @@ void CABTRAudioProcessor::timerCallback()
 		const bool rvs = parameters.getRawParameterValue (rvsId)->load() > 0.5f;
 		const float start = parameters.getRawParameterValue (startId)->load();
 		const float end = parameters.getRawParameterValue (endId)->load();
+		const float reso = parameters.getRawParameterValue (resoId)->load();
 		
 		const float epsilon = 0.0001f;
 		const bool changed = std::abs (pitch - state.lastPitch.load()) > epsilon ||
@@ -3216,7 +3290,8 @@ void CABTRAudioProcessor::timerCallback()
 		                     norm != state.lastNorm.load() ||
 		                     rvs != state.lastRvs.load() ||
 		                     std::abs (start - state.lastStart.load()) > epsilon ||
-		                     std::abs (end - state.lastEnd.load()) > epsilon;
+		                     std::abs (end - state.lastEnd.load()) > epsilon ||
+		                     std::abs (reso - state.lastReso.load()) > epsilon;
 		
 		if (changed && (now - state.lastReloadTime >= minReloadIntervalMs))
 		{
@@ -3225,16 +3300,17 @@ void CABTRAudioProcessor::timerCallback()
 			              "ms, end=" + juce::String (end, 1) + "ms, norm=" + 
 			              juce::String (norm ? "ON" : "OFF") + ", inv=" +
 			              juce::String (inv ? "ON" : "OFF") + ", rvs=" +
-			              juce::String (rvs ? "ON" : "OFF") + ")");
+			              juce::String (rvs ? "ON" : "OFF") + ", reso=" +
+			              juce::String (reso * 100.0f, 0) + "%)");
 			
 			loadImpulseResponse (state, state.currentFilePath);
 			state.lastReloadTime = now;
 		}
 	};
 	
-	checkLoader (stateA, kParamPitchA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA);
-	checkLoader (stateB, kParamPitchB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB);
-	checkLoader (stateC, kParamPitchC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC);
+	checkLoader (stateA, kParamPitchA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA, kParamResoA);
+	checkLoader (stateB, kParamPitchB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB, kParamResoB);
+	checkLoader (stateC, kParamPitchC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC, kParamResoC);
 	
 	// ALIGN: momentary action — calculate cross-correlation + set delay/inv, then turn off
 	{

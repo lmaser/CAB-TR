@@ -34,6 +34,7 @@ public:
 	static constexpr const char* kParamPanA         = "pan_a";
 	static constexpr const char* kParamFredA        = "fred_a";
 	static constexpr const char* kParamPosA         = "pos_a";
+	static constexpr const char* kParamResoA        = "reso_a";
 	static constexpr const char* kParamInvA         = "inv_a";
 	static constexpr const char* kParamNormA        = "norm_a";
 	static constexpr const char* kParamRvsA         = "rvs_a";
@@ -66,6 +67,7 @@ public:
 	static constexpr const char* kParamPanB         = "pan_b";
 	static constexpr const char* kParamFredB        = "fred_b";
 	static constexpr const char* kParamPosB         = "pos_b";
+	static constexpr const char* kParamResoB        = "reso_b";
 	static constexpr const char* kParamInvB         = "inv_b";
 	static constexpr const char* kParamNormB        = "norm_b";
 	static constexpr const char* kParamRvsB         = "rvs_b";
@@ -98,6 +100,7 @@ public:
 	static constexpr const char* kParamPanC         = "pan_c";
 	static constexpr const char* kParamFredC        = "fred_c";
 	static constexpr const char* kParamPosC         = "pos_c";
+	static constexpr const char* kParamResoC        = "reso_c";
 	static constexpr const char* kParamInvC         = "inv_c";
 	static constexpr const char* kParamNormC        = "norm_c";
 	static constexpr const char* kParamRvsC         = "rvs_c";
@@ -209,6 +212,10 @@ public:
 	static constexpr float kPosMin                  = 0.0f;       // 0% = no effect
 	static constexpr float kPosMax                  = 1.0f;       // 100% = full Friedman simulation
 	static constexpr float kPosDefault              = 0.0f;
+
+	static constexpr float kResoMin                  = 0.0f;       // 0%
+	static constexpr float kResoMax                  = 2.0f;       // 200%
+	static constexpr float kResoDefault              = 1.0f;       // 100% = original IR
 
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter Ranges & Defaults — Global
@@ -383,6 +390,7 @@ public:
 		std::atomic<bool> lastRvs { false };
 		std::atomic<float> lastStart { 0.0f };
 		std::atomic<float> lastEnd { 10000.0f };
+		std::atomic<float> lastReso { 1.0f };
 		
 		// Rate-limiting: minimum interval between reloads to avoid overload during slider drag
 		juce::int64 lastReloadTime { 0 };
@@ -548,6 +556,10 @@ private:
 	// Wet NORM AGC state (peak follower + gain smoothing)
 	float normPeakFollower_  = 0.0f;
 	float normSmoothedGain_  = 1.0f;
+
+	// Post-prepare fade-in to suppress convolver/filter warmup transients
+	int fadeInSamplesRemaining_ = 0;
+	int fadeInTotalSamples_     = 0;
 
 	// Reusable format manager (avoid re-creating on every IR load)
 	juce::AudioFormatManager formatManager;
