@@ -722,6 +722,15 @@ bool CABTRAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 //    - Typical guitar cab IRs are 100-500ms
 //==============================================================================
 
+static inline void injectMSBus (float l, float r, int bus,
+                                float& stL, float& stR,
+                                float& midBus, float& sideBus)
+{
+	if (bus == 0)      { stL += l; stR += r; }
+	else if (bus == 1) { midBus += (l + r) * 0.5f; }
+	else               { sideBus += (l - r) * 0.5f; }
+}
+
 void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
 	juce::ScopedNoDenormals noDenormals;
@@ -910,12 +919,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 					for (int k = 0; k < 3; ++k)
 					{
 						if (!active[k]) continue;
-						const float l = srcL[k][i];
-						const float r = srcR[k][i];
-
-						if (buses[k] == 0)      { stL += l; stR += r; }           // ST — direct
-						else if (buses[k] == 1)  { midBus += (l + r) * 0.5f; }    // →M
-						else                     { sideBus += (l - r) * 0.5f; }    // →S
+						injectMSBus (srcL[k][i], srcR[k][i], buses[k],
+						             stL, stR, midBus, sideBus);
 					}
 
 					outL[i] = stL + midBus + sideBus;
@@ -973,13 +978,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int i = 0; i < numSamples; ++i)
 				{
 					float stL = 0.0f, stR = 0.0f, midBus = 0.0f, sideBus = 0.0f;
-					auto inject = [&] (float l, float r, int bus) {
-						if (bus == 0)      { stL += l; stR += r; }
-						else if (bus == 1) { midBus += (l + r) * 0.5f; }
-						else               { sideBus += (l - r) * 0.5f; }
-					};
-					inject (bL[i], bR[i], seriesBus);
-					inject (cL[i], cR[i], parallelBus);
+					injectMSBus (bL[i], bR[i], seriesBus, stL, stR, midBus, sideBus);
+					injectMSBus (cL[i], cR[i], parallelBus, stL, stR, midBus, sideBus);
 					bL[i] = stL + midBus + sideBus;
 					bR[i] = stR + midBus - sideBus;
 				}
@@ -1025,13 +1025,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int i = 0; i < numSamples; ++i)
 				{
 					float stL = 0.0f, stR = 0.0f, midBus = 0.0f, sideBus = 0.0f;
-					auto inject = [&] (float l, float r, int bus) {
-						if (bus == 0)      { stL += l; stR += r; }
-						else if (bus == 1) { midBus += (l + r) * 0.5f; }
-						else               { sideBus += (l - r) * 0.5f; }
-					};
-					inject (bL[i], bR[i], seriesBus);
-					inject (aL[i], aR[i], parallelBus);
+					injectMSBus (bL[i], bR[i], seriesBus, stL, stR, midBus, sideBus);
+					injectMSBus (aL[i], aR[i], parallelBus, stL, stR, midBus, sideBus);
 					bL[i] = stL + midBus + sideBus;
 					bR[i] = stR + midBus - sideBus;
 				}

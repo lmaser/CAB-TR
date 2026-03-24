@@ -945,7 +945,9 @@ void CABTRAudioProcessorEditor::MinimalLNF::drawToggleButton (
 	if (availW > 0)
 	{
 		juce::Font testFont (juce::FontOptions (fontSize).withStyle ("Bold"));
-		const float neededW = testFont.getStringWidthFloat (text);
+		juce::GlyphArrangement ga;
+		ga.addLineOfText (testFont, text, 0.0f, 0.0f);
+		const float neededW = ga.getBoundingBox (0, -1, false).getWidth();
 		if (neededW > availW)
 			fontSize = juce::jmax (8.0f, fontSize * (availW / neededW));
 	}

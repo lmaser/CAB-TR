@@ -6,12 +6,12 @@
 
 namespace InfoContent
 {
-    static constexpr const char* version = "1.0";
+    static constexpr const char* version = "1.4";
 
     static constexpr const char* xml = R"xml(<?xml version="1.0" encoding="UTF-8"?>
 <info>
   <content>
-    <heading>CAB-TR v1.0</heading>
+    <heading>CAB-TR v1.4</heading>
     <spacer/>
     <text>by Nemester</text>
     <link url="https://github.com/lmaser/CAB-TR">Github Repository</link>
