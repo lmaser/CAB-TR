@@ -1214,12 +1214,14 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.enableBtn.addListener (this);
 
 	addAndMakeVisible (r.browseBtn);
+	r.browseBtn.setOwner (this, loaderIndex);
 	r.browseBtn.addListener (this);
 	r.browseBtn.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
 
 	addAndMakeVisible (r.fileDisp);
 	r.fileDisp.setText ("No file loaded", juce::dontSendNotification);
 	r.fileDisp.setJustificationType (juce::Justification::centred);
+	r.fileDisp.setInterceptsMouseClicks (false, false);
 
 	using ST = BarSlider::Type;
 	auto setupSlider = [this] (BarSlider& slider, const juce::String& tooltip, ST type) {
@@ -2120,32 +2122,6 @@ void CABTRAudioProcessorEditor::parameterChanged (const juce::String& paramID, f
 //==============================================================================
 //  File Operations
 //==============================================================================
-bool CABTRAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
-{
-	for (const auto& file : files)
-		if (file.endsWithIgnoreCase (".wav") || file.endsWithIgnoreCase (".aif") ||
-		    file.endsWithIgnoreCase (".aiff") || file.endsWithIgnoreCase (".flac") ||
-		    file.endsWithIgnoreCase (".mp3") || file.endsWithIgnoreCase (".ogg"))
-			return true;
-	return false;
-}
-
-void CABTRAudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
-{
-	juce::ignoreUnused (y);
-	if (files.isEmpty())
-		return;
-
-	// Determine which IR loader based on x position (3 columns)
-	const int colWidth = getWidth() / 3;
-	int loaderIdx = 0;
-	if (x >= colWidth * 2)
-		loaderIdx = 2;
-	else if (x >= colWidth)
-		loaderIdx = 1;
-	loadIRFile (files[0], loaderIdx);
-}
-
 void CABTRAudioProcessorEditor::updateFileDisplayLabels (const juce::String& pathA, const juce::String& pathB, const juce::String& pathC)
 {
 	const juce::String* paths[]      = { &pathA,        &pathB,        &pathC };
@@ -2554,7 +2530,31 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 
 void CABTRAudioProcessorEditor::mouseDoubleClick (const juce::MouseEvent& e)
 {
-	juce::ignoreUnused (e);
+	// Double-click on file display label → reset that loader's IR
+	const auto pos = e.getEventRelativeTo (this).getPosition();
+	juce::Label* displays[] = { &fileDisplayA, &fileDisplayB, &fileDisplayC };
+	for (int i = 0; i < 3; ++i)
+	{
+		if (displays[i]->getBounds().contains (pos))
+		{
+			// Clear convolver and IR buffer
+			CABTRAudioProcessor::IRLoaderState* states[] = {
+				&audioProcessor.stateA, &audioProcessor.stateB, &audioProcessor.stateC };
+			states[i]->convolution.reset();
+			states[i]->impulseResponse.setSize (0, 0);
+			states[i]->currentFilePath.clear();
+			states[i]->needsUpdate.store (false);
+
+			// Clear editor state
+			juce::String* curFiles[] = { &currentFileA, &currentFileB, &currentFileC };
+			*curFiles[i] = juce::String();
+			displays[i]->setText ("No file loaded", juce::dontSendNotification);
+
+			legendDirty = true;
+			repaint();
+			return;
+		}
+	}
 }
 
 void CABTRAudioProcessorEditor::mouseDrag (const juce::MouseEvent& e)

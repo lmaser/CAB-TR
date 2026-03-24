@@ -12,8 +12,7 @@ class CABTRAudioProcessorEditor : public juce::AudioProcessorEditor,
                                    private juce::Button::Listener,
                                    private juce::ComboBox::Listener,
                                    private juce::AudioProcessorValueTreeState::Listener,
-                                   private juce::Timer,
-                                   private juce::FileDragAndDropTarget
+                                   private juce::Timer
 {
 public:
 	explicit CABTRAudioProcessorEditor (CABTRAudioProcessor&);
@@ -25,10 +24,6 @@ public:
 	void moved() override;
 	void parentHierarchyChanged() override;
 
-	// FileDragAndDropTarget
-	bool isInterestedInFileDrag (const juce::StringArray& files) override;
-	void filesDropped (const juce::StringArray& files, int x, int y) override;
-	
 	// Public API for updating UI from processor state
 	void updateFileDisplayLabels (const juce::String& pathA, const juce::String& pathB, const juce::String& pathC);
 
@@ -231,11 +226,49 @@ private:
 	MinimalLNF lnf;
 
 	// ══════════════════════════════════════════════════════════════
+	//  Browse Button with drag-and-drop support
+	// ══════════════════════════════════════════════════════════════
+	class BrowseButton : public juce::TextButton,
+	                    public juce::FileDragAndDropTarget
+	{
+	public:
+		BrowseButton() : juce::TextButton ("...") {}
+		void setOwner (CABTRAudioProcessorEditor* o, int idx) { owner = o; loaderIndex = idx; }
+
+		bool isInterestedInFileDrag (const juce::StringArray& files) override
+		{
+			for (const auto& f : files)
+				if (f.endsWithIgnoreCase (".wav") || f.endsWithIgnoreCase (".aif") ||
+				    f.endsWithIgnoreCase (".aiff") || f.endsWithIgnoreCase (".flac") ||
+				    f.endsWithIgnoreCase (".mp3") || f.endsWithIgnoreCase (".ogg"))
+					return true;
+			return false;
+		}
+
+		void filesDropped (const juce::StringArray& files, int /*x*/, int /*y*/) override
+		{
+			if (owner == nullptr || files.isEmpty())
+				return;
+			juce::File droppedFile (files[0]);
+			owner->loadIRFile (files[0], loaderIndex);
+			if (droppedFile.existsAsFile())
+			{
+				juce::File* folders[] = { &owner->currentFolderA, &owner->currentFolderB, &owner->currentFolderC };
+				*folders[loaderIndex] = droppedFile.getParentDirectory();
+			}
+		}
+
+	private:
+		CABTRAudioProcessorEditor* owner = nullptr;
+		int loaderIndex = 0;
+	};
+
+	// ══════════════════════════════════════════════════════════════
 	//  DRY helpers for tripled loader A/B/C setup
 	// ══════════════════════════════════════════════════════════════
 	struct LoaderRefs
 	{
-		juce::ToggleButton &enableBtn;  juce::TextButton &browseBtn;  juce::Label &fileDisp;
+		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
 		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso;
 		juce::ToggleButton &inv, &norm, &rvs, &chaos;  juce::Label &chaosDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus;
@@ -281,7 +314,7 @@ private:
 	//  UI Components — IR Loader A
 	// ══════════════════════════════════════════════════════════════
 	juce::ToggleButton enableButtonA;
-	juce::TextButton browseButtonA { "..." };
+	BrowseButton browseButtonA;
 	juce::Label fileDisplayA;
 
 	BarSlider hpFreqSliderA;
@@ -333,7 +366,7 @@ private:
 	//  UI Components — IR Loader B
 	// ══════════════════════════════════════════════════════════════
 	juce::ToggleButton enableButtonB;
-	juce::TextButton browseButtonB { "..." };
+	BrowseButton browseButtonB;
 	juce::Label fileDisplayB;
 
 	BarSlider hpFreqSliderB;
@@ -385,7 +418,7 @@ private:
 	//  UI Components — IR Loader C
 	// ══════════════════════════════════════════════════════════════
 	juce::ToggleButton enableButtonC;
-	juce::TextButton browseButtonC { "..." };
+	BrowseButton browseButtonC;
 	juce::Label fileDisplayC;
 
 	BarSlider hpFreqSliderC;
