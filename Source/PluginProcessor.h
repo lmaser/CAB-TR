@@ -24,7 +24,9 @@ public:
 	static constexpr const char* kParamLpOnA        = "lp_on_a";
 	static constexpr const char* kParamHpSlopeA     = "hp_slope_a";
 	static constexpr const char* kParamLpSlopeA     = "lp_slope_a";
+	static constexpr const char* kParamInA          = "in_a";
 	static constexpr const char* kParamOutA         = "out_a";
+	static constexpr const char* kParamTiltA        = "tilt_a";
 	static constexpr const char* kParamStartA       = "start_a";
 	static constexpr const char* kParamEndA         = "end_a";
 	static constexpr const char* kParamPitchA       = "pitch_a";
@@ -54,7 +56,9 @@ public:
 	static constexpr const char* kParamLpOnB        = "lp_on_b";
 	static constexpr const char* kParamHpSlopeB     = "hp_slope_b";
 	static constexpr const char* kParamLpSlopeB     = "lp_slope_b";
+	static constexpr const char* kParamInB          = "in_b";
 	static constexpr const char* kParamOutB         = "out_b";
+	static constexpr const char* kParamTiltB        = "tilt_b";
 	static constexpr const char* kParamStartB       = "start_b";
 	static constexpr const char* kParamEndB         = "end_b";
 	static constexpr const char* kParamPitchB       = "pitch_b";
@@ -84,7 +88,9 @@ public:
 	static constexpr const char* kParamLpOnC        = "lp_on_c";
 	static constexpr const char* kParamHpSlopeC     = "hp_slope_c";
 	static constexpr const char* kParamLpSlopeC     = "lp_slope_c";
+	static constexpr const char* kParamInC          = "in_c";
 	static constexpr const char* kParamOutC         = "out_c";
+	static constexpr const char* kParamTiltC        = "tilt_c";
 	static constexpr const char* kParamStartC       = "start_c";
 	static constexpr const char* kParamEndC         = "end_c";
 	static constexpr const char* kParamPitchC       = "pitch_c";
@@ -153,9 +159,17 @@ public:
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter Ranges & Defaults — IR Controls
 	// ══════════════════════════════════════════════════════════════
+	static constexpr float kInMin                   = -100.0f;
+	static constexpr float kInMax                   = 0.0f;
+	static constexpr float kInDefault               = 0.0f;
+
 	static constexpr float kOutMin                  = -100.0f;
 	static constexpr float kOutMax                  = 24.0f;
 	static constexpr float kOutDefault              = 0.0f;
+
+	static constexpr float kTiltMin                 = -6.0f;
+	static constexpr float kTiltMax                 = 6.0f;
+	static constexpr float kTiltDefault             = 0.0f;
 
 	static constexpr float kStartMin                = 0.0f;
 	static constexpr float kStartMax                = 10000.0f; // 10 seconds max IR
@@ -413,6 +427,12 @@ public:
 
 		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
 		std::atomic<float> irSlopeDbPerOct { 0.0f };
+
+		// Per-loader tilt EQ state (1st-order shelf, pivot 1kHz)
+		float tiltB0 = 1.0f, tiltB1 = 0.0f, tiltA1 = 0.0f;
+		float tiltTargetB0 = 1.0f, tiltTargetB1 = 0.0f, tiltTargetA1 = 0.0f;
+		float tiltState[2] = { 0.0f, 0.0f };
+		float lastTiltDb = 0.0f;
 		
 		// Delete copy operations (contains atomic)
 		IRLoaderState() = default;
@@ -465,7 +485,9 @@ private:
 	std::atomic<float>* pPanA = nullptr;
 	std::atomic<float>* pFredA = nullptr;
 	std::atomic<float>* pPosA = nullptr;
+	std::atomic<float>* pInA = nullptr;
 	std::atomic<float>* pOutA = nullptr;
+	std::atomic<float>* pTiltA = nullptr;
 	std::atomic<float>* pHpFreqB = nullptr;
 	std::atomic<float>* pLpFreqB = nullptr;
 	std::atomic<float>* pHpOnB = nullptr;
@@ -476,7 +498,9 @@ private:
 	std::atomic<float>* pPanB = nullptr;
 	std::atomic<float>* pFredB = nullptr;
 	std::atomic<float>* pPosB = nullptr;
+	std::atomic<float>* pInB = nullptr;
 	std::atomic<float>* pOutB = nullptr;
+	std::atomic<float>* pTiltB = nullptr;
 	std::atomic<float>* pChaosA = nullptr;
 	std::atomic<float>* pChaosAmtA = nullptr;
 	std::atomic<float>* pChaosSpdA = nullptr;
@@ -501,7 +525,9 @@ private:
 	std::atomic<float>* pPanC = nullptr;
 	std::atomic<float>* pFredC = nullptr;
 	std::atomic<float>* pPosC = nullptr;
+	std::atomic<float>* pInC = nullptr;
 	std::atomic<float>* pOutC = nullptr;
+	std::atomic<float>* pTiltC = nullptr;
 	std::atomic<float>* pChaosC = nullptr;
 	std::atomic<float>* pChaosAmtC = nullptr;
 	std::atomic<float>* pChaosSpdC = nullptr;
@@ -552,7 +578,7 @@ private:
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer, int loaderIndex, double sampleRate,
-	                                  int modeIn, int modeOut);
+	                                  int modeIn, int modeOut, float loaderMix);
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CABTRAudioProcessor)
 };

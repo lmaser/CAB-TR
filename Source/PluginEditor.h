@@ -229,7 +229,7 @@ private:
 	struct LoaderRefs
 	{
 		juce::ToggleButton &enableBtn;  juce::TextButton &browseBtn;  juce::Label &fileDisp;
-		BarSlider &hp, &lp, &out, &start, &end, &pitch, &delay, &pan, &fred, &pos;
+		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &pitch, &delay, &pan, &fred, &pos;
 		juce::ToggleButton &inv, &norm, &rvs, &chaos;  juce::Label &chaosDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus;
 		FilterBarComponent &filterBar;  BarSlider &mix;
@@ -237,7 +237,7 @@ private:
 	struct AttachRefs
 	{
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
-		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &outAtt, &startAtt, &endAtt, &pitchAtt, &delayAtt, &panAtt, &fredAtt, &posAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &inAtt, &outAtt, &tiltAtt, &startAtt, &endAtt, &pitchAtt, &delayAtt, &panAtt, &fredAtt, &posAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt, &sumBusAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
@@ -251,7 +251,7 @@ private:
 	struct LoaderParamIds
 	{
 		const char* enable;
-		const char* hpFreq;  const char* lpFreq;  const char* out;
+		const char* hpFreq;  const char* lpFreq;  const char* in;  const char* out;  const char* tilt;
 		const char* start;   const char* end;     const char* pitch;
 		const char* delay;   const char* pan;     const char* fred;   const char* pos;
 		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;
@@ -279,7 +279,9 @@ private:
 
 	BarSlider hpFreqSliderA;
 	BarSlider lpFreqSliderA;
+	BarSlider inSliderA;
 	BarSlider outSliderA;
+	BarSlider tiltSliderA;
 	BarSlider startSliderA;
 	BarSlider endSliderA;
 	BarSlider pitchSliderA;
@@ -297,7 +299,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpFreqAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> tiltAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> startAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> endAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchAttachA;
@@ -325,7 +329,9 @@ private:
 
 	BarSlider hpFreqSliderB;
 	BarSlider lpFreqSliderB;
+	BarSlider inSliderB;
 	BarSlider outSliderB;
+	BarSlider tiltSliderB;
 	BarSlider startSliderB;
 	BarSlider endSliderB;
 	BarSlider pitchSliderB;
@@ -343,7 +349,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpFreqAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> tiltAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> startAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> endAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchAttachB;
@@ -371,7 +379,9 @@ private:
 
 	BarSlider hpFreqSliderC;
 	BarSlider lpFreqSliderC;
+	BarSlider inSliderC;
 	BarSlider outSliderC;
+	BarSlider tiltSliderC;
 	BarSlider startSliderC;
 	BarSlider endSliderC;
 	BarSlider pitchSliderC;
@@ -389,7 +399,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpFreqAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> tiltAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> startAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> endAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchAttachC;
@@ -517,14 +529,14 @@ private:
 	// ══════════════════════════════════════════════════════════════
 	struct CachedParamText { juce::String full, short_, intOnly; };
 	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, PITCH=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
-	static constexpr int kNumCachedParams = 11;
+	static constexpr int kNumCachedParams = 13;
 	CachedParamText cachedTexts[3][kNumCachedParams];  // [loader][param]
 
 	// Column right edges (set in resized(), used by getValueAreaFor())
 	int columnRight_[3] = {};
 
 	// Value display areas (calculated in paint(), used for click detection)
-	std::array<juce::Rectangle<int>, 33> cachedValueAreas_;  // 11 per loader × 3
+	std::array<juce::Rectangle<int>, 39> cachedValueAreas_;  // 13 per loader × 3
 
 	// Gear icon for info button
 	juce::Path cachedInfoGearPath;

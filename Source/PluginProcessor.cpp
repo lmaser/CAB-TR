@@ -228,7 +228,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamInA, "In A",
+		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		kInDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamOutA, "Out A", kOutMin, kOutMax, kOutDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamTiltA, "Tilt A",
+		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
+		kTiltDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamStartA, "Start A",
 		juce::NormalisableRange<float> (kStartMin, kStartMax, 0.1f, 0.15f), // Skew 0.15 = deep log (high resolution at low values)
@@ -300,7 +308,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamInB, "In B",
+		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		kInDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamOutB, "Out B", kOutMin, kOutMax, kOutDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamTiltB, "Tilt B",
+		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
+		kTiltDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamStartB, "Start B",
 		juce::NormalisableRange<float> (kStartMin, kStartMax, 0.1f, 0.15f), // Skew 0.15 = deep log (high resolution at low values)
@@ -372,7 +388,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> ((float) kFilterSlopeMin, (float) kFilterSlopeMax, 1.0f),
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamInC, "In C",
+		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		kInDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamOutC, "Out C", kOutMin, kOutMax, kOutDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamTiltC, "Tilt C",
+		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
+		kTiltDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamStartC, "Start C",
 		juce::NormalisableRange<float> (kStartMin, kStartMax, 0.1f, 0.15f),
@@ -569,6 +593,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pFredA   = parameters.getRawParameterValue (kParamFredA);
 	pPosA    = parameters.getRawParameterValue (kParamPosA);
 	pOutA    = parameters.getRawParameterValue (kParamOutA);
+	pInA     = parameters.getRawParameterValue (kParamInA);
+	pTiltA   = parameters.getRawParameterValue (kParamTiltA);
 	pHpFreqB = parameters.getRawParameterValue (kParamHpFreqB);
 	pLpFreqB = parameters.getRawParameterValue (kParamLpFreqB);
 	pHpOnB   = parameters.getRawParameterValue (kParamHpOnB);
@@ -580,6 +606,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pFredB   = parameters.getRawParameterValue (kParamFredB);
 	pPosB    = parameters.getRawParameterValue (kParamPosB);
 	pOutB    = parameters.getRawParameterValue (kParamOutB);
+	pInB     = parameters.getRawParameterValue (kParamInB);
+	pTiltB   = parameters.getRawParameterValue (kParamTiltB);
 	pChaosA    = parameters.getRawParameterValue (kParamChaosA);
 	pChaosAmtA = parameters.getRawParameterValue (kParamChaosAmtA);
 	pChaosSpdA = parameters.getRawParameterValue (kParamChaosSpdA);
@@ -606,6 +634,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pFredC     = parameters.getRawParameterValue (kParamFredC);
 	pPosC      = parameters.getRawParameterValue (kParamPosC);
 	pOutC      = parameters.getRawParameterValue (kParamOutC);
+	pInC       = parameters.getRawParameterValue (kParamInC);
+	pTiltC     = parameters.getRawParameterValue (kParamTiltC);
 	pChaosC    = parameters.getRawParameterValue (kParamChaosC);
 	pChaosAmtC = parameters.getRawParameterValue (kParamChaosAmtC);
 	pChaosSpdC = parameters.getRawParameterValue (kParamChaosSpdC);
@@ -748,6 +778,13 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const bool enableA = pEnableA->load() > 0.5f;
 	const bool enableB = pEnableB->load() > 0.5f;
 	const bool enableC = pEnableC->load() > 0.5f;
+
+	// A loader is "active" only if enabled AND has an IR loaded.
+	// Enabled without IR = transparent pass-through (no silence).
+	const bool activeA = enableA && stateA.impulseResponse.getNumSamples() > 0;
+	const bool activeB = enableB && stateB.impulseResponse.getNumSamples() > 0;
+	const bool activeC = enableC && stateC.impulseResponse.getNumSamples() > 0;
+
 	const int route = static_cast<int> (pRoute->load());
 	const float globalMix = pMix->load();
 
@@ -853,28 +890,28 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	if (route == 1) // A|B|C — all parallel
 	{
-		const int numActive = countEnabled (enableA, enableB, enableC);
+		const int numActive = countEnabled (activeA, activeB, activeC);
 		if (numActive >= 2)
 		{
 			// Copy input into each temp buffer for active loaders
-			if (enableA)
+			if (activeA)
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					tempBufferA.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-			if (enableB)
+			if (activeB)
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					tempBufferB.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-			if (enableC)
+			if (activeC)
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					tempBufferC.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
-			if (enableA) processOne (stateA, tempBufferA, 0, modeInA, modeOutA, mixA);
-			if (enableB) processOne (stateB, tempBufferB, 1, modeInB, modeOutB, mixB);
-			if (enableC) processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
+			if (activeA) processOne (stateA, tempBufferA, 0, modeInA, modeOutA, mixA);
+			if (activeB) processOne (stateB, tempBufferB, 1, modeInB, modeOutB, mixB);
+			if (activeC) processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
 
 			// Sum active buffers — M/S bus-aware
-			const bool anyMSBus = (enableA && sumBusA != 0)
-			                   || (enableB && sumBusB != 0)
-			                   || (enableC && sumBusC != 0);
+			const bool anyMSBus = (activeA && sumBusA != 0)
+			                   || (activeB && sumBusB != 0)
+			                   || (activeC && sumBusC != 0);
 
 			if (anyMSBus && buffer.getNumChannels() >= 2)
 			{
@@ -885,11 +922,11 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				const float* srcL[3] = { nullptr, nullptr, nullptr };
 				const float* srcR[3] = { nullptr, nullptr, nullptr };
 				int buses[3] = { sumBusA, sumBusB, sumBusC };
-				bool active[3] = { enableA, enableB, enableC };
+				bool active[3] = { activeA, activeB, activeC };
 
-				if (enableA) { srcL[0] = tempBufferA.getReadPointer (0); srcR[0] = tempBufferA.getReadPointer (1); }
-				if (enableB) { srcL[1] = tempBufferB.getReadPointer (0); srcR[1] = tempBufferB.getReadPointer (1); }
-				if (enableC) { srcL[2] = tempBufferC.getReadPointer (0); srcR[2] = tempBufferC.getReadPointer (1); }
+				if (activeA) { srcL[0] = tempBufferA.getReadPointer (0); srcR[0] = tempBufferA.getReadPointer (1); }
+				if (activeB) { srcL[1] = tempBufferB.getReadPointer (0); srcR[1] = tempBufferB.getReadPointer (1); }
+				if (activeC) { srcL[2] = tempBufferC.getReadPointer (0); srcR[2] = tempBufferC.getReadPointer (1); }
 
 				for (int i = 0; i < numSamples; ++i)
 				{
@@ -911,13 +948,13 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			{
 				// Fast path: all ST — simple L+R addition (no M/S overhead)
 				buffer.clear();
-				if (enableA)
+				if (activeA)
 					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
-				if (enableB)
+				if (activeB)
 					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferB.getReadPointer (ch), numSamples);
-				if (enableC)
+				if (activeC)
 					for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
 			}
@@ -925,24 +962,24 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			// Parallel compensation: 1/sqrt(N)
 			buffer.applyGain (1.0f / std::sqrt (static_cast<float> (numActive)));
 		}
-		else if (enableA)
+		else if (activeA)
 			processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
-		else if (enableB)
+		else if (activeB)
 			processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
-		else if (enableC)
+		else if (activeC)
 			processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 	}
 	else if (route == 2) // A→B|C — series A→B, C parallel
 	{
-		const bool seriesActive = enableA || enableB;
-		if (seriesActive && enableC)
+		const bool seriesActive = activeA || activeB;
+		if (seriesActive && activeC)
 		{
 			// Copy input for parallel path C
 			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 				tempBufferC.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 			// Series path: A→B stays in buffer
-			if (enableA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
-			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
+			if (activeA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
+			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 			// Parallel path C
 			processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
 			// Sum both paths and compensate — M/S bus-aware
@@ -974,15 +1011,15 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		else
 		{
 			// Only one path active — series or C alone
-			if (enableA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
-			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
-			if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
+			if (activeA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
+			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
+			if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 		}
 	}
 	else if (route == 3) // A|B→C — A parallel, series B→C
 	{
-		const bool seriesActive = enableB || enableC;
-		if (enableA && seriesActive)
+		const bool seriesActive = activeB || activeC;
+		if (activeA && seriesActive)
 		{
 			// Copy input for parallel path A
 			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -990,8 +1027,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			// Parallel path A
 			processOne (stateA, tempBufferA, 0, modeInA, modeOutA, mixA);
 			// Series path: B→C stays in buffer
-			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
-			if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
+			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
+			if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 			// Sum both paths and compensate — M/S bus-aware
 			// Parallel path bus = sumBusA, series path bus = sumBusC (last in chain)
 			const int parallelBus = sumBusA;
@@ -1021,16 +1058,16 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		else
 		{
 			// Only one path active
-			if (enableA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
-			if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
-			if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
+			if (activeA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
+			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
+			if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 		}
 	}
 	else // route == 0: A→B→C (full series)
 	{
-		if (enableA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
-		if (enableB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
-		if (enableC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
+		if (activeA) processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
+		if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
+		if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 	}
 
 	// ── MATCH: Adaptive tilt EQ based on IR spectral analysis ──
@@ -1050,24 +1087,24 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			float combinedSlope = 0.0f;
 			if (route == 0) // A→B→C series: slopes add
 			{
-				if (enableA) combinedSlope += stateA.irSlopeDbPerOct.load();
-				if (enableB) combinedSlope += stateB.irSlopeDbPerOct.load();
-				if (enableC) combinedSlope += stateC.irSlopeDbPerOct.load();
+				if (activeA) combinedSlope += stateA.irSlopeDbPerOct.load();
+				if (activeB) combinedSlope += stateB.irSlopeDbPerOct.load();
+				if (activeC) combinedSlope += stateC.irSlopeDbPerOct.load();
 			}
 			else if (route == 1) // A|B|C parallel: weighted average
 			{
 				float totalWeight = 0.0f;
-				if (enableA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
-				if (enableB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
-				if (enableC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
+				if (activeA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
+				if (activeB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
+				if (activeC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
 				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
 			}
 			else if (route == 2) // A→B | C
 			{
 				float seriesSlope = 0.0f;
-				if (enableA) seriesSlope += stateA.irSlopeDbPerOct.load();
-				if (enableB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (enableC)
+				if (activeA) seriesSlope += stateA.irSlopeDbPerOct.load();
+				if (activeB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (activeC)
 					combinedSlope = (seriesSlope + stateC.irSlopeDbPerOct.load()) * 0.5f;
 				else
 					combinedSlope = seriesSlope;
@@ -1075,9 +1112,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			else if (route == 3) // A | B→C
 			{
 				float seriesSlope = 0.0f;
-				if (enableB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (enableC) seriesSlope += stateC.irSlopeDbPerOct.load();
-				if (enableA)
+				if (activeB) seriesSlope += stateB.irSlopeDbPerOct.load();
+				if (activeC) seriesSlope += stateC.irSlopeDbPerOct.load();
+				if (activeA)
 					combinedSlope = (stateA.irSlopeDbPerOct.load() + seriesSlope) * 0.5f;
 				else
 					combinedSlope = seriesSlope;
@@ -1176,6 +1213,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				blockPeak = std::max (blockPeak, buffer.getMagnitude (ch, 0, numSamples));
 
 			// Peak-hold: only goes up, never down (static normalization)
+			const bool firstMeasurement = (normPeakFollower_ < 0.001f);
 			if (blockPeak > normPeakFollower_)
 				normPeakFollower_ = blockPeak;
 
@@ -1185,10 +1223,16 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				const float desiredGain = target / normPeakFollower_;
 				const float clampedGain = juce::jlimit (0.01f, 7.94f, desiredGain);
 
-				// Smooth only towards lower gain (new louder peak detected)
-				// to avoid click; ramp up is instant since peak only grows
-				if (clampedGain < normSmoothedGain_)
+				if (firstMeasurement)
 				{
+					// First block with signal: apply target gain instantly (no smoothing)
+					// to avoid the initial peak transient
+					normSmoothedGain_ = clampedGain;
+				}
+				else if (clampedGain < normSmoothedGain_)
+				{
+					// Smooth only towards lower gain (new louder peak detected)
+					// to avoid click; ramp up is instant since peak only grows
 					const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * 0.01f / static_cast<float> (numSamples)));
 					normSmoothedGain_ += (clampedGain - normSmoothedGain_) * coeff;
 				}
@@ -1563,7 +1607,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.irSampleRate = reader->sampleRate;
 	state.needsUpdate = false;
 
-	LOG_IR_EVENT ("IR Reload " + juce::String (loaderLabel) + ": " + 
+	LOG_IR_EVENT ("IR Reload " + juce::String ("ABC"[loaderIdx]) + ": " + 
 	     juce::String (finalLength) + " samples (" +
 	     juce::String (finalLength / reader->sampleRate * 1000.0, 1) + "ms)" +
 	     ", pitch=" + juce::String (pitch, 2) +
@@ -1646,15 +1690,19 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const bool enableB = pEnableB->load() > 0.5f;
 	const bool enableC = pEnableC->load() > 0.5f;
 	const int route = static_cast<int> (pRoute->load());
-	const float globalMix = pMix->load();
 	const float inputGainDb = pInput->load();
-	const float outputGainDb = pOutput->load();
 	const int modeInA  = static_cast<int> (pModeInA->load());
 	const int modeOutA = static_cast<int> (pModeOutA->load());
 	const int modeInB  = static_cast<int> (pModeInB->load());
 	const int modeOutB = static_cast<int> (pModeOutB->load());
 	const int modeInC  = static_cast<int> (pModeInC->load());
 	const int modeOutC = static_cast<int> (pModeOutC->load());
+	const float mixA = pMixA->load();
+	const float mixB = pMixB->load();
+	const float mixC = pMixC->load();
+	const int sumBusA = static_cast<int> (pSumBusA->load());
+	const int sumBusB = static_cast<int> (pSumBusB->load());
+	const int sumBusC = static_cast<int> (pSumBusC->load());
 
 	// Need at least one enabled loader with an IR
 	const bool hasA = enableA && stateA.impulseResponse.getNumSamples() > 0;
@@ -1662,6 +1710,22 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const bool hasC = enableC && stateC.impulseResponse.getNumSamples() > 0;
 	if (! hasA && ! hasB && ! hasC)
 		return false;
+
+	CLEAR_IR_LOG();
+	LOG_IR_EVENT ("══════ EXPORT START ══════");
+	LOG_IR_EVENT ("route=" + juce::String (route)
+	             + " enableA=" + juce::String ((int) enableA)
+	             + " enableB=" + juce::String ((int) enableB)
+	             + " enableC=" + juce::String ((int) enableC)
+	             + " hasA=" + juce::String ((int) hasA)
+	             + " hasB=" + juce::String ((int) hasB)
+	             + " hasC=" + juce::String ((int) hasC));
+	LOG_IR_EVENT ("modeInA=" + juce::String (modeInA) + " modeOutA=" + juce::String (modeOutA)
+	             + " modeInB=" + juce::String (modeInB) + " modeOutB=" + juce::String (modeOutB)
+	             + " modeInC=" + juce::String (modeInC) + " modeOutC=" + juce::String (modeOutC));
+	LOG_IR_EVENT ("mixA=" + juce::String (mixA, 4) + " mixB=" + juce::String (mixB, 4) + " mixC=" + juce::String (mixC, 4));
+	LOG_IR_EVENT ("sumBusA=" + juce::String (sumBusA) + " sumBusB=" + juce::String (sumBusB) + " sumBusC=" + juce::String (sumBusC));
+	LOG_IR_EVENT ("inputGainDb=" + juce::String (inputGainDb, 3));
 
 	const double workingSR = currentSampleRate;
 	const int maxWorkingSamples = static_cast<int> (maxLengthSec * workingSR) + 1;
@@ -1722,29 +1786,63 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		result.setSize (2, workingLen);
 		result.clear();
 
+		juce::AudioBuffer<float> procA, procB, procC;
 		if (hasA)
 		{
-			auto bufA = prepareLoaderBuf (stateA, irLenA, workingLen);
-			offlineProcessLoaderEffects (bufA, 0, workingSR, modeInA, modeOutA);
-			for (int ch = 0; ch < 2; ++ch)
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), bufA.getReadPointer (ch), workingLen);
+			procA = prepareLoaderBuf (stateA, irLenA, workingLen);
+			offlineProcessLoaderEffects (procA, 0, workingSR, modeInA, modeOutA, mixA);
 			numActive++;
 		}
 		if (hasB)
 		{
-			auto bufB = prepareLoaderBuf (stateB, irLenB, workingLen);
-			offlineProcessLoaderEffects (bufB, 1, workingSR, modeInB, modeOutB);
-			for (int ch = 0; ch < 2; ++ch)
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), bufB.getReadPointer (ch), workingLen);
+			procB = prepareLoaderBuf (stateB, irLenB, workingLen);
+			offlineProcessLoaderEffects (procB, 1, workingSR, modeInB, modeOutB, mixB);
 			numActive++;
 		}
 		if (hasC)
 		{
-			auto bufC = prepareLoaderBuf (stateC, irLenC, workingLen);
-			offlineProcessLoaderEffects (bufC, 2, workingSR, modeInC, modeOutC);
-			for (int ch = 0; ch < 2; ++ch)
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), bufC.getReadPointer (ch), workingLen);
+			procC = prepareLoaderBuf (stateC, irLenC, workingLen);
+			offlineProcessLoaderEffects (procC, 2, workingSR, modeInC, modeOutC, mixC);
 			numActive++;
+		}
+
+		// Sum with SUM BUS M/S routing (matching realtime)
+		const bool anyMSBus = (hasA && sumBusA != 0) || (hasB && sumBusB != 0) || (hasC && sumBusC != 0);
+		if (anyMSBus)
+		{
+			auto* outL = result.getWritePointer (0);
+			auto* outR = result.getWritePointer (1);
+			const float* srcL[3] = { hasA ? procA.getReadPointer (0) : nullptr,
+			                         hasB ? procB.getReadPointer (0) : nullptr,
+			                         hasC ? procC.getReadPointer (0) : nullptr };
+			const float* srcR[3] = { hasA ? procA.getReadPointer (1) : nullptr,
+			                         hasB ? procB.getReadPointer (1) : nullptr,
+			                         hasC ? procC.getReadPointer (1) : nullptr };
+			const int buses[3] = { sumBusA, sumBusB, sumBusC };
+			const bool active[3] = { hasA, hasB, hasC };
+			for (int i = 0; i < workingLen; ++i)
+			{
+				float stL = 0.0f, stR = 0.0f, midBus = 0.0f, sideBus = 0.0f;
+				for (int k = 0; k < 3; ++k)
+				{
+					if (!active[k]) continue;
+					injectMSBus (srcL[k][i], srcR[k][i], buses[k], stL, stR, midBus, sideBus);
+				}
+				outL[i] = stL + midBus + sideBus;
+				outR[i] = stR + midBus - sideBus;
+			}
+		}
+		else
+		{
+			if (hasA)
+				for (int ch = 0; ch < 2; ++ch)
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), procA.getReadPointer (ch), workingLen);
+			if (hasB)
+				for (int ch = 0; ch < 2; ++ch)
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), procB.getReadPointer (ch), workingLen);
+			if (hasC)
+				for (int ch = 0; ch < 2; ++ch)
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), procC.getReadPointer (ch), workingLen);
 		}
 		if (numActive >= 2)
 			result.applyGain (1.0f / std::sqrt (static_cast<float> (numActive)));
@@ -1759,7 +1857,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		if (hasA)
 		{
 			seriesPath = prepareLoaderBuf (stateA, irLenA, workingLen);
-			offlineProcessLoaderEffects (seriesPath, 0, workingSR, modeInA, modeOutA);
+			offlineProcessLoaderEffects (seriesPath, 0, workingSR, modeInA, modeOutA, mixA);
 			seriesHasContent = true;
 		}
 		if (hasB)
@@ -1775,28 +1873,50 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			}
 			else
 				seriesPath = prepareLoaderBuf (stateB, irLenB, workingLen);
-			offlineProcessLoaderEffects (seriesPath, 1, workingSR, modeInB, modeOutB);
+			offlineProcessLoaderEffects (seriesPath, 1, workingSR, modeInB, modeOutB, mixB);
 			seriesHasContent = true;
 		}
 
-		// Parallel path: C
+		// Parallel path: C — sum with SUM BUS routing
 		if (hasC && seriesHasContent)
 		{
 			auto bufC = prepareLoaderBuf (stateC, irLenC, workingLen);
-			offlineProcessLoaderEffects (bufC, 2, workingSR, modeInC, modeOutC);
+			offlineProcessLoaderEffects (bufC, 2, workingSR, modeInC, modeOutC, mixC);
 			result.setSize (2, workingLen);
 			result.clear();
-			for (int ch = 0; ch < 2; ++ch)
+			const int sBus = sumBusB;  // series path bus = last loader in chain
+			const int pBus = sumBusC;  // parallel path bus
+			if (sBus != 0 || pBus != 0)
 			{
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), bufC.getReadPointer (ch), workingLen);
+				auto* outL = result.getWritePointer (0);
+				auto* outR = result.getWritePointer (1);
+				const auto* sL = seriesPath.getReadPointer (0);
+				const auto* sR = seriesPath.getReadPointer (1);
+				const auto* cL = bufC.getReadPointer (0);
+				const auto* cR = bufC.getReadPointer (1);
+				for (int i = 0; i < workingLen; ++i)
+				{
+					float stL = 0.0f, stR = 0.0f, midB = 0.0f, sideB = 0.0f;
+					injectMSBus (sL[i], sR[i], sBus, stL, stR, midB, sideB);
+					injectMSBus (cL[i], cR[i], pBus, stL, stR, midB, sideB);
+					outL[i] = stL + midB + sideB;
+					outR[i] = stR + midB - sideB;
+				}
+			}
+			else
+			{
+				for (int ch = 0; ch < 2; ++ch)
+				{
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), bufC.getReadPointer (ch), workingLen);
+				}
 			}
 			result.applyGain (0.707106781f);
 		}
 		else if (hasC)
 		{
 			result = prepareLoaderBuf (stateC, irLenC, workingLen);
-			offlineProcessLoaderEffects (result, 2, workingSR, modeInC, modeOutC);
+			offlineProcessLoaderEffects (result, 2, workingSR, modeInC, modeOutC, mixC);
 		}
 		else
 			result = std::move (seriesPath);
@@ -1811,7 +1931,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		if (hasB)
 		{
 			seriesPath = prepareLoaderBuf (stateB, irLenB, workingLen);
-			offlineProcessLoaderEffects (seriesPath, 1, workingSR, modeInB, modeOutB);
+			offlineProcessLoaderEffects (seriesPath, 1, workingSR, modeInB, modeOutB, mixB);
 			seriesHasContent = true;
 		}
 		if (hasC)
@@ -1827,28 +1947,50 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			}
 			else
 				seriesPath = prepareLoaderBuf (stateC, irLenC, workingLen);
-			offlineProcessLoaderEffects (seriesPath, 2, workingSR, modeInC, modeOutC);
+			offlineProcessLoaderEffects (seriesPath, 2, workingSR, modeInC, modeOutC, mixC);
 			seriesHasContent = true;
 		}
 
-		// Parallel path: A
+		// Parallel path: A — sum with SUM BUS routing
 		if (hasA && seriesHasContent)
 		{
 			auto bufA = prepareLoaderBuf (stateA, irLenA, workingLen);
-			offlineProcessLoaderEffects (bufA, 0, workingSR, modeInA, modeOutA);
+			offlineProcessLoaderEffects (bufA, 0, workingSR, modeInA, modeOutA, mixA);
 			result.setSize (2, workingLen);
 			result.clear();
-			for (int ch = 0; ch < 2; ++ch)
+			const int pBus = sumBusA;  // parallel path bus
+			const int sBus = sumBusC;  // series path bus = last loader in chain
+			if (pBus != 0 || sBus != 0)
 			{
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), bufA.getReadPointer (ch), workingLen);
-				juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
+				auto* outL = result.getWritePointer (0);
+				auto* outR = result.getWritePointer (1);
+				const auto* sL = seriesPath.getReadPointer (0);
+				const auto* sR = seriesPath.getReadPointer (1);
+				const auto* aL = bufA.getReadPointer (0);
+				const auto* aR = bufA.getReadPointer (1);
+				for (int i = 0; i < workingLen; ++i)
+				{
+					float stL = 0.0f, stR = 0.0f, midB = 0.0f, sideB = 0.0f;
+					injectMSBus (sL[i], sR[i], sBus, stL, stR, midB, sideB);
+					injectMSBus (aL[i], aR[i], pBus, stL, stR, midB, sideB);
+					outL[i] = stL + midB + sideB;
+					outR[i] = stR + midB - sideB;
+				}
+			}
+			else
+			{
+				for (int ch = 0; ch < 2; ++ch)
+				{
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), bufA.getReadPointer (ch), workingLen);
+					juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
+				}
 			}
 			result.applyGain (0.707106781f);
 		}
 		else if (hasA)
 		{
 			result = prepareLoaderBuf (stateA, irLenA, workingLen);
-			offlineProcessLoaderEffects (result, 0, workingSR, modeInA, modeOutA);
+			offlineProcessLoaderEffects (result, 0, workingSR, modeInA, modeOutA, mixA);
 		}
 		else
 			result = std::move (seriesPath);
@@ -1862,7 +2004,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		if (hasA)
 		{
 			result = prepareLoaderBuf (stateA, irLenA, workingLen);
-			offlineProcessLoaderEffects (result, 0, workingSR, modeInA, modeOutA);
+			offlineProcessLoaderEffects (result, 0, workingSR, modeInA, modeOutA, mixA);
 			hasContent = true;
 		}
 		if (hasB)
@@ -1880,7 +2022,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			{
 				result = prepareLoaderBuf (stateB, irLenB, workingLen);
 			}
-			offlineProcessLoaderEffects (result, 1, workingSR, modeInB, modeOutB);
+			offlineProcessLoaderEffects (result, 1, workingSR, modeInB, modeOutB, mixB);
 			hasContent = true;
 		}
 		if (hasC)
@@ -1898,11 +2040,29 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			{
 				result = prepareLoaderBuf (stateC, irLenC, workingLen);
 			}
-			offlineProcessLoaderEffects (result, 2, workingSR, modeInC, modeOutC);
+			offlineProcessLoaderEffects (result, 2, workingSR, modeInC, modeOutC, mixC);
 		}
 	}
 
 	const int numSamples = result.getNumSamples();
+
+	// Log peak levels per channel after combining
+	{
+		float peakL = result.getMagnitude (0, 0, numSamples);
+		float peakR = result.getNumChannels() >= 2 ? result.getMagnitude (1, 0, numSamples) : 0.0f;
+		LOG_IR_EVENT ("POST-COMBINE: peakL=" + juce::String (peakL, 6) + " peakR=" + juce::String (peakR, 6)
+		             + " numSamples=" + juce::String (numSamples));
+		// Check side channel (L-R difference)
+		if (result.getNumChannels() >= 2)
+		{
+			float maxSideDiff = 0.0f;
+			const float* dL = result.getReadPointer (0);
+			const float* dR = result.getReadPointer (1);
+			for (int i = 0; i < numSamples; ++i)
+				maxSideDiff = std::max (maxSideDiff, std::abs (dL[i] - dR[i]));
+			LOG_IR_EVENT ("POST-COMBINE: maxSideDiff(L-R)=" + juce::String (maxSideDiff, 6));
+		}
+	}
 
 	// ── Apply global processing ──
 
@@ -1913,6 +2073,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	// ── MATCH tilt EQ (offline) ──
 	{
 		const int matchProfile = static_cast<int> (pMatch->load());
+		LOG_IR_EVENT ("MATCH: matchProfile=" + juce::String (matchProfile));
 		if (matchProfile != 0)
 		{
 			static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
@@ -1929,12 +2090,9 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			else if (route == 1)
 			{
 				float totalWeight = 0.0f;
-				const float mA = hasA ? std::abs (pOutA->load()) : 0.0f;
-				const float mB = hasB ? std::abs (pOutB->load()) : 0.0f;
-				const float mC = hasC ? std::abs (pOutC->load()) : 0.0f;
-				if (hasA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mA; totalWeight += mA; }
-				if (hasB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mB; totalWeight += mB; }
-				if (hasC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mC; totalWeight += mC; }
+				if (hasA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
+				if (hasB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
+				if (hasC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
 				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
 			}
 			else if (route == 2)
@@ -1960,6 +2118,15 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 
 			const float compensatingSlope = targetSlope - combinedSlope;
 
+			LOG_IR_EVENT ("MATCH: target=" + juce::String (targetSlope, 3)
+			             + " combined=" + juce::String (combinedSlope, 3)
+			             + " compensating=" + juce::String (compensatingSlope, 3)
+			             + " slopeA=" + juce::String (stateA.irSlopeDbPerOct.load(), 3)
+			             + " slopeB=" + juce::String (stateB.irSlopeDbPerOct.load(), 3)
+			             + " slopeC=" + juce::String (stateC.irSlopeDbPerOct.load(), 3)
+			             + " workingSR=" + juce::String (workingSR)
+			             + " numSamples=" + juce::String (numSamples));
+
 			if (std::abs (compensatingSlope) >= 0.1f)
 			{
 				const double pivot = 1000.0;
@@ -1976,6 +2143,11 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 				const float b1 = static_cast<float> ((K - g) * norm);
 				const float a1 = static_cast<float> ((K * g - 1.0) * norm);
 
+				LOG_IR_EVENT ("MATCH: APPLYING tilt — b0=" + juce::String (b0, 6)
+				             + " b1=" + juce::String (b1, 6)
+				             + " a1=" + juce::String (a1, 6)
+				             + " gNy=" + juce::String (gNy, 6));
+
 				for (int ch = 0; ch < result.getNumChannels(); ++ch)
 				{
 					auto* data = result.getWritePointer (ch);
@@ -1988,6 +2160,10 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 						data[i] = y;
 					}
 				}
+			}
+			else
+			{
+				LOG_IR_EVENT ("MATCH: SKIPPED — |compensatingSlope| < 0.1");
 			}
 		}
 	}
@@ -2012,32 +2188,26 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		}
 	}
 
-	// Global MIX: blend impulse (dry) with processed (wet)
-	if (globalMix < 0.999f)
+	// Global MIX and Output gain intentionally excluded from export
+	// (export captures the pure wet IR; host applies mix/output at runtime)
+
+	// Final peaks after all global processing
 	{
-		const float wet = globalMix;
-		const float dry = 1.0f - globalMix;
-
-		// Dry = unit impulse scaled by inputGain (already applied above → just a spike at sample 0)
-		// Build dry signal: impulse at sample 0 with inputGain already baked
-		for (int ch = 0; ch < result.getNumChannels(); ++ch)
+		float peakL = result.getMagnitude (0, 0, numSamples);
+		float peakR = result.getNumChannels() >= 2 ? result.getMagnitude (1, 0, numSamples) : 0.0f;
+		LOG_IR_EVENT ("POST-GLOBAL: peakL=" + juce::String (peakL, 6) + " peakR=" + juce::String (peakR, 6));
+		if (result.getNumChannels() >= 2)
 		{
-			auto* data = result.getWritePointer (ch);
-			// Dry signal = input-gained unit impulse at sample 0 (no mode conversion on dry)
-			float dryImpulse = 1.0f;
-			if (std::abs (inputGainDb) > 0.01f)
-				dryImpulse *= juce::Decibels::decibelsToGain (inputGainDb);
-
+			float maxSideDiff = 0.0f;
+			const float* dL = result.getReadPointer (0);
+			const float* dR = result.getReadPointer (1);
 			for (int i = 0; i < numSamples; ++i)
-				data[i] *= wet;
-			if (numSamples > 0)
-				data[0] += dry * dryImpulse;
+				maxSideDiff = std::max (maxSideDiff, std::abs (dL[i] - dR[i]));
+			LOG_IR_EVENT ("POST-GLOBAL: maxSideDiff(L-R)=" + juce::String (maxSideDiff, 6));
 		}
 	}
 
-	// Output gain
-	if (std::abs (outputGainDb) > 0.01f)
-		result.applyGain (juce::Decibels::decibelsToGain (outputGainDb));
+	LOG_IR_EVENT ("══════ EXPORT END ══════");
 
 	// ── Resample if target SR differs ──
 	if (std::abs (targetSampleRate - workingSR) > 1.0)
@@ -2146,74 +2316,174 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 //==============================================================================
 void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
                                                         int loaderIndex, double sampleRate,
-                                                        int modeIn, int modeOut)
+                                                        int modeIn, int modeOut, float loaderMix)
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
 	const float maxFreq = static_cast<float> (sampleRate) * 0.49f;
 
-	// Apply MODE IN before processing
-	if ((modeIn == 1 || modeIn == 2) && numChannels >= 2)
+	// Save dry copy for per-loader mix blend (same as realtime saveDry → applyLoaderMix)
+	juce::AudioBuffer<float> dryBuffer;
+	const bool needsMixBlend = loaderMix < 0.999f;
+	if (needsMixBlend)
 	{
-		auto* L = buffer.getWritePointer (0);
-		auto* R = buffer.getWritePointer (1);
-		for (int i = 0; i < numSamples; ++i)
-		{
-			const float l = L[i];
-			const float r = R[i];
-			if (modeIn == 1)
-			{
-				const float mid = (l + r) * 0.707106781f;
-				L[i] = R[i] = mid;
-			}
-			else
-			{
-				const float side = (l - r) * 0.707106781f;
-				L[i] = R[i] = side;
-			}
-		}
+		dryBuffer.setSize (numChannels, numSamples);
+		for (int ch = 0; ch < numChannels; ++ch)
+			dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 	}
+
+	static const char* loaderNames[] = { "A", "B", "C" };
+	const char* ln = loaderNames[juce::jlimit (0, 2, loaderIndex)];
+	LOG_IR_EVENT (juce::String ("LOADER ") + ln + ": modeIn=" + juce::String (modeIn)
+	             + " modeOut=" + juce::String (modeOut)
+	             + " mix=" + juce::String (loaderMix, 4)
+	             + " numSamples=" + juce::String (numSamples)
+	             + " numCh=" + juce::String (numChannels));
 
 	auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c)
 		-> std::atomic<float>* { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
 
+	// IN gain: applied to IR as scaling (matches realtime input gain before convolution)
+	const float inDb = pick (pInA, pInB, pInC)->load();
+	{
+		const float inGain = (inDb <= -100.0f) ? 0.0f
+		                   : juce::Decibels::decibelsToGain (inDb);
+		if (inGain < 0.999f)
+			buffer.applyGain (inGain);
+	}
+
+	// MODE IN: In realtime, modeIN operates on the INPUT signal before convolution.
+	// For offline IR export, we simulate a unit stereo impulse (L=R=δ) passing through:
+	//   MID: (δ+δ)*0.707 = √2·δ on both channels → scale IR by √2, preserving stereo
+	//   SIDE: (δ-δ)*0.707 = 0 → zero the IR (side of correlated impulse = 0)
+	if (numChannels >= 2)
+	{
+		if (modeIn == 1) // MID
+			buffer.applyGain (1.41421356f);
+		else if (modeIn == 2) // SIDE
+			buffer.clear();
+	}
+
 	const float hpFreq = pick (pHpFreqA, pHpFreqB, pHpFreqC)->load();
 	const float lpFreq = pick (pLpFreqA, pLpFreqB, pLpFreqC)->load();
+	const bool  hpOn   = pick (pHpOnA,   pHpOnB,   pHpOnC)->load() > 0.5f;
+	const bool  lpOn   = pick (pLpOnA,   pLpOnB,   pLpOnC)->load() > 0.5f;
+	const int   hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+	                                    (int) pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)->load());
+	const int   lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+	                                    (int) pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)->load());
 	const float delayMs = pick (pDelayA, pDelayB, pDelayC)->load();
 	const float pan = pick (pPanA, pPanB, pPanC)->load();
 	const float fred = pick (pFredA, pFredB, pFredC)->load();
 	const float pos = pick (pPosA, pPosB, pPosC)->load();
 	const float outDb = pick (pOutA, pOutB, pOutC)->load();
+	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
+
+	LOG_IR_EVENT (juce::String ("LOADER ") + ln + ": hpOn=" + juce::String ((int) hpOn)
+	             + " hpFreq=" + juce::String (hpFreq, 1) + " hpSlope=" + juce::String (hpSlope)
+	             + " lpOn=" + juce::String ((int) lpOn)
+	             + " lpFreq=" + juce::String (lpFreq, 1) + " lpSlope=" + juce::String (lpSlope)
+	             + " delay=" + juce::String (delayMs, 2) + " pan=" + juce::String (pan, 3)
+	             + " fred=" + juce::String (fred, 3) + " pos=" + juce::String (pos, 3)
+	             + " outDb=" + juce::String (outDb, 2)
+	             + " inDb=" + juce::String (inDb, 2) + " tiltDb=" + juce::String (tiltDb, 2));
 
 	juce::dsp::ProcessSpec spec;
 	spec.sampleRate = sampleRate;
 	spec.maximumBlockSize = static_cast<juce::uint32> (numSamples);
 	spec.numChannels = static_cast<juce::uint32> (numChannels);
 
-	// HP filter
-	if (hpFreq >= 21.0f)
+	// OUT gain (before tilt/filters, matching realtime DSP order)
+	if (std::abs (outDb) > 0.01f)
+		buffer.applyGain (juce::Decibels::decibelsToGain (outDb));
+
+	// Per-loader TILT EQ (1st-order symmetric shelf, pivot 1kHz)
+	if (std::abs (tiltDb) > 0.05f)
 	{
+		const double pivot = 1000.0;
+		const double octavesToNyquist = std::log2 ((sampleRate * 0.5) / pivot);
+		const double gainAtNyquistDb  = static_cast<double> (tiltDb) * octavesToNyquist;
+		const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+
+		const double wc = 2.0 * sampleRate * std::tan (juce::MathConstants<double>::pi * pivot / sampleRate);
+		const double K  = wc / (2.0 * sampleRate);
+		const double g  = std::sqrt (gNy);
+
+		const double norm = 1.0 / (1.0 + K * g);
+		const float b0 = static_cast<float> ((g + K) * norm);
+		const float b1 = static_cast<float> ((K - g) * norm);
+		const float a1 = static_cast<float> ((K * g - 1.0) * norm);
+
+		for (int ch = 0; ch < numChannels; ++ch)
+		{
+			auto* data = buffer.getWritePointer (ch);
+			float s = 0.0f;
+			for (int i = 0; i < numSamples; ++i)
+			{
+				const float x = data[i];
+				const float y = b0 * x + s;
+				s = b1 * x - a1 * y;
+				data[i] = y;
+			}
+		}
+	}
+
+	// HP filter (matching realtime slope selection: 6/12/24 dB/oct)
+	if (hpOn && hpFreq >= 21.0f)
+	{
+		const float clampedHp = juce::jlimit (20.0f, maxFreq, hpFreq);
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
 		                                juce::dsp::IIR::Coefficients<float>> hp;
 		hp.prepare (spec);
-		*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
-			sampleRate, juce::jlimit (20.0f, maxFreq, hpFreq), 0.707f);
+
+		if (hpSlope == 0) // 6 dB/oct — first-order
+			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (sampleRate, clampedHp);
+		else if (hpSlope == 1) // 12 dB/oct — Butterworth biquad
+			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, 0.70710678f);
+		else // 24 dB/oct — first stage
+			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, kBW4_Q1);
+
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> ctx (block);
 		hp.process (ctx);
+
+		if (hpSlope == 2) // 24 dB/oct — second stage
+		{
+			juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+			                                juce::dsp::IIR::Coefficients<float>> hp2;
+			hp2.prepare (spec);
+			*hp2.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, kBW4_Q2);
+			hp2.process (ctx);
+		}
 	}
 
-	// LP filter
-	if (lpFreq <= 19900.0f)
+	// LP filter (matching realtime slope selection: 6/12/24 dB/oct)
+	if (lpOn && lpFreq <= 19900.0f)
 	{
+		const float clampedLp = juce::jlimit (20.0f, maxFreq, lpFreq);
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
 		                                juce::dsp::IIR::Coefficients<float>> lp;
 		lp.prepare (spec);
-		*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-			sampleRate, juce::jlimit (20.0f, maxFreq, lpFreq), 0.707f);
+
+		if (lpSlope == 0) // 6 dB/oct — first-order
+			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (sampleRate, clampedLp);
+		else if (lpSlope == 1) // 12 dB/oct — Butterworth biquad
+			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, 0.70710678f);
+		else // 24 dB/oct — first stage
+			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, kBW4_Q1);
+
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> ctx (block);
 		lp.process (ctx);
+
+		if (lpSlope == 2) // 24 dB/oct — second stage
+		{
+			juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+			                                juce::dsp::IIR::Coefficients<float>> lp2;
+			lp2.prepare (spec);
+			*lp2.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, kBW4_Q2);
+			lp2.process (ctx);
+		}
 	}
 
 	// DIST (exponential LPF + gain attenuation)
@@ -2240,19 +2510,29 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 		buffer.applyGain (1, 0, numSamples, std::sin (panAngle));
 	}
 
-	// DELAY (offline: shift samples right)
+	// DELAY (offline: using DelayLine with linear interpolation to match realtime)
 	if (delayMs > 0.1f)
 	{
-		const int delaySamples = static_cast<int> (delayMs * 0.001f * static_cast<float> (sampleRate) + 0.5f);
-		if (delaySamples > 0 && delaySamples < numSamples)
+		const float delaySamples = delayMs * 0.001f * static_cast<float> (sampleRate);
+		const int maxDelay = static_cast<int> (delaySamples) + 2;
+		if (maxDelay > 0 && maxDelay < numSamples)
 		{
+			juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> offlineDelay (maxDelay);
+			offlineDelay.prepare (spec);
+			offlineDelay.setDelay (delaySamples);
+
+			juce::AudioBuffer<float> temp (numChannels, numSamples);
+			temp.clear();
+
+			for (int i = 0; i < numSamples; ++i)
+				for (int ch = 0; ch < numChannels; ++ch)
+				{
+					offlineDelay.pushSample (ch, buffer.getSample (ch, i));
+					temp.setSample (ch, i, offlineDelay.popSample (ch));
+				}
+
 			for (int ch = 0; ch < numChannels; ++ch)
-			{
-				auto* data = buffer.getWritePointer (ch);
-				std::memmove (data + delaySamples, data,
-				              sizeof (float) * static_cast<size_t> (numSamples - delaySamples));
-				std::memset (data, 0, sizeof (float) * static_cast<size_t> (delaySamples));
-			}
+				buffer.copyFrom (ch, 0, temp, ch, 0, numSamples);
 		}
 	}
 
@@ -2281,9 +2561,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 
 	// CHAOS intentionally skipped
 
-	// OUT gain
-	if (std::abs (outDb) > 0.01f)
-		buffer.applyGain (juce::Decibels::decibelsToGain (outDb));
+	// (OUT gain and TILT already applied before filters — see above)
 
 	// Apply MODE OUT after processing
 	if ((modeOut == 1 || modeOut == 2) && numChannels >= 2)
@@ -2304,6 +2582,20 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 				const float side = (l - r) * 0.707106781f;
 				L[i] = R[i] = side;
 			}
+		}
+	}
+
+	// Per-loader MIX: blend dry (pre-effects) with wet (post-effects)
+	if (needsMixBlend)
+	{
+		const float wet = loaderMix;
+		const float dry = 1.0f - loaderMix;
+		for (int ch = 0; ch < numChannels; ++ch)
+		{
+			auto* wetData = buffer.getWritePointer (ch);
+			const auto* dryData = dryBuffer.getReadPointer (ch);
+			juce::FloatVectorOperations::multiply (wetData, wet, numSamples);
+			juce::FloatVectorOperations::addWithMultiply (wetData, dryData, dry, numSamples);
 		}
 	}
 }
@@ -2327,10 +2619,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
 	
-	// EARLY EXIT: No processing if no IR loaded
+	// EARLY EXIT: No processing if no IR loaded — pass through unchanged
 	if (state.currentFilePath.isEmpty())
 	{
-		buffer.clear(); // Clear buffer (no output)
 		return;
 	}
 	
@@ -2357,13 +2648,23 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float fred = pick (pFredA, pFredB, pFredC)->load();
 	const float pos = pick (pPosA, pPosB, pPosC)->load();
 	const float outDb = pick (pOutA, pOutB, pOutC)->load();
+	const float inDb  = pick (pInA,  pInB,  pInC)->load();
+	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
 	const bool chaosEnabled = pick (pChaosA, pChaosB, pChaosC)->load() > 0.5f;
 	const float chaosAmt = pick (pChaosAmtA, pChaosAmtB, pChaosAmtC)->load();
 	const float chaosSpd = pick (pChaosSpdA, pChaosSpdB, pChaosSpdC)->load();
 	
 	// (FRED processing happens after convolution + filters)
 	
-	// 1. CONVOLUTION (TwoStageFFTConvolver — head on audio thread, tail on background)
+	// 1. INPUT GAIN (IN)
+	{
+		const float inGain = (inDb <= -100.0f) ? 0.0f
+		                   : juce::Decibels::decibelsToGain (inDb);
+		if (inGain < 0.999f)
+			buffer.applyGain (inGain);
+	}
+
+	// 2. CONVOLUTION (TwoStageFFTConvolver — head on audio thread, tail on background)
 	{
 		state.convolution.process (buffer);
 
@@ -2376,8 +2677,72 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				if (! std::isfinite (d[i])) d[i] = 0.0f;
 		}
 	}
+
+	// 3. OUTPUT GAIN (OUT) — applied before tilt/filters per requested DSP order
+	if (std::abs (outDb) > 0.01f)
+	{
+		const float outGain = juce::Decibels::decibelsToGain (outDb);
+		buffer.applyGain (outGain);
+	}
+
+	// 4. PER-LOADER TILT EQ (1st-order symmetric shelf, pivot 1kHz)
+	if (std::abs (tiltDb) > 0.05f)
+	{
+		// Recompute coefficients when tilt amount changes
+		if (std::abs (tiltDb - state.lastTiltDb) > 0.02f)
+		{
+			state.lastTiltDb = tiltDb;
+
+			const double pivot = 1000.0;
+			const double octavesToNyquist = std::log2 ((currentSampleRate * 0.5) / pivot);
+			const double gainAtNyquistDb  = static_cast<double> (tiltDb) * octavesToNyquist;
+			const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+
+			const double wc = 2.0 * currentSampleRate * std::tan (juce::MathConstants<double>::pi * pivot / currentSampleRate);
+			const double K  = wc / (2.0 * currentSampleRate);
+			const double g  = std::sqrt (gNy);
+
+			const double norm = 1.0 / (1.0 + K * g);
+			state.tiltTargetB0 = static_cast<float> ((g + K) * norm);
+			state.tiltTargetB1 = static_cast<float> ((K - g) * norm);
+			state.tiltTargetA1 = static_cast<float> ((K * g - 1.0) * norm);
+		}
+
+		const float smoothCoeff = 1.0f - std::exp (-1.0f / (static_cast<float> (currentSampleRate) * 0.03f));
+
+		for (int ch = 0; ch < numChannels; ++ch)
+		{
+			auto* data = buffer.getWritePointer (ch);
+			float s = state.tiltState[ch];
+			float b0 = state.tiltB0, b1 = state.tiltB1, a1 = state.tiltA1;
+			const float tb0 = state.tiltTargetB0, tb1 = state.tiltTargetB1, ta1 = state.tiltTargetA1;
+
+			for (int i = 0; i < numSamples; ++i)
+			{
+				b0 += (tb0 - b0) * smoothCoeff;
+				b1 += (tb1 - b1) * smoothCoeff;
+				a1 += (ta1 - a1) * smoothCoeff;
+
+				const float x = data[i];
+				const float y = b0 * x + s;
+				s = b1 * x - a1 * y;
+				data[i] = y;
+			}
+
+			state.tiltState[ch] = s;
+			state.tiltB0 = b0; state.tiltB1 = b1; state.tiltA1 = a1;
+		}
+	}
+	else if (std::abs (state.lastTiltDb) > 0.05f)
+	{
+		// Reset tilt state when returning to 0
+		state.lastTiltDb = 0.0f;
+		state.tiltB0 = 1.0f; state.tiltB1 = 0.0f; state.tiltA1 = 0.0f;
+		state.tiltTargetB0 = 1.0f; state.tiltTargetB1 = 0.0f; state.tiltTargetA1 = 0.0f;
+		state.tiltState[0] = state.tiltState[1] = 0.0f;
+	}
 	
-	// 2-3. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
+	// 5-6. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
 	// Per-sample EMA frequency smoothing + coefficient update every 32 samples
 	{
 		constexpr float kSmoothCoeff = 0.9955f; // ~5ms @ 44.1kHz
@@ -2641,13 +3006,6 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			
 			state.chaosDelayWritePos = (wp + 1) % delayBufLen;
 		}
-	}
-	
-	// 9. OUTPUT GAIN
-	if (std::abs (outDb) > 0.01f)
-	{
-		const float outGain = juce::Decibels::decibelsToGain (outDb);
-		buffer.applyGain (outGain);
 	}
 }
 

@@ -20,7 +20,7 @@
 #include <mutex>
 
 #ifndef CABTR_DSP_DEBUG_LOG
- #define CABTR_DSP_DEBUG_LOG 0
+ #define CABTR_DSP_DEBUG_LOG 1
 #endif
 
 #if CABTR_DSP_DEBUG_LOG
