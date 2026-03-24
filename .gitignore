@@ -1,6 +1,5 @@
 # Build outputs
-Builds/VisualStudio2022/.vs/
-Builds/VisualStudio2022/x64/
+Builds/
 *.suo
 *.user
 *.userosscache

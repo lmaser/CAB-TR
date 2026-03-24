@@ -1,8 +1,0 @@
-MSBuild version 17.12.12+1cce77968 for .NET Framework
-
-  CAB-TR_VST3ManifestHelper.vcxproj -> E:\Workspace\Production\JUCE_projects\CAB-TR\Builds\VisualStudio2022\x64\Debug\VST3 Manifest Helper\juce_vst3_helper.exe
-  CAB-TR_SharedCode.vcxproj -> E:\Workspace\Production\JUCE_projects\CAB-TR\Builds\VisualStudio2022\x64\Debug\Shared Code\CAB-TR.lib
-  CAB-TR_VST3.vcxproj -> E:\Workspace\Production\JUCE_projects\CAB-TR\Builds\VisualStudio2022\x64\Debug\VST3\CAB-TR.dll
-  CAB-TR_StandalonePlugin.vcxproj -> E:\Workspace\Production\JUCE_projects\CAB-TR\Builds\VisualStudio2022\x64\Debug\Standalone Plugin\CAB-TR.exe
-          1 file(s) copied.
-  Deleted file - E:\Workspace\Production\JUCE_projects\CAB-TR\Builds\VisualStudio2022\x64\Debug\VST3\CAB-TR.vst3\Contents\Resources\moduleinfo.json

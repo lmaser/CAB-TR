@@ -7,7 +7,7 @@ It combines zero-latency partitioned convolution with per-loader processing chai
 
 ## Concept
 
-CAB-TR treats impulse responses as composable building blocks rather than static snapshots. Three independent loader slots can be routed in series, parallel, or hybrid topologies — each with its own filter chain, Fredman off-axis simulation, pitch resampling, and M/S bus assignment.
+CAB-TR treats impulse responses as composable building blocks rather than static snapshots. Three independent loader slots can be routed in series, parallel, or hybrid topologies — each with its own filter chain, Fredman off-axis simulation, size resampling, and M/S bus assignment.
 
 The Sum Bus system lets each loader contribute to the Stereo, Mid, or Side bus independently at the summing stage, enabling true M/S separation without external routing tools. Combined with four routing modes, this produces configurations that are impossible in conventional dual-loader IR plugins.
 
@@ -108,9 +108,9 @@ Per-loader output gain.
 
 Time-domain trimming of the IR. START sets where the IR begins; END sets where it is truncated. Applied before convolution — changes trigger an IR reload.
 
-#### PITCH (0.25x–4.0x)
+#### SIZE (0.25x–4.0x)
 
-IR resampling ratio. Values below 1.0 stretch the IR (lower pitch, longer tail); values above 1.0 compress it (higher pitch, shorter tail). Applied via high-quality resampling before convolution.
+IR resampling ratio. Values below 1.0 stretch the IR (larger cabinet size, longer tail); values above 1.0 compress it (smaller cabinet size, shorter tail). Applied via high-quality resampling before convolution.
 
 #### DELAY (0–1000 ms)
 
@@ -146,7 +146,7 @@ Inverts the loader's output polarity (×−1). Useful for phase-cancellation tri
 
 #### NORM (Normalize)
 
-Per-loader peak normalization of the IR after all time-domain processing (trim, pitch, filters).
+Per-loader peak normalization of the IR after all time-domain processing (trim, size, filters).
 
 #### RVS (Reverse)
 
@@ -174,7 +174,7 @@ The final output combines all three buses: `outL = stL + midBus + sideBus`, `out
 
 Micro-variation engine that adds organic randomness to the loader's output:
 - **ENABLE**: Toggle chaos modulation on/off.
-- **AMOUNT (0–100%)**: Modulation depth — controls the range of pitch/delay variation (0–1024 samples).
+- **AMOUNT (0–100%)**: Modulation depth — controls the range of delay variation (0–1024 samples).
 - **SPEED (0.01–100 Hz)**: Sample-and-hold rate — how often a new random target is picked.
 
 Creates subtle tape-like wobble or aggressive detuning effects depending on settings.

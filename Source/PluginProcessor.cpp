@@ -246,9 +246,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kEndMin, kEndMax, 0.1f, 0.15f), // Skew 0.15 = deep log
 		kEndDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamPitchA, "Pitch A", 
-		juce::NormalisableRange<float> (kPitchMin, kPitchMax, 0.01f, 0.5f), 
-		kPitchDefault));
+		kParamSizeA, "Size A", 
+		juce::NormalisableRange<float> (kSizeMin, kSizeMax, 0.01f, 0.5f), 
+		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayA, "Delay A",
 		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
@@ -329,9 +329,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kEndMin, kEndMax, 0.1f, 0.15f), // Skew 0.15 = deep log
 		kEndDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamPitchB, "Pitch B", 
-		juce::NormalisableRange<float> (kPitchMin, kPitchMax, 0.01f, 0.5f), 
-		kPitchDefault));
+		kParamSizeB, "Size B", 
+		juce::NormalisableRange<float> (kSizeMin, kSizeMax, 0.01f, 0.5f), 
+		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayB, "Delay B",
 		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
@@ -412,9 +412,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::NormalisableRange<float> (kEndMin, kEndMax, 0.1f, 0.15f),
 		kEndDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamPitchC, "Pitch C", 
-		juce::NormalisableRange<float> (kPitchMin, kPitchMax, 0.01f, 0.5f), 
-		kPitchDefault));
+		kParamSizeC, "Size C", 
+		juce::NormalisableRange<float> (kSizeMin, kSizeMax, 0.01f, 0.5f), 
+		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayC, "Delay C",
 		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f),
@@ -740,10 +740,10 @@ bool CABTRAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 //    - Automatically partitions long IRs for optimal latency/CPU balance
 //    - Zero-latency mode for low-latency monitoring
 //
-// 2. PITCH SHIFTING: Lagrange interpolation resampling
+// 2. SIZE RESAMPLING: Lagrange interpolation
 //    - 4-point Lagrange interpolator for quality/performance balance
 //    - Linear phase response (no smearing)
-//    - Range: 25%-400% (down 2 octaves to up 2 octaves)
+//    - Range: 25%-400% (shrink to expand cab size)
 //
 // 3. MODE PROCESSING: Mid/Side conversion
 //    - MID = (L+R) / sqrt(2)  — preserves RMS energy
@@ -1278,7 +1278,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	}
 
 	// DC blocking filter (first-order high-pass ~5 Hz)
-	// Removes DC offset introduced by convolution, pitch-shifted IRs, or filter artefacts.
+	// Removes DC offset introduced by convolution, resampled IRs, or filter artefacts.
 	// y[n] = x[n] - x[n-1] + R * y[n-1],  R = 1 - 2*pi*fc/sr
 	{
 		const float R = 1.0f - (kTwoPi * 5.0f / static_cast<float> (getSampleRate()));
@@ -1435,13 +1435,13 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		return;
 
 	// Smart read: only read the samples we actually need (avoids loading 480K samples to discard 99%)
-	// 1. Calculate trim boundaries first, then read only that range + margin for pitch
+	// 1. Calculate trim boundaries first, then read only that range + margin for size
 	const int loaderIdx = (&state == &stateA) ? 0 : ((&state == &stateB) ? 1 : 2);
 	auto pickParam = [&] (const char* a, const char* b, const char* c) -> const char*
 		{ return loaderIdx == 0 ? a : (loaderIdx == 1 ? b : c); };
 	const float startMs_pre = parameters.getRawParameterValue (pickParam (kParamStartA, kParamStartB, kParamStartC))->load();
 	const float endMs_pre = parameters.getRawParameterValue (pickParam (kParamEndA, kParamEndB, kParamEndC))->load();
-	const float pitch_pre = parameters.getRawParameterValue (pickParam (kParamPitchA, kParamPitchB, kParamPitchC))->load();
+	const float size_pre = parameters.getRawParameterValue (pickParam (kParamSizeA, kParamSizeB, kParamSizeC))->load();
 
 	const juce::int64 totalFileSamples = reader->lengthInSamples;
 	const double sr = reader->sampleRate;
@@ -1452,13 +1452,13 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	readStart = juce::jlimit<juce::int64> (0, totalFileSamples, readStart);
 	readEnd = juce::jlimit<juce::int64> (readStart + 64, totalFileSamples, readEnd);
 
-	// Add margin for pitch < 1.0 (stretching needs more source samples)
-	// pitch=0.25 means we need 4x more source samples than output
-	const float safePitch = juce::jmax (0.25f, pitch_pre);
-	const juce::int64 pitchMargin = (safePitch < 1.0f)
-	    ? static_cast<juce::int64> ((readEnd - readStart) * (1.0f / safePitch - 1.0f)) + 64
+	// Add margin for size < 1.0 (stretching needs more source samples)
+	// size=0.25 means we need 4x more source samples than output
+	const float safeSize = juce::jmax (0.25f, size_pre);
+	const juce::int64 sizeMargin = (safeSize < 1.0f)
+	    ? static_cast<juce::int64> ((readEnd - readStart) * (1.0f / safeSize - 1.0f)) + 64
 	    : 0;
-	readEnd = juce::jmin (readEnd + pitchMargin, totalFileSamples);
+	readEnd = juce::jmin (readEnd + sizeMargin, totalFileSamples);
 
 	const auto samplesToRead = readEnd - readStart;
 
@@ -1473,7 +1473,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	// (Parameters are in milliseconds, convert to samples)
 	const char* startParam = pickParam (kParamStartA, kParamStartB, kParamStartC);
 	const char* endParam = pickParam (kParamEndA, kParamEndB, kParamEndC);
-	const char* pitchParam = pickParam (kParamPitchA, kParamPitchB, kParamPitchC);
+	const char* sizeParam = pickParam (kParamSizeA, kParamSizeB, kParamSizeC);
 	const char* invParam = pickParam (kParamInvA, kParamInvB, kParamInvC);
 	const char* normParam = pickParam (kParamNormA, kParamNormB, kParamNormC);
 	const char* rvsParam = pickParam (kParamRvsA, kParamRvsB, kParamRvsC);
@@ -1481,7 +1481,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	
 	const float startMs = parameters.getRawParameterValue (startParam)->load();
 	const float endMs = parameters.getRawParameterValue (endParam)->load();
-	const float pitch = parameters.getRawParameterValue (pitchParam)->load();
+	const float size = parameters.getRawParameterValue (sizeParam)->load();
 	const bool invert = parameters.getRawParameterValue (invParam)->load() > 0.5f;
 	const bool normalize = parameters.getRawParameterValue (normParam)->load() > 0.5f;
 	const bool reverse = parameters.getRawParameterValue (rvsParam)->load() > 0.5f;
@@ -1517,35 +1517,35 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		state.impulseResponse.copyFrom (ch, 0, tempIR, ch, startSample, trimmedLength);
 	}
 	
-	// Apply PITCH SHIFT usando Lagrange interpolation (alta calidad, sin aliasing)
-	// pitch < 1.0 = slower playback (lower pitch, longer IR)
-	// pitch > 1.0 = faster playback (higher pitch, shorter IR)
-	if (std::abs (pitch - 1.0f) > 0.001f && pitch > 0.1f && pitch < 10.0f)
+	// Apply SIZE RESAMPLING using Lagrange interpolation (high quality, no aliasing)
+	// size < 1.0 = slower playback (larger cab, longer IR)
+	// size > 1.0 = faster playback (smaller cab, shorter IR)
+	if (std::abs (size - 1.0f) > 0.001f && size > 0.1f && size < 10.0f)
 	{
-		const int pitchedLength = static_cast<int> (trimmedLength / pitch);
-		if (pitchedLength > 0 && pitchedLength < trimmedLength * 10)
+		const int resampledLength = static_cast<int> (trimmedLength / size);
+		if (resampledLength > 0 && resampledLength < trimmedLength * 10)
 		{
-			juce::AudioBuffer<float> pitchedIR;
-			pitchedIR.setSize (state.impulseResponse.getNumChannels(), pitchedLength);
+			juce::AudioBuffer<float> resampledIR;
+			resampledIR.setSize (state.impulseResponse.getNumChannels(), resampledLength);
 			
-			// Lagrange interpolator para alta calidad (4-point)
+			// Lagrange interpolator for high-quality resampling (4-point)
 			for (int ch = 0; ch < state.impulseResponse.getNumChannels(); ++ch)
 			{
 				juce::LagrangeInterpolator interpolator;
 				const float* input = state.impulseResponse.getReadPointer (ch);
-				float* output = pitchedIR.getWritePointer (ch);
+				float* output = resampledIR.getWritePointer (ch);
 				
-				// Resample con ratio inverso (pitch=2.0 -> ratio=0.5)
-				const double resampleRatio = 1.0 / pitch;
-				interpolator.process (resampleRatio, input, output, pitchedLength, trimmedLength, 0);
+				// Resample with inverse ratio (size=2.0 -> ratio=0.5)
+				const double resampleRatio = 1.0 / size;
+				interpolator.process (resampleRatio, input, output, resampledLength, trimmedLength, 0);
 			}
 			
-			// Replace with pitched version
-			state.impulseResponse = std::move (pitchedIR);
+			// Replace with resampled version
+			state.impulseResponse = std::move (resampledIR);
 		}
 	}
 	
-	// Enforce minimum length AFTER pitch shift (pitch>1 shrinks the IR)
+	// Enforce minimum length AFTER size resampling (size>1 shrinks the IR)
 	if (state.impulseResponse.getNumSamples() < kMinIrSamples)
 	{
 		const int currentLen = state.impulseResponse.getNumSamples();
@@ -1555,7 +1555,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		for (int ch = 0; ch < numCh; ++ch)
 			padded.copyFrom (ch, 0, state.impulseResponse, ch, 0, currentLen);
 		state.impulseResponse = std::move (padded);
-		LOG_IR_EVENT ("IR padded from " + juce::String (currentLen) + " to " + juce::String (kMinIrSamples) + " samples (post-pitch minimum)");
+		LOG_IR_EVENT ("IR padded from " + juce::String (currentLen) + " to " + juce::String (kMinIrSamples) + " samples (post-size minimum)");
 	}
 	
 	const int finalLength = state.impulseResponse.getNumSamples();
@@ -1664,7 +1664,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.convolution.loadIR (state.impulseResponse, reader->sampleRate);
 	
 	// Update cached parameter values AFTER successful load
-	state.lastPitch.store (pitch);
+	state.lastSize.store (size);
 	state.lastInv.store (invert);
 	state.lastNorm.store (normalize);
 	state.lastRvs.store (reverse);
@@ -1679,7 +1679,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	LOG_IR_EVENT ("IR Reload " + juce::String ("ABC"[loaderIdx]) + ": " + 
 	     juce::String (finalLength) + " samples (" +
 	     juce::String (finalLength / reader->sampleRate * 1000.0, 1) + "ms)" +
-	     ", pitch=" + juce::String (pitch, 2) +
+	     ", size=" + juce::String (size, 2) +
 	     ", inv=" + juce::String (invert ? 1 : 0) + ", rvs=" + juce::String (reverse ? 1 : 0) +
 	     ", norm=" + juce::String (normalize ? 1 : 0));
 }
@@ -2973,8 +2973,8 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 	}
 	
-	// 8. CHAOS (S&H micro-delay pitch modulation + independent gain modulation)
-	// Pitch S&H: random targets at 'speed' Hz → EMA smoothing → variable delay line.
+	// 8. CHAOS (S&H micro-delay modulation + independent gain modulation)
+	// Delay S&H: random targets at 'speed' Hz → EMA smoothing → variable delay line.
 	// Gain S&H: independent random targets at same rate → EMA smoothing → ±1dB gain.
 	// Amount controls depth for both. Each loader has fully independent generators.
 	if (chaosEnabled && chaosAmt > 0.01f)
@@ -2983,10 +2983,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		const float amountNorm = chaosAmt * 0.01f; // 0..1
 		const float maxDelaySamples = amountNorm * maxDelaySec * (float) currentSampleRate;
 		
-		// Pitch EMA τ scales with speed: 15ms @ 0.01Hz → 120ms @ 100Hz (log mapping)
+		// Delay EMA τ scales with speed: 15ms @ 0.01Hz → 120ms @ 100Hz (log mapping)
 		const float spdNorm = std::log (chaosSpd / 0.01f) / std::log (100.0f / 0.01f); // 0..1
-		const float pitchTau = 0.015f + spdNorm * 0.105f; // 15ms → 120ms
-		const float pitchSmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * pitchTau));
+		const float delayTau = 0.015f + spdNorm * 0.105f; // 15ms → 120ms
+		const float delaySmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * delayTau));
 		const float gainSmoothCoeff  = std::exp (-1.0f / ((float) currentSampleRate * 0.015f));
 		
 		// S&H period in samples
@@ -3004,7 +3004,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		
 		for (int i = 0; i < numSamples; ++i)
 		{
-			// Pitch S&H: generate new random target when phase wraps
+			// Delay S&H: generate new random target when phase wraps
 			state.chaosPhaseSamples += 1.0f;
 			if (state.chaosPhaseSamples >= shPeriodSamples)
 			{
@@ -3012,7 +3012,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				state.chaosCurrentTarget = state.chaosRng.nextFloat() * 2.0f - 1.0f;
 			}
 			
-			// Gain S&H: independent phase + random (decorrelated from pitch)
+			// Gain S&H: independent phase + random (decorrelated from delay)
 			state.chaosGainPhase += 1.0f;
 			if (state.chaosGainPhase >= shPeriodSamples)
 			{
@@ -3020,13 +3020,13 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				state.chaosGainTarget = state.chaosGainRng.nextFloat() * 2.0f - 1.0f;
 			}
 			
-			// EMA smoothing for both (pitch=30ms, gain=15ms)
-			state.chaosSmoothedValue = pitchSmoothCoeff * state.chaosSmoothedValue
-			                         + (1.0f - pitchSmoothCoeff) * state.chaosCurrentTarget;
+			// EMA smoothing for both (delay=30ms, gain=15ms)
+			state.chaosSmoothedValue = delaySmoothCoeff * state.chaosSmoothedValue
+			                         + (1.0f - delaySmoothCoeff) * state.chaosCurrentTarget;
 			state.chaosGainSmoothed = gainSmoothCoeff * state.chaosGainSmoothed
 			                        + (1.0f - gainSmoothCoeff) * state.chaosGainTarget;
 			
-			// Convert to delay in samples (centered around midpoint so average is 0 pitch change)
+			// Convert to delay in samples (centered around midpoint so average is zero shift)
 			const float centerDelay = maxDelaySamples;
 			const float delaySamples = centerDelay + state.chaosSmoothedValue * maxDelaySamples;
 			const float clampedDelay = juce::jlimit (0.0f, (float) (delayBufLen - 2), delaySamples);
@@ -3254,14 +3254,14 @@ void CABTRAudioProcessor::timerCallback()
 	constexpr juce::int64 minReloadIntervalMs = 300; // Max 1 reload per 300ms (rate-limiting)
 	
 	// Helper lambda: check if IR-affecting params changed for a loader
-	auto checkLoader = [&] (IRLoaderState& state, const char* pitchId, const char* invId,
+	auto checkLoader = [&] (IRLoaderState& state, const char* sizeId, const char* invId,
 	                         const char* normId, const char* rvsId, const char* startId,
 	                         const char* endId, const char* resoId)
 	{
 		if (state.currentFilePath.isEmpty())
 			return;
 		
-		const float pitch = parameters.getRawParameterValue (pitchId)->load();
+		const float size = parameters.getRawParameterValue (sizeId)->load();
 		const bool inv = parameters.getRawParameterValue (invId)->load() > 0.5f;
 		const bool norm = parameters.getRawParameterValue (normId)->load() > 0.5f;
 		const bool rvs = parameters.getRawParameterValue (rvsId)->load() > 0.5f;
@@ -3270,7 +3270,7 @@ void CABTRAudioProcessor::timerCallback()
 		const float reso = parameters.getRawParameterValue (resoId)->load();
 		
 		const float epsilon = 0.0001f;
-		const bool changed = std::abs (pitch - state.lastPitch.load()) > epsilon ||
+		const bool changed = std::abs (size - state.lastSize.load()) > epsilon ||
 		                     inv != state.lastInv.load() ||
 		                     norm != state.lastNorm.load() ||
 		                     rvs != state.lastRvs.load() ||
@@ -3280,8 +3280,8 @@ void CABTRAudioProcessor::timerCallback()
 		
 		if (changed && (now - state.lastReloadTime >= minReloadIntervalMs))
 		{
-			LOG_IR_EVENT ("Loader param change - reloading (pitch=" + 
-			              juce::String (pitch, 3) + ", start=" + juce::String (start, 1) + 
+			LOG_IR_EVENT ("Loader param change - reloading (size=" + 
+			              juce::String (size, 3) + ", start=" + juce::String (start, 1) + 
 			              "ms, end=" + juce::String (end, 1) + "ms, norm=" + 
 			              juce::String (norm ? "ON" : "OFF") + ", inv=" +
 			              juce::String (inv ? "ON" : "OFF") + ", rvs=" +
@@ -3293,9 +3293,9 @@ void CABTRAudioProcessor::timerCallback()
 		}
 	};
 	
-	checkLoader (stateA, kParamPitchA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA, kParamResoA);
-	checkLoader (stateB, kParamPitchB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB, kParamResoB);
-	checkLoader (stateC, kParamPitchC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC, kParamResoC);
+	checkLoader (stateA, kParamSizeA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA, kParamResoA);
+	checkLoader (stateB, kParamSizeB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB, kParamResoB);
+	checkLoader (stateC, kParamSizeC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC, kParamResoC);
 	
 	// ALIGN: momentary action — calculate cross-correlation + set delay/inv, then turn off
 	{

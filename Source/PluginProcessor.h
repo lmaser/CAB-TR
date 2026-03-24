@@ -29,7 +29,7 @@ public:
 	static constexpr const char* kParamTiltA        = "tilt_a";
 	static constexpr const char* kParamStartA       = "start_a";
 	static constexpr const char* kParamEndA         = "end_a";
-	static constexpr const char* kParamPitchA       = "pitch_a";
+	static constexpr const char* kParamSizeA        = "size_a";
 	static constexpr const char* kParamDelayA       = "delay_a";
 	static constexpr const char* kParamPanA         = "pan_a";
 	static constexpr const char* kParamFredA        = "fred_a";
@@ -62,7 +62,7 @@ public:
 	static constexpr const char* kParamTiltB        = "tilt_b";
 	static constexpr const char* kParamStartB       = "start_b";
 	static constexpr const char* kParamEndB         = "end_b";
-	static constexpr const char* kParamPitchB       = "pitch_b";
+	static constexpr const char* kParamSizeB        = "size_b";
 	static constexpr const char* kParamDelayB       = "delay_b";
 	static constexpr const char* kParamPanB         = "pan_b";
 	static constexpr const char* kParamFredB        = "fred_b";
@@ -95,7 +95,7 @@ public:
 	static constexpr const char* kParamTiltC        = "tilt_c";
 	static constexpr const char* kParamStartC       = "start_c";
 	static constexpr const char* kParamEndC         = "end_c";
-	static constexpr const char* kParamPitchC       = "pitch_c";
+	static constexpr const char* kParamSizeC        = "size_c";
 	static constexpr const char* kParamDelayC       = "delay_c";
 	static constexpr const char* kParamPanC         = "pan_c";
 	static constexpr const char* kParamFredC        = "fred_c";
@@ -197,9 +197,9 @@ public:
 	static constexpr float kEndMax                  = 10000.0f;
 	static constexpr float kEndDefault              = 10000.0f;
 
-	static constexpr float kPitchMin                = 0.25f;      // 25%
-	static constexpr float kPitchMax                = 4.0f;       // 400%
-	static constexpr float kPitchDefault            = 1.0f;       // 100%
+	static constexpr float kSizeMin                 = 0.25f;      // 25%
+	static constexpr float kSizeMax                 = 4.0f;       // 400%
+	static constexpr float kSizeDefault             = 1.0f;       // 100%
 
 	static constexpr float kDelayMin                = 0.0f;
 	static constexpr float kDelayMax                = 1000.0f;    // ms
@@ -399,7 +399,7 @@ public:
 		juce::SmoothedValue<float> smoothedDelay { 0.0f }; // Suavizado para delay
 		
 		// Cache last parameter values to detect changes and reload IR
-		std::atomic<float> lastPitch { 1.0f };
+		std::atomic<float> lastSize { 1.0f };
 		std::atomic<bool> lastInv { false };
 		std::atomic<bool> lastNorm { false };
 		std::atomic<bool> lastRvs { false };
@@ -432,17 +432,17 @@ public:
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
 
-		// CHAOS (S&H micro-delay pitch modulation)
+		// CHAOS (S&H micro-delay modulation)
 		// Micro-delay line: max ±5ms @ 192kHz = 960 samples, round to 1024
 		static constexpr int kChaosDelayMaxSamples = 1024;
 		float chaosDelayBuffer[2][kChaosDelayMaxSamples] = {};
 		int chaosDelayWritePos = 0;
-		float chaosCurrentTarget = 0.0f;    // S&H target (pitch): -1..+1
-		float chaosSmoothedValue = 0.0f;    // EMA-smoothed pitch value
-		float chaosPhaseSamples = 0.0f;     // phase accumulator for pitch S&H
+		float chaosCurrentTarget = 0.0f;    // S&H target: -1..+1
+		float chaosSmoothedValue = 0.0f;    // EMA-smoothed value
+		float chaosPhaseSamples = 0.0f;     // phase accumulator for S&H
 		juce::Random chaosRng;
 
-		// CHAOS gain S&H (independent from pitch S&H)
+		// CHAOS gain S&H (independent from delay S&H)
 		float chaosGainTarget = 0.0f;       // S&H target (gain): -1..+1
 		float chaosGainSmoothed = 0.0f;     // EMA-smoothed gain value
 		float chaosGainPhase = 0.0f;        // phase accumulator for gain S&H
