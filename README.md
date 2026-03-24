@@ -18,7 +18,7 @@ CAB-TR uses a text-based UI with horizontal bar sliders. All controls are access
 - **Bar sliders**: Click and drag horizontally. Right-click for numeric entry.
 - **Toggle buttons**: INV, NORM, RVS, CHAOS. Click to enable/disable.
 - **Combo boxes**: MODE IN, MODE OUT, SUM BUS per loader. Click to cycle options.
-- **Collapsible loader sections**: Click the loader header (A / B / C) to expand or collapse each slot. The file name label, enable toggle, and browse button remain visible when collapsed.
+- **Collapsible IO section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (OUT, FILTER, MIX, MODE IN/OUT, SUM BUS, CHAOS). State persists across sessions.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
 - **Filter bar**: Click to open the HP/LP filter configuration prompt with frequency, slope, and enable/disable controls.
 - **Gear icon** (top-right): Opens the info popup with version, credits, and a link to Graphics settings.
@@ -194,7 +194,8 @@ Renders the combined output of all active loaders (through the full routing and 
 ### State Persistence
 - All parameters saved via JUCE AudioProcessorValueTreeState.
 - IR file paths stored in the plugin state (irPathA, irPathB, irPathC) — reloaded on session restore.
-- UI state (window size, palette, CRT toggle, custom colours, IO section expanded/collapsed) persisted separately in the processor's state block.
+- UI state (window size, palette, CRT toggle, custom colours) stored as non-automatable APVTS parameters — persists across sessions but hidden from the DAW automation list.
+- IO section expanded/collapsed state persisted as a ValueTree property.
 - Parameter IDs are stable across versions for preset compatibility.
 
 ### Performance

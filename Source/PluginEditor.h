@@ -497,6 +497,7 @@ private:
 			r.fileDisp.setColour (juce::Label::textColourId, activeScheme.text);
 			applyComboScheme (r.modeIn);
 			applyComboScheme (r.modeOut);
+			applyComboScheme (r.sumBus);
 			r.filterBar.setScheme (activeScheme);
 		}
 

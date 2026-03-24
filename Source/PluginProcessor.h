@@ -535,27 +535,8 @@ private:
 	juce::AudioBuffer<float> globalDryBuffer;  // For global dry/wet MIX
 	juce::AudioBuffer<float> loaderDryBuffer;  // For per-loader dry/wet MIX
 	
-	// Debug logging
-	std::atomic<int> reloadCountA { 0 };
-	std::atomic<int> reloadCountB { 0 };
-	std::atomic<int> reloadCountC { 0 };
-	juce::int64 lastDebugTime = 0;
+	// Debug / rate-limiting
 	juce::int64 lastAlignTime = 0;
-	
-	// CPU profiling: track worst-case processBlock time
-	std::atomic<double> worstBlockTimeUs { 0.0 };
-	std::atomic<double> worstConvTimeUs { 0.0 }; // convolution-only timing
-	std::atomic<int> blockCount { 0 };
-
-	// Peak level tracking (per-block max absolute value)
-	std::atomic<float> peakInputLevel  { 0.0f };
-	std::atomic<float> peakOutputLevel { 0.0f };
-	std::atomic<int>   clipCount       { 0 };    // blocks where output > 1.0
-
-	// Per-loader process time (worst in window)
-	std::atomic<double> worstLoaderAUs { 0.0 };
-	std::atomic<double> worstLoaderBUs { 0.0 };
-	std::atomic<double> worstLoaderCUs { 0.0 };
 
 	// DC blocking filter state (per-channel)
 	float dcBlockX_[2] = { 0.0f, 0.0f };

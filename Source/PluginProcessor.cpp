@@ -440,22 +440,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	//  UI State Parameters (hidden from automation)
 	// ══════════════════════════════════════════════════════════════
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiWidth, 1 }, "UI Width", 400, 2000, 800));
+		juce::ParameterID { kParamUiWidth, 1 }, "UI Width", 400, 2000, 800,
+		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiHeight, 1 }, "UI Height", 300, 1500, 600));
+		juce::ParameterID { kParamUiHeight, 1 }, "UI Height", 300, 1500, 600,
+		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiPalette, 1 }, "UI Palette", 0, 1, 0));
+		juce::ParameterID { kParamUiPalette, 1 }, "UI Palette", 0, 1, 0,
+		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		juce::ParameterID { kParamUiFxTail, 1 }, "UI FX Tail", false));
+		juce::ParameterID { kParamUiFxTail, 1 }, "UI FX Tail", false,
+		juce::AudioParameterBoolAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiColor0, 1 }, "UI Color 0", 0, 0xFFFFFF, 0x00FF00));
+		juce::ParameterID { kParamUiColor0, 1 }, "UI Color 0", 0, 0xFFFFFF, 0x00FF00,
+		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiColor1, 1 }, "UI Color 1", 0, 0xFFFFFF, 0x000000));
+		juce::ParameterID { kParamUiColor1, 1 }, "UI Color 1", 0, 0xFFFFFF, 0x000000,
+		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	return layout;
 }
@@ -503,13 +509,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		juce::dsp::FFT fftBench (8); // order=8 → 256-point
 		std::vector<float> benchBuf (512, 0.0f);
 		benchBuf[0] = 1.0f;
-		const auto t0 = juce::Time::getHighResolutionTicks();
 		for (int i = 0; i < 100; ++i)
 			fftBench.performRealOnlyForwardTransform (benchBuf.data());
-		const auto t1 = juce::Time::getHighResolutionTicks();
-		const double usPerFFT = juce::Time::highResolutionTicksToSeconds (t1 - t0) * 1e6 / 100.0;
-		LOG_IR_EVENT ("FFT benchmark: 256-point x100 => " + juce::String (usPerFFT, 1) + "us/fft (" +
-		              (usPerFFT < 5.0 ? "FFTW active" : "SLOW — likely fallback") + ")");
 	}
 	stateA.hpFilter.prepare (spec);
 	stateA.hpFilter2.prepare (spec);
@@ -658,11 +659,7 @@ void CABTRAudioProcessor::releaseResources()
 	stateB.delayLine.reset();
 	stateC.delayLine.reset();
 	
-	// Print debug stats
-	DBG ("CAB-TR CPU Debug Stats:");
-	DBG ("  Loader A reloads: " + juce::String (reloadCountA.load()));
-	DBG ("  Loader B reloads: " + juce::String (reloadCountB.load()));
-	DBG ("  Loader C reloads: " + juce::String (reloadCountC.load()));
+
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -735,8 +732,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 {
 	juce::ScopedNoDenormals noDenormals;
 	juce::ignoreUnused (midiMessages);
-	
-	const auto blockStartTime = juce::Time::getHighResolutionTicks();
 
 	auto totalNumInputChannels  = getTotalNumInputChannels();
 	auto totalNumOutputChannels = getTotalNumOutputChannels();
@@ -773,15 +768,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// Apply input gain (SIMD optimized)
 	const float inputGain = juce::Decibels::decibelsToGain (pInput->load());
 	buffer.applyGain (inputGain);
-
-	// Peak input measurement (post input gain)
-	{
-		float inPeak = 0.0f;
-		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-			inPeak = juce::jmax (inPeak, buffer.getMagnitude (ch, 0, numSamples));
-		float cur = peakInputLevel.load();
-		if (inPeak > cur) peakInputLevel.store (inPeak);
-	}
 
 	// Helper: apply M/S mode conversion to a buffer
 	auto applyMode = [] (juce::AudioBuffer<float>& buf, int modeVal, int nSamples)
@@ -846,17 +832,11 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	auto processOne = [&] (IRLoaderState& state, juce::AudioBuffer<float>& buf,
 	                        int loaderIndex, int modeIn, int modeOut, float loaderMix)
 	{
-		const auto loaderStart = juce::Time::getHighResolutionTicks();
 		saveDry (buf);
 		applyMode (buf, modeIn, numSamples);
 		processLoader (state, buf, loaderIndex);
 		applyMode (buf, modeOut, numSamples);
 		applyLoaderMix (buf, loaderMix);
-		const double loaderUs = juce::Time::highResolutionTicksToSeconds (
-			juce::Time::getHighResolutionTicks() - loaderStart) * 1e6;
-		auto& worst = loaderIndex == 0 ? worstLoaderAUs : (loaderIndex == 1 ? worstLoaderBUs : worstLoaderCUs);
-		double cur = worst.load();
-		if (loaderUs > cur) worst.store (loaderUs);
 	};
 
 	// Count how many loaders are active (for parallel compensation)
@@ -1283,22 +1263,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	}
 
 	// Peak output + clip detection (post output gain)
-	{
-		float outPeak = 0.0f;
-		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-			outPeak = juce::jmax (outPeak, buffer.getMagnitude (ch, 0, numSamples));
-		float cur = peakOutputLevel.load();
-		if (outPeak > cur) peakOutputLevel.store (outPeak);
-		if (outPeak > 1.0f) clipCount++;
-	}
-	
-	// CPU profiling: track worst-case block time
-	const auto blockEndTime = juce::Time::getHighResolutionTicks();
-	const double blockTimeUs = juce::Time::highResolutionTicksToSeconds (blockEndTime - blockStartTime) * 1e6;
-	double currentWorst = worstBlockTimeUs.load();
-	if (blockTimeUs > currentWorst)
-		worstBlockTimeUs.store (blockTimeUs);
-	blockCount++;
+	// (removed — profiling disabled for release)
 }
 
 //==============================================================================
@@ -1402,7 +1367,6 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	// Smart read: only read the samples we actually need (avoids loading 480K samples to discard 99%)
 	// 1. Calculate trim boundaries first, then read only that range + margin for pitch
 	const int loaderIdx = (&state == &stateA) ? 0 : ((&state == &stateB) ? 1 : 2);
-	const char* loaderLabel = loaderIdx == 0 ? "A" : (loaderIdx == 1 ? "B" : "C");
 	auto pickParam = [&] (const char* a, const char* b, const char* c) -> const char*
 		{ return loaderIdx == 0 ? a : (loaderIdx == 1 ? b : c); };
 	const float startMs_pre = parameters.getRawParameterValue (pickParam (kParamStartA, kParamStartB, kParamStartC))->load();
@@ -1594,14 +1558,6 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.lastRvs.store (reverse);
 	state.lastStart.store (startMs);
 	state.lastEnd.store (endMs);
-	
-	// Increment reload counter
-	if (loaderIdx == 0)
-		reloadCountA++;
-	else if (loaderIdx == 1)
-		reloadCountB++;
-	else
-		reloadCountC++;
 
 	state.currentFilePath = filePath;
 	state.irSampleRate = reader->sampleRate;
@@ -2409,12 +2365,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// 1. CONVOLUTION (TwoStageFFTConvolver — head on audio thread, tail on background)
 	{
-		const auto convStart = juce::Time::getHighResolutionTicks();
 		state.convolution.process (buffer);
-		const double convUs = juce::Time::highResolutionTicksToSeconds (
-			juce::Time::getHighResolutionTicks() - convStart) * 1e6;
-		double curConv = worstConvTimeUs.load();
-		if (convUs > curConv) worstConvTimeUs.store (convUs);
 
 		// Sanitise: kill NaN/Inf/denormals that can leak from the engine
 		// during IR swaps (crossfade transients) or extreme input.
@@ -2795,7 +2746,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 
 	// Helper: apply alignment result to a loader
 	auto applyAlignment = [&] (const char* delayId, const char* invId,
-	                            int bestLag, float bestCorr, bool currentInv, bool currentInvA, const char* label)
+	                            int bestLag, float bestCorr, bool currentInv, bool currentInvA)
 	{
 		// Compensate for current INV states to find raw correlation
 		float rawCorr = bestCorr;
@@ -2818,7 +2769,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 		if (auto* p = parameters.getParameter (invId))
 			p->setValueNotifyingHost (needsInvert ? 1.0f : 0.0f);
 
-		LOG_IR_EVENT ("ALIGN " + juce::String (label) + ": lag=" + juce::String (bestLag) +
+		LOG_IR_EVENT ("ALIGN: lag=" + juce::String (bestLag) +
 		              " (" + juce::String (lagMs, 3) + "ms), inv=" + juce::String (needsInvert ? "ON" : "OFF"));
 	};
 
@@ -2843,7 +2794,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	{
 		auto [lagB, corrB] = xcorr (stateB.impulseResponse);
 		const bool currentInvB = parameters.getRawParameterValue (kParamInvB)->load() > 0.5f;
-		applyAlignment (kParamDelayB, kParamInvB, lagB, corrB, currentInvB, currentInvA, "B");
+		applyAlignment (kParamDelayB, kParamInvB, lagB, corrB, currentInvB, currentInvA);
 		if (lagB < 0) aDelaySamples = juce::jmax (aDelaySamples, -lagB);
 	}
 
@@ -2851,7 +2802,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	{
 		auto [lagC, corrC] = xcorr (stateC.impulseResponse);
 		const bool currentInvC = parameters.getRawParameterValue (kParamInvC)->load() > 0.5f;
-		applyAlignment (kParamDelayC, kParamInvC, lagC, corrC, currentInvC, currentInvA, "C");
+		applyAlignment (kParamDelayC, kParamInvC, lagC, corrC, currentInvC, currentInvA);
 		if (lagC < 0) aDelaySamples = juce::jmax (aDelaySamples, -lagC);
 	}
 
@@ -2883,14 +2834,13 @@ juce::AudioProcessorEditor* CABTRAudioProcessor::createEditor()
 //==============================================================================
 void CABTRAudioProcessor::timerCallback()
 {
-	bool didReload = false;
 	const juce::int64 now = juce::Time::currentTimeMillis();
 	constexpr juce::int64 minReloadIntervalMs = 300; // Max 1 reload per 300ms (rate-limiting)
 	
 	// Helper lambda: check if IR-affecting params changed for a loader
 	auto checkLoader = [&] (IRLoaderState& state, const char* pitchId, const char* invId,
 	                         const char* normId, const char* rvsId, const char* startId,
-	                         const char* endId, const char* label)
+	                         const char* endId)
 	{
 		if (state.currentFilePath.isEmpty())
 			return;
@@ -2912,7 +2862,7 @@ void CABTRAudioProcessor::timerCallback()
 		
 		if (changed && (now - state.lastReloadTime >= minReloadIntervalMs))
 		{
-			LOG_IR_EVENT ("Loader " + juce::String (label) + " param change - reloading (pitch=" + 
+			LOG_IR_EVENT ("Loader param change - reloading (pitch=" + 
 			              juce::String (pitch, 3) + ", start=" + juce::String (start, 1) + 
 			              "ms, end=" + juce::String (end, 1) + "ms, norm=" + 
 			              juce::String (norm ? "ON" : "OFF") + ", inv=" +
@@ -2921,13 +2871,12 @@ void CABTRAudioProcessor::timerCallback()
 			
 			loadImpulseResponse (state, state.currentFilePath);
 			state.lastReloadTime = now;
-			didReload = true;
 		}
 	};
 	
-	checkLoader (stateA, kParamPitchA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA, "A");
-	checkLoader (stateB, kParamPitchB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB, "B");
-	checkLoader (stateC, kParamPitchC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC, "C");
+	checkLoader (stateA, kParamPitchA, kParamInvA, kParamNormA, kParamRvsA, kParamStartA, kParamEndA);
+	checkLoader (stateB, kParamPitchB, kParamInvB, kParamNormB, kParamRvsB, kParamStartB, kParamEndB);
+	checkLoader (stateC, kParamPitchC, kParamInvC, kParamNormC, kParamRvsC, kParamStartC, kParamEndC);
 	
 	// ALIGN: momentary action — calculate cross-correlation + set delay/inv, then turn off
 	{
@@ -2963,56 +2912,6 @@ void CABTRAudioProcessor::timerCallback()
 
 			if (auto* p = parameters.getParameter (kParamAlign))
 				p->setValueNotifyingHost (0.0f);
-		}
-	}
-	
-	// Debug logging every 10 seconds
-	if (didReload || (now - lastDebugTime > 10000))
-	{
-		if (now - lastDebugTime > 10000)
-		{
-			const double worstUs = worstBlockTimeUs.exchange (0.0);
-			const double budgetUs = (currentBlockSize / currentSampleRate) * 1e6;
-			const double cpuPct = (worstUs / budgetUs) * 100.0;
-			const double loaderAUs = worstLoaderAUs.exchange (0.0);
-			const double loaderBUs = worstLoaderBUs.exchange (0.0);
-			const double loaderCUs = worstLoaderCUs.exchange (0.0);
-			const double convUs = worstConvTimeUs.exchange (0.0);
-			const float inPeak  = peakInputLevel.exchange (0.0f);
-			const float outPeak = peakOutputLevel.exchange (0.0f);
-			const int   clips   = clipCount.exchange (0);
-			
-			const float inDb  = inPeak  > 0.0f ? juce::Decibels::gainToDecibels (inPeak)  : -100.0f;
-			const float outDb = outPeak > 0.0f ? juce::Decibels::gainToDecibels (outPeak) : -100.0f;
-			
-			LOG_IR_EVENT ("CAB-TR Stats: CPU worst=" + juce::String (worstUs, 0) + "us / " +
-			              juce::String (budgetUs, 0) + "us budget (" + 
-			              juce::String (cpuPct, 1) + "%) blocks=" + 
-			              juce::String (blockCount.load()) +
-			              " | loaderA=" + juce::String (loaderAUs, 0) + "us" +
-			              " loaderB=" + juce::String (loaderBUs, 0) + "us" +
-			              " loaderC=" + juce::String (loaderCUs, 0) + "us" +
-			              " convWorst=" + juce::String (convUs, 0) + "us" +
-			              " | irA=" + juce::String (stateA.impulseResponse.getNumSamples()) + "smp" +
-			              " irB=" + juce::String (stateB.impulseResponse.getNumSamples()) + "smp" +
-			              " irC=" + juce::String (stateC.impulseResponse.getNumSamples()) + "smp" +
-			              " | peakIn=" + juce::String (inDb, 1) + "dB" +
-			              " peakOut=" + juce::String (outDb, 1) + "dB" +
-			              " clips=" + juce::String (clips) +
-			              " | route=" + juce::String (static_cast<int> (parameters.getRawParameterValue (kParamRoute)->load())) +
-			              " mix=" + juce::String (parameters.getRawParameterValue (kParamMix)->load(), 2) +
-			              " | A=" + juce::String (parameters.getRawParameterValue (kParamEnableA)->load() > 0.5f ? "ON" : "off") +
-			              (stateA.currentFilePath.isNotEmpty() ? "(loaded)" : "(empty)") +
-			              " B=" + juce::String (parameters.getRawParameterValue (kParamEnableB)->load() > 0.5f ? "ON" : "off") +
-			              (stateB.currentFilePath.isNotEmpty() ? "(loaded)" : "(empty)") +
-			              " C=" + juce::String (parameters.getRawParameterValue (kParamEnableC)->load() > 0.5f ? "ON" : "off") +
-			              (stateC.currentFilePath.isNotEmpty() ? "(loaded)" : "(empty)") +
-			              " | reloads=" + juce::String (reloadCountA.load()) +
-			              "/" + juce::String (reloadCountB.load()) +
-			              "/" + juce::String (reloadCountC.load()) +
-			              " blockSize=" + juce::String (currentBlockSize) +
-			              " sr=" + juce::String (static_cast<int> (currentSampleRate)));
-			lastDebugTime = now;
 		}
 	}
 }
