@@ -571,6 +571,7 @@ private:
 	// Wet NORM AGC state (peak follower + gain smoothing)
 	float normPeakFollower_  = 0.0f;
 	float normSmoothedGain_  = 1.0f;
+	int   normWarmupSamples_ = 0;    // samples since peak follower activated
 
 	// Post-prepare fade-in to suppress convolver/filter warmup transients
 	int fadeInSamplesRemaining_ = 0;

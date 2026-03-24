@@ -660,8 +660,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	tiltLastProfile_ = -1;
 
 	// Reset wet NORM AGC state
-	normPeakFollower_ = 0.0f;
-	normSmoothedGain_ = 1.0f;
+	normPeakFollower_  = 0.0f;
+	normSmoothedGain_  = 1.0f;
+	normWarmupSamples_ = 0;
 
 	// Fade-in to suppress convolver/filter warmup transients (~5ms)
 	fadeInTotalSamples_     = juce::jmax (64, (int) (sampleRate * 0.005));
@@ -1209,6 +1210,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// ── NORM: static peak-normalize wet signal to target level ──
 	// Captures maximum peak (no release) and applies fixed gain.
 	// Toggling NORM off/on resets the peak measurement.
+	// A warmup period (~150 ms) prevents boost during convolver crossfade /
+	// session restore, where early peaks are unreliable and could cause a spike.
 	{
 		const int normIdx = static_cast<int> (pTrim->load());
 		if (normIdx > 0)
@@ -1221,31 +1224,30 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				blockPeak = std::max (blockPeak, buffer.getMagnitude (ch, 0, numSamples));
 
 			// Peak-hold: only goes up, never down (static normalization)
-			const bool firstMeasurement = (normPeakFollower_ < 0.001f);
 			if (blockPeak > normPeakFollower_)
 				normPeakFollower_ = blockPeak;
 
 			// Calculate and apply gain once peak exceeds threshold (-60 dB)
 			if (normPeakFollower_ > 0.001f)
 			{
+				// Accumulate warmup time (samples since first signal)
+				normWarmupSamples_ += numSamples;
+				const int warmupThreshold = static_cast<int> (getSampleRate() * 0.15f); // 150 ms
+				const bool warmingUp = (normWarmupSamples_ < warmupThreshold);
+
 				const float desiredGain = target / normPeakFollower_;
 				const float clampedGain = juce::jlimit (0.01f, kMaxNormBoost, desiredGain);
 
-				if (firstMeasurement)
-				{
-					// First block with signal: cap at unity to avoid boost transient
-					// while peak follower is still accumulating.  Upward ramp below
-					// will smoothly converge to the real boost level.
-					normSmoothedGain_ = juce::jmin (1.0f, clampedGain);
-				}
-				else
-				{
-					// Bi-directional smoothing: fast ramp-down (10 ms) when a louder
-					// peak is captured, slower ramp-up (20 ms) for boost convergence.
-					const float tau = (clampedGain < normSmoothedGain_) ? 0.01f : 0.02f;
-					const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * tau / static_cast<float> (numSamples)));
-					normSmoothedGain_ += (clampedGain - normSmoothedGain_) * coeff;
-				}
+				// During warmup: cap at unity (only allow cut, never boost).
+				// After warmup: peak follower is reliable — allow full range.
+				const float effectiveGain = warmingUp ? juce::jmin (1.0f, clampedGain)
+				                                      : clampedGain;
+
+				// Bi-directional smoothing: fast ramp-down (10 ms) when a louder
+				// peak is captured, slower ramp-up (20 ms) for boost convergence.
+				const float tau = (effectiveGain < normSmoothedGain_) ? 0.01f : 0.02f;
+				const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * tau / static_cast<float> (numSamples)));
+				normSmoothedGain_ += (effectiveGain - normSmoothedGain_) * coeff;
 
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					juce::FloatVectorOperations::multiply (buffer.getWritePointer (ch), normSmoothedGain_, numSamples);
@@ -1254,8 +1256,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		else
 		{
 			// Reset state when off — next enable will re-measure
-			normPeakFollower_ = 0.0f;
-			normSmoothedGain_ = 1.0f;
+			normPeakFollower_  = 0.0f;
+			normSmoothedGain_  = 1.0f;
+			normWarmupSamples_ = 0;
 		}
 	}
 
@@ -2113,6 +2116,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const int numSamples = result.getNumSamples();
 
 	// Log peak levels per channel after combining
+#if CABTR_DSP_DEBUG_LOG
 	{
 		float peakL = result.getMagnitude (0, 0, numSamples);
 		float peakR = result.getNumChannels() >= 2 ? result.getMagnitude (1, 0, numSamples) : 0.0f;
@@ -2129,6 +2133,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			LOG_IR_EVENT ("POST-COMBINE: maxSideDiff(L-R)=" + juce::String (maxSideDiff, 6));
 		}
 	}
+#endif
 
 	// ── Apply global processing ──
 
@@ -2256,6 +2261,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	// (export captures the pure wet IR; host applies mix/output at runtime)
 
 	// Final peaks after all global processing
+#if CABTR_DSP_DEBUG_LOG
 	{
 		float peakL = result.getMagnitude (0, 0, numSamples);
 		float peakR = result.getNumChannels() >= 2 ? result.getMagnitude (1, 0, numSamples) : 0.0f;
@@ -2270,6 +2276,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			LOG_IR_EVENT ("POST-GLOBAL: maxSideDiff(L-R)=" + juce::String (maxSideDiff, 6));
 		}
 	}
+#endif
 
 	LOG_IR_EVENT ("══════ EXPORT END ══════");
 
@@ -2397,12 +2404,16 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	}
 
 	static const char* loaderNames[] = { "A", "B", "C" };
+#if CABTR_DSP_DEBUG_LOG
 	const char* ln = loaderNames[juce::jlimit (0, 2, loaderIndex)];
 	LOG_IR_EVENT (juce::String ("LOADER ") + ln + ": modeIn=" + juce::String (modeIn)
 	             + " modeOut=" + juce::String (modeOut)
 	             + " mix=" + juce::String (loaderMix, 4)
 	             + " numSamples=" + juce::String (numSamples)
 	             + " numCh=" + juce::String (numChannels));
+#else
+	juce::ignoreUnused (loaderNames);
+#endif
 
 	auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c)
 		-> std::atomic<float>* { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
@@ -2443,6 +2454,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	const float outDb = pick (pOutA, pOutB, pOutC)->load();
 	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
 
+#if CABTR_DSP_DEBUG_LOG
 	LOG_IR_EVENT (juce::String ("LOADER ") + ln + ": hpOn=" + juce::String ((int) hpOn)
 	             + " hpFreq=" + juce::String (hpFreq, 1) + " hpSlope=" + juce::String (hpSlope)
 	             + " lpOn=" + juce::String ((int) lpOn)
@@ -2451,6 +2463,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	             + " fred=" + juce::String (fred, 3) + " pos=" + juce::String (pos, 3)
 	             + " outDb=" + juce::String (outDb, 2)
 	             + " inDb=" + juce::String (inDb, 2) + " tiltDb=" + juce::String (tiltDb, 2));
+#endif
 
 	juce::dsp::ProcessSpec spec;
 	spec.sampleRate = sampleRate;
