@@ -1431,11 +1431,17 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 
 	// Setup CRT effect
 	setComponentEffect (&crtEffect);
-	crtEffect.setEnabled (false);
 
 	// Setup parameter listeners for UI state
 	for (auto* paramId : kUiMirrorParamIds)
 		params.addParameterListener (paramId, this);
+
+	// Restore persisted UI state from processor (palette, CRT, colors)
+	useCustomPalette = audioProcessor.getUiUseCustomPalette();
+	crtEnabled       = audioProcessor.getUiFxTailEnabled();
+	crtEffect.setEnabled (crtEnabled);
+	for (int i = 0; i < 2; ++i)
+		customPalette[(size_t) i] = audioProcessor.getUiCustomPaletteColour (i);
 
 	// Initialize palette
 	applyActivePalette();
@@ -1444,8 +1450,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	refreshLegendTextCache();
 	legendDirty = false;
 
-	// Initial size
-	setSize (1200, 600);
+	// Restore persisted window size
+	const int restoredW = juce::jlimit (800, 2000, audioProcessor.getUiEditorWidth());
+	const int restoredH = juce::jlimit (500, 1200, audioProcessor.getUiEditorHeight());
+	setSize (restoredW, restoredH);
 	setResizable (true, true);
 	setResizeLimits (800, 500, 2000, 1200);
 
@@ -1462,6 +1470,10 @@ CABTRAudioProcessorEditor::~CABTRAudioProcessorEditor()
 {
 	TR::dismissEditorOwnedModalPrompts (lnf);
 	setPromptOverlayActive (false);
+
+	// Persist UI state to processor before teardown
+	audioProcessor.setUiUseCustomPalette (useCustomPalette);
+	audioProcessor.setUiFxTailEnabled (crtEnabled);
 
 	setComponentEffect (nullptr);
 	setLookAndFeel (nullptr);
@@ -1582,20 +1594,27 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 	// Per-loader MODE IN / MODE OUT labels (only when expanded/visible)
 	if (ioSectionExpanded_)
 	{
-		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ToggleButton& enableBtn)
+		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ComboBox& sumBus, juce::ToggleButton& enableBtn)
 		{
 			if (! modeIn.isVisible()) return;
 			const float alpha = enableBtn.getToggleState() ? 1.0f : 0.35f;
 			g.setColour (activeScheme.text.withAlpha (alpha));
-			g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")));
+			const auto font = juce::Font (juce::FontOptions (11.0f).withStyle ("Bold"));
+			g.setFont (font);
 			const auto miArea = modeIn.getBounds().withHeight (14).translated (0, -15);
 			const auto moArea = modeOut.getBounds().withHeight (14).translated (0, -15);
-			g.drawText ("MODE IN", miArea, juce::Justification::centred);
-			g.drawText ("MODE OUT", moArea, juce::Justification::centred);
+			const auto sbArea = sumBus.getBounds().withHeight (14).translated (0, -15);
+			const float comboW = (float) modeIn.getWidth();
+			juce::GlyphArrangement ga;
+			ga.addLineOfText (font, "MODE OUT", 0.0f, 0.0f);
+			const bool useShort = ga.getBoundingBox (0, -1, false).getWidth() > comboW;
+			g.drawText (useShort ? "IN"  : "MODE IN",  miArea, juce::Justification::centred);
+			g.drawText (useShort ? "OUT" : "MODE OUT", moArea, juce::Justification::centred);
+			g.drawText (useShort ? "SUM" : "SUM BUS",  sbArea, juce::Justification::centred);
 		};
-		drawModeLabels (modeInComboA, modeOutComboA, enableButtonA);
-		drawModeLabels (modeInComboB, modeOutComboB, enableButtonB);
-		drawModeLabels (modeInComboC, modeOutComboC, enableButtonC);
+		drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, enableButtonA);
+		drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, enableButtonB);
+		drawModeLabels (modeInComboC, modeOutComboC, sumBusComboC, enableButtonC);
 	}
 
 	// Draw gear icon (in paint, like other TR plugins)
@@ -1703,6 +1722,9 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 //==============================================================================
 void CABTRAudioProcessorEditor::resized()
 {
+	// Persist window size to processor
+	audioProcessor.setUiEditorSize (getWidth(), getHeight());
+
 	auto bounds = getLocalBounds();
 	
 	// Header (title area + buttons)
@@ -1992,6 +2014,7 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 		&pick (chaosDisplayA,   chaosDisplayB,   chaosDisplayC),
 		&pick (modeInComboA,    modeInComboB,    modeInComboC),
 		&pick (modeOutComboA,   modeOutComboB,   modeOutComboC),
+		&pick (sumBusComboA,    sumBusComboB,    sumBusComboC),
 		(juce::Component*) &pick (filterBarA_,   filterBarB_,   filterBarC_),
 		(juce::Component*) &pick (mixSliderA,    mixSliderB,    mixSliderC)
 	};

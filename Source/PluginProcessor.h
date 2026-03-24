@@ -259,6 +259,28 @@ public:
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Accessors
 	// ══════════════════════════════════════════════════════════════
+	int getUiEditorWidth() const
+	{
+		if (auto* p = parameters.getRawParameterValue (kParamUiWidth))
+			return static_cast<int> (*p);
+		return 800;
+	}
+
+	int getUiEditorHeight() const
+	{
+		if (auto* p = parameters.getRawParameterValue (kParamUiHeight))
+			return static_cast<int> (*p);
+		return 600;
+	}
+
+	void setUiEditorSize (int w, int h)
+	{
+		if (auto* pw = parameters.getParameter (kParamUiWidth))
+			pw->setValueNotifyingHost (pw->convertTo0to1 (static_cast<float> (w)));
+		if (auto* ph = parameters.getParameter (kParamUiHeight))
+			ph->setValueNotifyingHost (ph->convertTo0to1 (static_cast<float> (h)));
+	}
+
 	bool getUiUseCustomPalette() const
 	{
 		if (auto* p = parameters.getRawParameterValue (kParamUiPalette))
