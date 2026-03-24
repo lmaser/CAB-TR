@@ -1,6 +1,4 @@
 // PluginEditor.cpp — CAB-TR
-// This file is temporarily simplified. Full implementation with complete
-// file explorer will be added in subsequent updates.
 #include "PluginEditor.h"
 #include "InfoContent.h"
 #include <functional>
@@ -2467,7 +2465,6 @@ void CABTRAudioProcessorEditor::browseToParentFolder (int loaderIndex)
 	if (parent.exists())
 		currentFolder = parent;
 
-	// TODO: Update file list display in custom file browser
 }
 
 void CABTRAudioProcessorEditor::loadIRFile (const juce::String& path, int loaderIndex)

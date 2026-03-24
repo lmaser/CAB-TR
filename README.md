@@ -18,7 +18,7 @@ CAB-TR uses a text-based UI with horizontal bar sliders. All controls are access
 - **Bar sliders**: Click and drag horizontally. Right-click for numeric entry.
 - **Toggle buttons**: INV, NORM, RVS, CHAOS. Click to enable/disable.
 - **Combo boxes**: MODE IN, MODE OUT, SUM BUS per loader. Click to cycle options.
-- **Collapsible IO section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (OUT, FILTER, MIX, MODE IN/OUT, SUM BUS, CHAOS). State persists across sessions.
+- **Collapsible IO section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, SUM BUS, CHAOS). State persists across sessions.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
 - **Filter bar**: Click to open the HP/LP filter configuration prompt with frequency, slope, and enable/disable controls.
 - **Gear icon** (top-right): Opens the info popup with version, credits, and a link to Graphics settings.
@@ -96,6 +96,10 @@ Slope modes:
 - **12 dB/oct**: Second-order Butterworth.
 - **24 dB/oct**: Two cascaded second-order Butterworth stages.
 
+#### IN (−100 to 0 dB)
+
+Per-loader input gain. Applied before convolution and all per-loader effects. Useful for level-matching IRs with different native gains before they enter the processing chain.
+
 #### OUT (−100 to +24 dB)
 
 Per-loader output gain.
@@ -119,6 +123,14 @@ Stereo pan. 0% = full left, 50% = center (default), 100% = full right.
 #### FRED / Angle (0–100%)
 
 Fredman off-axis microphone simulation. Models a secondary mic angled away from the speaker cone using a 7-sample circular comb delay (~0.15 ms at 48 kHz, ~5 cm path difference). Creates a first null at ~6.8 kHz — a musically useful tonal shaping tool common in modern high-gain guitar tones.
+
+#### TILT (−6 to +6 dB)
+
+Per-loader spectral tilt. A first-order symmetric shelf filter pivoted at 1 kHz. Positive values boost highs and cut lows; negative values cut highs and boost lows. Independent of the global MATCH tilt.
+
+#### RESO (0–200%)
+
+Per-loader resonance intensity. Scales the IR's resonant character by blending between a smoothed (resonance-free) version and the original. 100% = original IR, 0% = fully smoothed (dry envelope only), 200% = exaggerated resonances.
 
 #### POS / Distance (0–100%)
 

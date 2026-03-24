@@ -771,6 +771,30 @@ static inline void injectMSBus (float l, float r, int bus,
 	else               { sideBus += (l - r) * 0.5f; }
 }
 
+void CABTRAudioProcessor::applyMidSideMode (juce::AudioBuffer<float>& buf, int modeVal, int nSamples)
+{
+	if ((modeVal == 1 || modeVal == 2) && buf.getNumChannels() >= 2)
+	{
+		auto* L = buf.getWritePointer (0);
+		auto* R = buf.getWritePointer (1);
+		for (int i = 0; i < nSamples; ++i)
+		{
+			const float l = L[i];
+			const float r = R[i];
+			if (modeVal == 1) // MID = (L+R) / sqrt(2)
+			{
+				const float mid = (l + r) * kSqrt2Over2;
+				L[i] = R[i] = mid;
+			}
+			else // SIDE = (L-R) / sqrt(2)
+			{
+				const float side = (l - r) * kSqrt2Over2;
+				L[i] = R[i] = side;
+			}
+		}
+	}
+}
+
 void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
 	juce::ScopedNoDenormals noDenormals;
@@ -819,31 +843,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const float inputGain = juce::Decibels::decibelsToGain (pInput->load());
 	buffer.applyGain (inputGain);
 
-	// Helper: apply M/S mode conversion to a buffer
-	auto applyMode = [] (juce::AudioBuffer<float>& buf, int modeVal, int nSamples)
-	{
-		if ((modeVal == 1 || modeVal == 2) && buf.getNumChannels() >= 2)
-		{
-			auto* L = buf.getWritePointer (0);
-			auto* R = buf.getWritePointer (1);
-			for (int i = 0; i < nSamples; ++i)
-			{
-				const float l = L[i];
-				const float r = R[i];
-				if (modeVal == 1) // MID = (L+R) / sqrt(2)
-				{
-					const float mid = (l + r) * 0.707106781f;
-					L[i] = R[i] = mid;
-				}
-				else // SIDE = (L-R) / sqrt(2)
-				{
-					const float side = (l - r) * 0.707106781f;
-					L[i] = R[i] = side;
-				}
-			}
-		}
-	};
-
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
 	const bool needsDry = (globalMix < 0.999f);
@@ -883,9 +882,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	                        int loaderIndex, int modeIn, int modeOut, float loaderMix)
 	{
 		saveDry (buf);
-		applyMode (buf, modeIn, numSamples);
+		applyMidSideMode (buf, modeIn, numSamples);
 		processLoader (state, buf, loaderIndex);
-		applyMode (buf, modeOut, numSamples);
+		applyMidSideMode (buf, modeOut, numSamples);
 		applyLoaderMix (buf, loaderMix);
 	};
 
@@ -1019,7 +1018,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
 			}
-			buffer.applyGain (0.707106781f); // -3dB for 2 parallel paths
+			buffer.applyGain (kSqrt2Over2); // -3dB for 2 parallel paths
 		}
 		else
 		{
@@ -1066,7 +1065,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
 			}
-			buffer.applyGain (0.707106781f); // -3dB for 2 parallel paths
+			buffer.applyGain (kSqrt2Over2); // -3dB for 2 parallel paths
 		}
 		else
 		{
@@ -1092,9 +1091,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 		if (matchProfile != 0) // 0 = None
 		{
-			// Target dB/oct per profile
-			static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
-			const float targetSlope = kTargetSlopes[matchProfile];
+			const float targetSlope = kTargetSlopes[juce::jlimit (0, kNumTargetSlopes - 1, matchProfile)];
 
 			// Compute combined IR slope based on routing mode
 			float combinedSlope = 0.0f;
@@ -1216,9 +1213,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		const int normIdx = static_cast<int> (pTrim->load());
 		if (normIdx > 0)
 		{
-			// Target peak levels: 0 dB, -3 dB, -6 dB, -12 dB, -18 dB
-			static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
-			const float target = kNormTargets[normIdx];
+			const float target = kNormTargets[juce::jlimit (0, kNumNormTargets - 1, normIdx)];
 
 			// Measure block peak across all channels
 			float blockPeak = 0.0f;
@@ -1234,7 +1229,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			if (normPeakFollower_ > 0.001f)
 			{
 				const float desiredGain = target / normPeakFollower_;
-				const float clampedGain = juce::jlimit (0.01f, 7.94f, desiredGain);
+				const float clampedGain = juce::jlimit (0.01f, kMaxNormBoost, desiredGain);
 
 				if (firstMeasurement)
 				{
@@ -1283,7 +1278,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// Removes DC offset introduced by convolution, pitch-shifted IRs, or filter artefacts.
 	// y[n] = x[n] - x[n-1] + R * y[n-1],  R = 1 - 2*pi*fc/sr
 	{
-		const float R = 1.0f - (6.2831853f * 5.0f / static_cast<float> (getSampleRate()));
+		const float R = 1.0f - (kTwoPi * 5.0f / static_cast<float> (getSampleRate()));
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		{
 			auto* data = buffer.getWritePointer (ch);
@@ -1622,7 +1617,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		}
 		
 		constexpr float kNormTarget = 0.1259f; // -18dBFS peak
-		constexpr float kMaxBoost = 7.94f;     // +18dB max (industry standard)
+		constexpr float kMaxBoost = kMaxNormBoost; // +18dB max (industry standard)
 		
 		// Apply normalization if there's actual signal (> -60dB)
 		if (maxLevel > 0.001f) // -60dB threshold (stricter than before)
@@ -1982,7 +1977,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 					juce::FloatVectorOperations::add (result.getWritePointer (ch), bufC.getReadPointer (ch), workingLen);
 				}
 			}
-			result.applyGain (0.707106781f);
+			result.applyGain (kSqrt2Over2);
 		}
 		else if (hasC)
 		{
@@ -2056,7 +2051,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 					juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
 				}
 			}
-			result.applyGain (0.707106781f);
+			result.applyGain (kSqrt2Over2);
 		}
 		else if (hasA)
 		{
@@ -2147,8 +2142,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		LOG_IR_EVENT ("MATCH: matchProfile=" + juce::String (matchProfile));
 		if (matchProfile != 0)
 		{
-			static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
-			const float targetSlope = kTargetSlopes[matchProfile];
+			const float targetSlope = kTargetSlopes[juce::jlimit (0, kNumTargetSlopes - 1, matchProfile)];
 
 			// Compute combined IR slope (same logic as processBlock)
 			float combinedSlope = 0.0f;
@@ -2244,8 +2238,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		const int normIdx = static_cast<int> (pTrim->load());
 		if (normIdx > 0)
 		{
-			static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
-			const float target = kNormTargets[normIdx];
+			const float target = kNormTargets[juce::jlimit (0, kNumNormTargets - 1, normIdx)];
 
 			float peak = 0.0f;
 			for (int ch = 0; ch < result.getNumChannels(); ++ch)
@@ -2253,7 +2246,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 
 			if (peak > 0.001f)
 			{
-				const float gain = juce::jlimit (0.01f, 7.94f, target / peak);
+				const float gain = juce::jlimit (0.01f, kMaxNormBoost, target / peak);
 				result.applyGain (gain);
 			}
 		}
@@ -2430,7 +2423,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	if (numChannels >= 2)
 	{
 		if (modeIn == 1) // MID
-			buffer.applyGain (1.41421356f);
+			buffer.applyGain (kSqrt2);
 		else if (modeIn == 2) // SIDE
 			buffer.clear();
 	}
@@ -2510,7 +2503,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 		if (hpSlope == 0) // 6 dB/oct — first-order
 			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (sampleRate, clampedHp);
 		else if (hpSlope == 1) // 12 dB/oct — Butterworth biquad
-			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, 0.70710678f);
+			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, kSqrt2Over2);
 		else // 24 dB/oct — first stage
 			*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, clampedHp, kBW4_Q1);
 
@@ -2539,7 +2532,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 		if (lpSlope == 0) // 6 dB/oct — first-order
 			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (sampleRate, clampedLp);
 		else if (lpSlope == 1) // 12 dB/oct — Butterworth biquad
-			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, 0.70710678f);
+			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, kSqrt2Over2);
 		else // 24 dB/oct — first stage
 			*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, clampedLp, kBW4_Q1);
 
@@ -2560,12 +2553,12 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	// DIST (exponential LPF + gain attenuation)
 	if (pos > 0.01f)
 	{
-		const float cutoff = 12000.0f * std::exp (-pos * 2.0794f);
+		const float cutoff = 12000.0f * std::exp (-pos * kDistDecay);
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
 		                                juce::dsp::IIR::Coefficients<float>> posF;
 		posF.prepare (spec);
 		*posF.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-			sampleRate, juce::jlimit (200.0f, maxFreq, cutoff), 0.707f);
+			sampleRate, juce::jlimit (200.0f, maxFreq, cutoff), kSqrt2Over2);
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> ctx (block);
 		posF.process (ctx);
@@ -2635,26 +2628,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	// (OUT gain and TILT already applied before filters — see above)
 
 	// Apply MODE OUT after processing
-	if ((modeOut == 1 || modeOut == 2) && numChannels >= 2)
-	{
-		auto* L = buffer.getWritePointer (0);
-		auto* R = buffer.getWritePointer (1);
-		for (int i = 0; i < numSamples; ++i)
-		{
-			const float l = L[i];
-			const float r = R[i];
-			if (modeOut == 1)
-			{
-				const float mid = (l + r) * 0.707106781f;
-				L[i] = R[i] = mid;
-			}
-			else
-			{
-				const float side = (l - r) * 0.707106781f;
-				L[i] = R[i] = side;
-			}
-		}
-	}
+	applyMidSideMode (buffer, modeOut, numSamples);
 
 	// Per-loader MIX: blend dry (pre-effects) with wet (post-effects)
 	if (needsMixBlend)
@@ -2842,7 +2816,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				else if (hpSlope == 1) // 12 dB/oct — Butterworth biquad
 				{
 					*state.hpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
-						currentSampleRate, clampedHp, 0.70710678f);
+						currentSampleRate, clampedHp, kSqrt2Over2);
 				}
 				else // 24 dB/oct — cascaded biquad pair
 				{
@@ -2867,7 +2841,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				else if (lpSlope == 1) // 12 dB/oct — Butterworth biquad
 				{
 					*state.lpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-						currentSampleRate, clampedLp, 0.70710678f);
+						currentSampleRate, clampedLp, kSqrt2Over2);
 				}
 				else // 24 dB/oct — cascaded biquad pair
 				{
@@ -2907,7 +2881,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	if (pos > 0.01f)
 	{
 		// Exponential cutoff: 12kHz * exp(-pos * 2.08) → pos=0→12kHz, pos=1→1.5kHz
-		const float cutoff = 12000.0f * std::exp (-pos * 2.0794f);
+		const float cutoff = 12000.0f * std::exp (-pos * kDistDecay);
 		constexpr float kPosSmooth = 0.9955f;
 		state.smoothedPosFreq += (cutoff - state.smoothedPosFreq) * (1.0f - kPosSmooth);
 
@@ -2917,7 +2891,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		if (std::abs (clampedPos - state.lastPosFreq) > 1.0f)
 		{
 			*state.posFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-				currentSampleRate, clampedPos, 0.707f);
+				currentSampleRate, clampedPos, kSqrt2Over2);
 			state.lastPosFreq = clampedPos;
 		}
 		

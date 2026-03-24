@@ -159,6 +159,21 @@ public:
 	static constexpr float kBW4_Q1 = 0.54119610f;   // 1/(2cos(3π/8))
 	static constexpr float kBW4_Q2 = 1.30656296f;   // 1/(2cos(π/8))
 
+	// Shared DSP constants
+	static constexpr float kSqrt2Over2   = 0.707106781f;  // √2/2  — Butterworth Q, M/S scaling, -3 dB
+	static constexpr float kSqrt2        = 1.41421356f;   // √2    — MID impulse compensation
+	static constexpr float kTwoPi        = 6.2831853f;     // 2π
+	static constexpr float kDistDecay    = 2.0794f;        // DIST exponential rolloff rate
+	static constexpr float kMaxNormBoost = 7.94f;          // +18 dB gain cap for NORM
+
+	// MATCH tilt target slopes (dB/oct): None, White, Pink, Brown, Bright, Bright+
+	static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
+	static constexpr int   kNumTargetSlopes = 6;
+
+	// NORM peak-target levels: Off, 0 dB, -3 dB, -6 dB, -12 dB, -18 dB
+	static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
+	static constexpr int   kNumNormTargets = 6;
+
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter Ranges & Defaults — IR Controls
 	// ══════════════════════════════════════════════════════════════
@@ -591,6 +606,9 @@ private:
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer, int loaderIndex, double sampleRate,
 	                                  int modeIn, int modeOut, float loaderMix);
+
+	// Shared M/S encoding helper (used by processBlock + offline export)
+	static void applyMidSideMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CABTRAudioProcessor)
 };
