@@ -561,78 +561,51 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 	if (owner == nullptr)
 		return juce::Slider::getTextFromValue (v);
 
-	// Format based on slider type
-	// HP/LP frequencies
-	if (this == &owner->hpFreqSliderA || this == &owner->lpFreqSliderA ||
-	    this == &owner->hpFreqSliderB || this == &owner->lpFreqSliderB ||
-	    this == &owner->hpFreqSliderC || this == &owner->lpFreqSliderC)
+	switch (type_)
 	{
-		return juce::String (v, 1) + " Hz";
-	}
+		case Type::HpFreq:
+		case Type::LpFreq:
+			return juce::String (v, 1) + " Hz";
 
-	// IN (dB, with -INF)
-	if (this == &owner->inSliderA || this == &owner->inSliderB || this == &owner->inSliderC)
-	{
-		if (v <= -80.0) return "-INF";
-		return juce::String (v, 1) + " dB";
-	}
+		case Type::Input:
+			if (v <= -80.0) return "-INF";
+			return juce::String (v, 1) + " dB";
 
-	// OUT (dB)
-	if (this == &owner->outSliderA || this == &owner->outSliderB || this == &owner->outSliderC)
-	{
-		return juce::String (v, 1) + " dB";
-	}
+		case Type::Output:
+		case Type::GlobalOutput:
+			return juce::String (v, 1) + " dB";
 
-	// TILT (dB/oct)
-	if (this == &owner->tiltSliderA || this == &owner->tiltSliderB || this == &owner->tiltSliderC)
-	{
-		return juce::String (v, 2) + " dB/oct";
-	}
+		case Type::Tilt:
+			return juce::String (v, 2) + " dB/oct";
 
-	if (this == &owner->startSliderA || this == &owner->endSliderA ||
-	    this == &owner->startSliderB || this == &owner->endSliderB ||
-	    this == &owner->startSliderC || this == &owner->endSliderC)
-	{
-		return juce::String (static_cast<int> (std::round (v))) + " ms";
-	}
+		case Type::Start:
+		case Type::End:
+		case Type::Delay:
+			return juce::String (static_cast<int> (std::round (v))) + " ms";
 
-	if (this == &owner->delaySliderA || this == &owner->delaySliderB || this == &owner->delaySliderC)
-	{
-		return juce::String (static_cast<int> (std::round (v))) + " ms";
-	}
+		case Type::Pitch:
+			return juce::String (v * 100.0, 1) + "%";
 
-	// PITCH (as percentage)
-	if (this == &owner->pitchSliderA || this == &owner->pitchSliderB || this == &owner->pitchSliderC)
-	{
-		return juce::String (v * 100.0, 1) + "%";
-	}
+		case Type::Pan:
+		{
+			double percent = v * 100.0;
+			if (std::abs (percent - 50.0) < 1.0)
+				return "C";
+			if (percent < 50.0)
+				return "L" + juce::String (50.0 - percent, 0);
+			return "R" + juce::String (percent - 50.0, 0);
+		}
 
-	// PAN (percentage)
-	if (this == &owner->panSliderA || this == &owner->panSliderB || this == &owner->panSliderC)
-	{
-		double percent = v * 100.0;
-		if (std::abs (percent - 50.0) < 1.0)
-			return "C";
-		if (percent < 50.0)
-			return "L" + juce::String (50.0 - percent, 0);
-		return "R" + juce::String (percent - 50.0, 0);
-	}
+		case Type::Fred:
+		case Type::Pos:
+		case Type::Reso:
+		case Type::Mix:
+		case Type::GlobalMix:
+			return juce::String (v * 100.0, 1) + "%";
 
-	// ANGLE, DIST, RESO, MIX (percentage)
-	if (this == &owner->fredSliderA || this == &owner->posSliderA ||
-	    this == &owner->fredSliderB || this == &owner->posSliderB ||
-	    this == &owner->fredSliderC || this == &owner->posSliderC ||
-	    this == &owner->resoSliderA || this == &owner->resoSliderB ||
-	    this == &owner->resoSliderC ||
-	    this == &owner->mixSliderA  || this == &owner->mixSliderB ||
-	    this == &owner->mixSliderC  || this == &owner->globalMixSlider)
-	{
-		return juce::String (v * 100.0, 1) + "%";
+		default:
+			break;
 	}
-
-	// Global OUTPUT (dB)
-	if (this == &owner->globalOutputSlider)
-		return juce::String (v, 1) + " dB";
 
 	return juce::Slider::getTextFromValue (v);
 }
@@ -1250,27 +1223,29 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.fileDisp.setText ("No file loaded", juce::dontSendNotification);
 	r.fileDisp.setJustificationType (juce::Justification::centred);
 
-	auto setupSlider = [this] (BarSlider& slider, const juce::String& tooltip) {
+	using ST = BarSlider::Type;
+	auto setupSlider = [this] (BarSlider& slider, const juce::String& tooltip, ST type) {
 		addAndMakeVisible (slider);
 		slider.setOwner (this);
+		slider.setType (type);
 		setupBar (slider);
 		slider.addListener (this);
 		slider.setTooltip (tooltip);
 	};
 
-	setupSlider (r.hp,    "HP Filter " + suffix);
-	setupSlider (r.lp,    "LP Filter " + suffix);
-	setupSlider (r.in,    "Input Gain " + suffix);
-	setupSlider (r.out,   "Output Gain " + suffix);
-	setupSlider (r.tilt,  "Tilt EQ " + suffix + " (-6/+6 dB/oct)");
-	setupSlider (r.start, "IR Start Time " + suffix);
-	setupSlider (r.end,   "IR End Time " + suffix);
-	setupSlider (r.pitch, "Pitch Shift " + suffix + " (25%-400%)");
-	setupSlider (r.delay, "Delay " + suffix + " (0-1000ms)");
-	setupSlider (r.pan,   "Pan " + suffix + " (L-R)");
-	setupSlider (r.fred,  "Angle " + suffix + " (off-axis mic simulation)");
-	setupSlider (r.pos,   "Distance " + suffix + " (proximity/distance)");
-	setupSlider (r.reso,  "Resonance " + suffix + " (0%-200%)");
+	setupSlider (r.hp,    "HP Filter " + suffix,                       ST::HpFreq);
+	setupSlider (r.lp,    "LP Filter " + suffix,                       ST::LpFreq);
+	setupSlider (r.in,    "Input Gain " + suffix,                      ST::Input);
+	setupSlider (r.out,   "Output Gain " + suffix,                     ST::Output);
+	setupSlider (r.tilt,  "Tilt EQ " + suffix + " (-6/+6 dB/oct)",    ST::Tilt);
+	setupSlider (r.start, "IR Start Time " + suffix,                   ST::Start);
+	setupSlider (r.end,   "IR End Time " + suffix,                     ST::End);
+	setupSlider (r.pitch, "Pitch Shift " + suffix + " (25%-400%)",     ST::Pitch);
+	setupSlider (r.delay, "Delay " + suffix + " (0-1000ms)",           ST::Delay);
+	setupSlider (r.pan,   "Pan " + suffix + " (L-R)",                  ST::Pan);
+	setupSlider (r.fred,  "Angle " + suffix + " (off-axis mic simulation)", ST::Fred);
+	setupSlider (r.pos,   "Distance " + suffix + " (proximity/distance)",   ST::Pos);
+	setupSlider (r.reso,  "Resonance " + suffix + " (0%-200%)",        ST::Reso);
 
 	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
 	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
@@ -1316,7 +1291,7 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.filterBar.setScheme (activeScheme);
 	addAndMakeVisible (r.filterBar);
 
-	setupSlider (r.mix, "Mix " + suffix + " (Dry/Wet)");
+	setupSlider (r.mix, "Mix " + suffix + " (Dry/Wet)", ST::Mix);
 }
 
 //==============================================================================
@@ -1408,6 +1383,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	// Global MIX bar slider (footer)
 	addAndMakeVisible (globalMixSlider);
 	globalMixSlider.setOwner (this);
+	globalMixSlider.setType (BarSlider::Type::GlobalMix);
 	setupBar (globalMixSlider);
 	globalMixSlider.addListener (this);
 	globalMixSlider.setTooltip ("Global Mix (Dry/Wet)");
@@ -1415,6 +1391,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	// Global OUTPUT bar slider (footer)
 	addAndMakeVisible (globalOutputSlider);
 	globalOutputSlider.setOwner (this);
+	globalOutputSlider.setType (BarSlider::Type::GlobalOutput);
 	setupBar (globalOutputSlider);
 	globalOutputSlider.addListener (this);
 	globalOutputSlider.setTooltip ("Global Output");
@@ -1664,35 +1641,33 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 	{
 		g.setFont (kBoldFont40());
 
-		// Value areas for all 3 loaders
-		juce::ToggleButton* enableButtons[] = { &enableButtonA, &enableButtonB, &enableButtonC };
-		juce::Slider* allSliders[3][kNumCachedParams] = {
-			{ &hpFreqSliderA, &lpFreqSliderA, &inSliderA, &outSliderA, &tiltSliderA, &startSliderA, &endSliderA, &pitchSliderA, &delaySliderA, &panSliderA, &fredSliderA, &posSliderA, &resoSliderA, &mixSliderA },
-			{ &hpFreqSliderB, &lpFreqSliderB, &inSliderB, &outSliderB, &tiltSliderB, &startSliderB, &endSliderB, &pitchSliderB, &delaySliderB, &panSliderB, &fredSliderB, &posSliderB, &resoSliderB, &mixSliderB },
-			{ &hpFreqSliderC, &lpFreqSliderC, &inSliderC, &outSliderC, &tiltSliderC, &startSliderC, &endSliderC, &pitchSliderC, &delaySliderC, &panSliderC, &fredSliderC, &posSliderC, &resoSliderC, &mixSliderC }
-		};
-		FilterBarComponent* filterBars[] = { &filterBarA_, &filterBarB_, &filterBarC_ };
-
 		for (int loader = 0; loader < 3; ++loader)
 		{
-			const bool enabled = enableButtons[loader]->getToggleState();
+			auto refs = getLoaderRefs (loader);
+			const bool enabled = refs.enableBtn.getToggleState();
 			g.setColour (enabled ? activeScheme.text : activeScheme.text.withAlpha (0.35f));
 			const int colR = columnRight_[loader];
 
+			juce::Slider* loaderSliders[kNumCachedParams] = {
+				&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
+				&refs.start, &refs.end, &refs.pitch, &refs.delay,
+				&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.mix
+			};
+
 			for (int i = 0; i < kNumCachedParams; ++i)
 			{
-				if (allSliders[loader][i]->isVisible())
+				if (loaderSliders[i]->isVisible())
 				{
-					const auto valueArea = getValueAreaFor (allSliders[loader][i]->getBounds(), colR);
+					const auto valueArea = getValueAreaFor (loaderSliders[i]->getBounds(), colR);
 					cachedValueAreas_[(size_t) (loader * kNumCachedParams + i)] = valueArea;
 					tryDrawLegend (valueArea, cachedTexts[loader][i].full,
 					               cachedTexts[loader][i].short_, cachedTexts[loader][i].intOnly);
 				}
 			}
 
-			if (filterBars[loader]->isVisible())
+			if (refs.filterBar.isVisible())
 			{
-				const auto filterValueArea = getValueAreaFor (filterBars[loader]->getBounds(), colR);
+				const auto filterValueArea = getValueAreaFor (refs.filterBar.getBounds(), colR);
 				g.drawText ("FILTER", filterValueArea, juce::Justification::centredLeft);
 			}
 		}
@@ -2027,39 +2002,19 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 //==============================================================================
 void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 {
-	auto pick = [&] (auto& a, auto& b, auto& c) -> auto& { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
+	auto r = getLoaderRefs (loaderIndex);
 
-	const bool enabled = pick (enableButtonA, enableButtonB, enableButtonC).getToggleState();
-
+	const bool enabled = r.enableBtn.getToggleState();
 	const float alpha = enabled ? 1.0f : 0.35f;
 	const bool interactive = enabled && ! promptOverlayActive;
 
 	juce::Component* components[] = {
-		&pick (browseButtonA,   browseButtonB,   browseButtonC),
-		&pick (fileDisplayA,    fileDisplayB,    fileDisplayC),
-		&pick (hpFreqSliderA,   hpFreqSliderB,   hpFreqSliderC),
-		&pick (lpFreqSliderA,   lpFreqSliderB,   lpFreqSliderC),
-		&pick (inSliderA,       inSliderB,       inSliderC),
-		&pick (outSliderA,      outSliderB,      outSliderC),
-		&pick (tiltSliderA,     tiltSliderB,     tiltSliderC),
-		&pick (startSliderA,    startSliderB,    startSliderC),
-		&pick (endSliderA,      endSliderB,      endSliderC),
-		&pick (pitchSliderA,    pitchSliderB,    pitchSliderC),
-		&pick (delaySliderA,    delaySliderB,    delaySliderC),
-		&pick (panSliderA,      panSliderB,      panSliderC),
-		&pick (fredSliderA,     fredSliderB,     fredSliderC),
-		&pick (posSliderA,      posSliderB,      posSliderC),
-		&pick (resoSliderA,     resoSliderB,     resoSliderC),
-		&pick (invButtonA,      invButtonB,      invButtonC),
-		&pick (normButtonA,     normButtonB,     normButtonC),
-		&pick (rvsButtonA,      rvsButtonB,      rvsButtonC),
-		&pick (chaosButtonA,    chaosButtonB,    chaosButtonC),
-		&pick (chaosDisplayA,   chaosDisplayB,   chaosDisplayC),
-		&pick (modeInComboA,    modeInComboB,    modeInComboC),
-		&pick (modeOutComboA,   modeOutComboB,   modeOutComboC),
-		&pick (sumBusComboA,    sumBusComboB,    sumBusComboC),
-		(juce::Component*) &pick (filterBarA_,   filterBarB_,   filterBarC_),
-		(juce::Component*) &pick (mixSliderA,    mixSliderB,    mixSliderC)
+		&r.browseBtn, &r.fileDisp,
+		&r.hp, &r.lp, &r.in, &r.out, &r.tilt,
+		&r.start, &r.end, &r.pitch, &r.delay, &r.pan, &r.fred, &r.pos, &r.reso,
+		&r.inv, &r.norm, &r.rvs, &r.chaos, &r.chaosDisp,
+		&r.modeIn, &r.modeOut, &r.sumBus,
+		&r.filterBar, &r.mix
 	};
 
 	for (auto* c : components)
@@ -2195,55 +2150,28 @@ void CABTRAudioProcessorEditor::filesDropped (const juce::StringArray& files, in
 
 void CABTRAudioProcessorEditor::updateFileDisplayLabels (const juce::String& pathA, const juce::String& pathB, const juce::String& pathC)
 {
-	// Update loader A
-	if (pathA.isNotEmpty())
-	{
-		juce::File fileA (pathA);
-		if (fileA.existsAsFile())
-		{
-			currentFileA = fileA.getFileName();
-			currentFolderA = fileA.getParentDirectory();
-			fileDisplayA.setText (currentFileA, juce::dontSendNotification);
-		}
-	}
-	else
-	{
-		currentFileA = "";
-		fileDisplayA.setText ("No file loaded", juce::dontSendNotification);
-	}
-	
-	// Update loader B
-	if (pathB.isNotEmpty())
-	{
-		juce::File fileB (pathB);
-		if (fileB.existsAsFile())
-		{
-			currentFileB = fileB.getFileName();
-			currentFolderB = fileB.getParentDirectory();
-			fileDisplayB.setText (currentFileB, juce::dontSendNotification);
-		}
-	}
-	else
-	{
-		currentFileB = "";
-		fileDisplayB.setText ("No file loaded", juce::dontSendNotification);
-	}
+	const juce::String* paths[]      = { &pathA,        &pathB,        &pathC };
+	juce::String*       curFiles[]   = { &currentFileA, &currentFileB, &currentFileC };
+	juce::File*         curFolders[] = { &currentFolderA, &currentFolderB, &currentFolderC };
+	juce::Label*        displays[]   = { &fileDisplayA, &fileDisplayB, &fileDisplayC };
 
-	// Update loader C
-	if (pathC.isNotEmpty())
+	for (int i = 0; i < 3; ++i)
 	{
-		juce::File fileC (pathC);
-		if (fileC.existsAsFile())
+		if (paths[i]->isNotEmpty())
 		{
-			currentFileC = fileC.getFileName();
-			currentFolderC = fileC.getParentDirectory();
-			fileDisplayC.setText (currentFileC, juce::dontSendNotification);
+			juce::File f (*paths[i]);
+			if (f.existsAsFile())
+			{
+				*curFiles[i]   = f.getFileName();
+				*curFolders[i] = f.getParentDirectory();
+				displays[i]->setText (*curFiles[i], juce::dontSendNotification);
+			}
 		}
-	}
-	else
-	{
-		currentFileC = "";
-		fileDisplayC.setText ("No file loaded", juce::dontSendNotification);
+		else
+		{
+			*curFiles[i] = "";
+			displays[i]->setText ("No file loaded", juce::dontSendNotification);
+		}
 	}
 }
 
@@ -2549,24 +2477,14 @@ void CABTRAudioProcessorEditor::loadIRFile (const juce::String& path, int loader
 	if (! file.existsAsFile() || file.isDirectory() || file.getSize() == 0)
 		return;
 	
-	if (loaderIndex == 0)
-	{
-		currentFileA = path;
-		fileDisplayA.setText (file.getFileName(), juce::dontSendNotification);
-		audioProcessor.loadImpulseResponse (audioProcessor.stateA, path);
-	}
-	else if (loaderIndex == 1)
-	{
-		currentFileB = path;
-		fileDisplayB.setText (file.getFileName(), juce::dontSendNotification);
-		audioProcessor.loadImpulseResponse (audioProcessor.stateB, path);
-	}
-	else
-	{
-		currentFileC = path;
-		fileDisplayC.setText (file.getFileName(), juce::dontSendNotification);
-		audioProcessor.loadImpulseResponse (audioProcessor.stateC, path);
-	}
+	juce::String*    curFiles[]  = { &currentFileA,  &currentFileB,  &currentFileC };
+	juce::Label*     displays[]  = { &fileDisplayA,  &fileDisplayB,  &fileDisplayC };
+	CABTRAudioProcessor::IRLoaderState* states[] = { &audioProcessor.stateA, &audioProcessor.stateB, &audioProcessor.stateC };
+
+	const int idx = juce::jlimit (0, 2, loaderIndex);
+	*curFiles[idx] = path;
+	displays[idx]->setText (file.getFileName(), juce::dontSendNotification);
+	audioProcessor.loadImpulseResponse (*states[idx], path);
 }
 
 //==============================================================================
@@ -2601,29 +2519,22 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 	}
 
 	// CHAOS display overlay: left-click toggles, right-click opens prompt
-	if (chaosDisplayA.getBounds().contains (p) && enableButtonA.getToggleState())
 	{
-		if (e.mods.isPopupMenu())
-			openChaosPrompt (0);
-		else
-			chaosButtonA.setToggleState (! chaosButtonA.getToggleState(), juce::sendNotificationSync);
-		return;
-	}
-	if (chaosDisplayB.getBounds().contains (p) && enableButtonB.getToggleState())
-	{
-		if (e.mods.isPopupMenu())
-			openChaosPrompt (1);
-		else
-			chaosButtonB.setToggleState (! chaosButtonB.getToggleState(), juce::sendNotificationSync);
-		return;
-	}
-	if (chaosDisplayC.getBounds().contains (p) && enableButtonC.getToggleState())
-	{
-		if (e.mods.isPopupMenu())
-			openChaosPrompt (2);
-		else
-			chaosButtonC.setToggleState (! chaosButtonC.getToggleState(), juce::sendNotificationSync);
-		return;
+		juce::Label*        chaosDisps[]   = { &chaosDisplayA,  &chaosDisplayB,  &chaosDisplayC };
+		juce::ToggleButton* enableBtns[]   = { &enableButtonA,  &enableButtonB,  &enableButtonC };
+		juce::ToggleButton* chaosBtns[]    = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
+
+		for (int i = 0; i < 3; ++i)
+		{
+			if (chaosDisps[i]->getBounds().contains (p) && enableBtns[i]->getToggleState())
+			{
+				if (e.mods.isPopupMenu())
+					openChaosPrompt (i);
+				else
+					chaosBtns[i]->setToggleState (! chaosBtns[i]->getToggleState(), juce::sendNotificationSync);
+				return;
+			}
+		}
 	}
 
 	// Right-click on value area opens numeric entry popup
@@ -2696,13 +2607,6 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 		return "R" + juce::String (pct);
 	};
 
-	// Slider arrays per loader (same order as CachedParamText indices: HP,LP,IN,OUT,TILT,START,END,PITCH,DELAY,PAN,FRED,POS,RESO,MIX)
-	juce::Slider* sliders[3][kNumCachedParams] = {
-		{ &hpFreqSliderA, &lpFreqSliderA, &inSliderA, &outSliderA, &tiltSliderA, &startSliderA, &endSliderA, &pitchSliderA, &delaySliderA, &panSliderA, &fredSliderA, &posSliderA, &resoSliderA, &mixSliderA },
-		{ &hpFreqSliderB, &lpFreqSliderB, &inSliderB, &outSliderB, &tiltSliderB, &startSliderB, &endSliderB, &pitchSliderB, &delaySliderB, &panSliderB, &fredSliderB, &posSliderB, &resoSliderB, &mixSliderB },
-		{ &hpFreqSliderC, &lpFreqSliderC, &inSliderC, &outSliderC, &tiltSliderC, &startSliderC, &endSliderC, &pitchSliderC, &delaySliderC, &panSliderC, &fredSliderC, &posSliderC, &resoSliderC, &mixSliderC }
-	};
-
 	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=dB/oct
 	struct ParamFmt { int type; const char* label; };
 	const ParamFmt fmts[kNumCachedParams] = {
@@ -2712,10 +2616,17 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 
 	for (int loader = 0; loader < 3; ++loader)
 	{
+		auto refs = getLoaderRefs (loader);
+		juce::Slider* loaderSliders[kNumCachedParams] = {
+			&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
+			&refs.start, &refs.end, &refs.pitch, &refs.delay,
+			&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.mix
+		};
+
 		for (int p = 0; p < kNumCachedParams; ++p)
 		{
 			auto& ct = cachedTexts[loader][p];
-			const double val = sliders[loader][p]->getValue();
+			const double val = loaderSliders[p]->getValue();
 			const auto& fmt = fmts[p];
 
 			switch (fmt.type)
@@ -2776,55 +2687,21 @@ juce::Rectangle<int> CABTRAudioProcessorEditor::getValueAreaFor (const juce::Rec
 
 juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point<int> p)
 {
-	// Check Loader A sliders
+	for (int i = 0; i < 3; ++i)
 	{
-		const int colR = columnRight_[0];
-		if (getValueAreaFor (hpFreqSliderA.getBounds(), colR).contains (p))   return &hpFreqSliderA;
-		if (getValueAreaFor (lpFreqSliderA.getBounds(), colR).contains (p))   return &lpFreqSliderA;
-		if (getValueAreaFor (outSliderA.getBounds(), colR).contains (p))      return &outSliderA;
-		if (getValueAreaFor (startSliderA.getBounds(), colR).contains (p))    return &startSliderA;
-		if (getValueAreaFor (endSliderA.getBounds(), colR).contains (p))      return &endSliderA;
-		if (getValueAreaFor (pitchSliderA.getBounds(), colR).contains (p))    return &pitchSliderA;
-		if (getValueAreaFor (delaySliderA.getBounds(), colR).contains (p))    return &delaySliderA;
-		if (getValueAreaFor (panSliderA.getBounds(), colR).contains (p))      return &panSliderA;
-		if (getValueAreaFor (fredSliderA.getBounds(), colR).contains (p))      return &fredSliderA;
-		if (getValueAreaFor (posSliderA.getBounds(), colR).contains (p))      return &posSliderA;
-		if (getValueAreaFor (resoSliderA.getBounds(), colR).contains (p))     return &resoSliderA;
-		if (mixSliderA.isVisible() && getValueAreaFor (mixSliderA.getBounds(), colR).contains (p)) return &mixSliderA;
-	}
+		auto r = getLoaderRefs (i);
+		const int colR = columnRight_[i];
 
-	// Check Loader B sliders
-	{
-		const int colR = columnRight_[1];
-		if (getValueAreaFor (hpFreqSliderB.getBounds(), colR).contains (p))   return &hpFreqSliderB;
-		if (getValueAreaFor (lpFreqSliderB.getBounds(), colR).contains (p))   return &lpFreqSliderB;
-		if (getValueAreaFor (outSliderB.getBounds(), colR).contains (p))      return &outSliderB;
-		if (getValueAreaFor (startSliderB.getBounds(), colR).contains (p))    return &startSliderB;
-		if (getValueAreaFor (endSliderB.getBounds(), colR).contains (p))      return &endSliderB;
-		if (getValueAreaFor (pitchSliderB.getBounds(), colR).contains (p))    return &pitchSliderB;
-		if (getValueAreaFor (delaySliderB.getBounds(), colR).contains (p))    return &delaySliderB;
-		if (getValueAreaFor (panSliderB.getBounds(), colR).contains (p))      return &panSliderB;
-		if (getValueAreaFor (fredSliderB.getBounds(), colR).contains (p))      return &fredSliderB;
-		if (getValueAreaFor (posSliderB.getBounds(), colR).contains (p))      return &posSliderB;
-		if (getValueAreaFor (resoSliderB.getBounds(), colR).contains (p))     return &resoSliderB;
-		if (mixSliderB.isVisible() && getValueAreaFor (mixSliderB.getBounds(), colR).contains (p)) return &mixSliderB;
-	}
+		BarSlider* sliders[] = { &r.hp, &r.lp, &r.in, &r.out, &r.tilt,
+		                         &r.start, &r.end, &r.pitch, &r.delay,
+		                         &r.pan, &r.fred, &r.pos, &r.reso };
 
-	// Check Loader C sliders
-	{
-		const int colR = columnRight_[2];
-		if (getValueAreaFor (hpFreqSliderC.getBounds(), colR).contains (p))   return &hpFreqSliderC;
-		if (getValueAreaFor (lpFreqSliderC.getBounds(), colR).contains (p))   return &lpFreqSliderC;
-		if (getValueAreaFor (outSliderC.getBounds(), colR).contains (p))      return &outSliderC;
-		if (getValueAreaFor (startSliderC.getBounds(), colR).contains (p))    return &startSliderC;
-		if (getValueAreaFor (endSliderC.getBounds(), colR).contains (p))      return &endSliderC;
-		if (getValueAreaFor (pitchSliderC.getBounds(), colR).contains (p))    return &pitchSliderC;
-		if (getValueAreaFor (delaySliderC.getBounds(), colR).contains (p))    return &delaySliderC;
-		if (getValueAreaFor (panSliderC.getBounds(), colR).contains (p))      return &panSliderC;
-		if (getValueAreaFor (fredSliderC.getBounds(), colR).contains (p))      return &fredSliderC;
-		if (getValueAreaFor (posSliderC.getBounds(), colR).contains (p))      return &posSliderC;
-		if (getValueAreaFor (resoSliderC.getBounds(), colR).contains (p))     return &resoSliderC;
-		if (mixSliderC.isVisible() && getValueAreaFor (mixSliderC.getBounds(), colR).contains (p)) return &mixSliderC;
+		for (auto* s : sliders)
+			if (getValueAreaFor (s->getBounds(), colR).contains (p))
+				return s;
+
+		if (r.mix.isVisible() && getValueAreaFor (r.mix.getBounds(), colR).contains (p))
+			return &r.mix;
 	}
 
 	return nullptr;
@@ -2987,23 +2864,25 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	lnf.setScheme (activeScheme);
 	const auto scheme = activeScheme;
 
-	// ── Suffix determination ──
+	// ── Suffix determination via slider type ──
 	juce::String suffix;
 	juce::String suffixShort;
-	const bool isHpLp   = (&s == &hpFreqSliderA || &s == &hpFreqSliderB || &s == &hpFreqSliderC
-	                     || &s == &lpFreqSliderA || &s == &lpFreqSliderB || &s == &lpFreqSliderC);
-	const bool isIn      = (&s == &inSliderA || &s == &inSliderB || &s == &inSliderC);
-	const bool isOut     = (&s == &outSliderA || &s == &outSliderB || &s == &outSliderC || &s == &globalOutputSlider);
-	const bool isTilt    = (&s == &tiltSliderA || &s == &tiltSliderB || &s == &tiltSliderC);
-	const bool isStart   = (&s == &startSliderA || &s == &startSliderB || &s == &startSliderC);
-	const bool isEnd     = (&s == &endSliderA || &s == &endSliderB || &s == &endSliderC);
-	const bool isPitch   = (&s == &pitchSliderA || &s == &pitchSliderB || &s == &pitchSliderC);
-	const bool isDelay   = (&s == &delaySliderA || &s == &delaySliderB || &s == &delaySliderC);
-	const bool isPan     = (&s == &panSliderA || &s == &panSliderB || &s == &panSliderC);
-	const bool isFred    = (&s == &fredSliderA || &s == &fredSliderB || &s == &fredSliderC);
-	const bool isPos     = (&s == &posSliderA || &s == &posSliderB || &s == &posSliderC);
-	const bool isReso    = (&s == &resoSliderA || &s == &resoSliderB || &s == &resoSliderC);
-	const bool isMix     = (&s == &mixSliderA || &s == &mixSliderB || &s == &mixSliderC || &s == &globalMixSlider);
+	auto* bar = dynamic_cast<BarSlider*> (&s);
+	const auto stype = bar ? bar->getType() : BarSlider::Type::Unknown;
+
+	const bool isHpLp  = (stype == BarSlider::Type::HpFreq || stype == BarSlider::Type::LpFreq);
+	const bool isIn    = (stype == BarSlider::Type::Input);
+	const bool isOut   = (stype == BarSlider::Type::Output || stype == BarSlider::Type::GlobalOutput);
+	const bool isTilt  = (stype == BarSlider::Type::Tilt);
+	const bool isStart = (stype == BarSlider::Type::Start);
+	const bool isEnd   = (stype == BarSlider::Type::End);
+	const bool isPitch = (stype == BarSlider::Type::Pitch);
+	const bool isDelay = (stype == BarSlider::Type::Delay);
+	const bool isPan   = (stype == BarSlider::Type::Pan);
+	const bool isFred  = (stype == BarSlider::Type::Fred);
+	const bool isPos   = (stype == BarSlider::Type::Pos);
+	const bool isReso  = (stype == BarSlider::Type::Reso);
+	const bool isMix   = (stype == BarSlider::Type::Mix || stype == BarSlider::Type::GlobalMix);
 
 	if (isHpLp)             { suffix = " Hz";          suffixShort = " Hz"; }
 	else if (isIn)          { suffix = " dB INPUT";    suffixShort = " dB"; }
@@ -3308,15 +3187,15 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 			const juce::String numericToken = t.initialSectionContainingOnly ("0123456789.,-");
 			double v = numericToken.getDoubleValue();
 
-			// Percent-based sliders: user typed 0-100, slider stores 0-1
-			const bool isPitchSlider  = (sliderPtr == &safeThis->pitchSliderA  || sliderPtr == &safeThis->pitchSliderB  || sliderPtr == &safeThis->pitchSliderC);
-			const bool isPanSlider    = (sliderPtr == &safeThis->panSliderA    || sliderPtr == &safeThis->panSliderB    || sliderPtr == &safeThis->panSliderC);
-			const bool isFredSlider   = (sliderPtr == &safeThis->fredSliderA   || sliderPtr == &safeThis->fredSliderB   || sliderPtr == &safeThis->fredSliderC);
-			const bool isPosSlider    = (sliderPtr == &safeThis->posSliderA    || sliderPtr == &safeThis->posSliderB    || sliderPtr == &safeThis->posSliderC);
-			const bool isResoSlider   = (sliderPtr == &safeThis->resoSliderA   || sliderPtr == &safeThis->resoSliderB   || sliderPtr == &safeThis->resoSliderC);
-			const bool isMixSlider    = (sliderPtr == &safeThis->mixSliderA || sliderPtr == &safeThis->mixSliderB || sliderPtr == &safeThis->mixSliderC || sliderPtr == &safeThis->globalMixSlider);
+			// Percent-based sliders: user typed 0-100/200, slider stores 0-1/2
+			auto* barPtr = dynamic_cast<BarSlider*> (sliderPtr);
+			const auto st = barPtr ? barPtr->getType() : BarSlider::Type::Unknown;
+			const bool needsPercentConvert = (st == BarSlider::Type::Pitch || st == BarSlider::Type::Pan ||
+			                                  st == BarSlider::Type::Fred  || st == BarSlider::Type::Pos  ||
+			                                  st == BarSlider::Type::Reso  || st == BarSlider::Type::Mix  ||
+			                                  st == BarSlider::Type::GlobalMix);
 
-			if (isPitchSlider || isPanSlider || isFredSlider || isPosSlider || isResoSlider || isMixSlider)
+			if (needsPercentConvert)
 				v *= 0.01;
 
 			const auto range = sliderPtr->getRange();

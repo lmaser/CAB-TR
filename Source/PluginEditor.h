@@ -75,9 +75,15 @@ private:
 	class BarSlider : public juce::Slider
 	{
 	public:
+		enum class Type { Unknown, HpFreq, LpFreq, Input, Output, Tilt,
+		                  Start, End, Pitch, Delay, Pan, Fred, Pos, Reso,
+		                  Mix, GlobalMix, GlobalOutput };
+
 		using juce::Slider::Slider;
 
 		void setOwner (CABTRAudioProcessorEditor* o) { owner = o; }
+		void setType (Type t) { type_ = t; }
+		Type getType() const { return type_; }
 		void setAllowNumericPopup (bool allow) { allowNumericPopup = allow; }
 
 		void mouseDown (const juce::MouseEvent& e) override
@@ -95,6 +101,7 @@ private:
 
 	private:
 		CABTRAudioProcessorEditor* owner = nullptr;
+		Type type_ = Type::Unknown;
 		bool allowNumericPopup = true;
 	};
 
