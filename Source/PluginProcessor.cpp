@@ -1238,20 +1238,18 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 				if (firstMeasurement)
 				{
-					// First block with signal: apply target gain instantly (no smoothing)
-					// to avoid the initial peak transient
-					normSmoothedGain_ = clampedGain;
-				}
-				else if (clampedGain < normSmoothedGain_)
-				{
-					// Smooth only towards lower gain (new louder peak detected)
-					// to avoid click; ramp up is instant since peak only grows
-					const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * 0.01f / static_cast<float> (numSamples)));
-					normSmoothedGain_ += (clampedGain - normSmoothedGain_) * coeff;
+					// First block with signal: cap at unity to avoid boost transient
+					// while peak follower is still accumulating.  Upward ramp below
+					// will smoothly converge to the real boost level.
+					normSmoothedGain_ = juce::jmin (1.0f, clampedGain);
 				}
 				else
 				{
-					normSmoothedGain_ = clampedGain;
+					// Bi-directional smoothing: fast ramp-down (10 ms) when a louder
+					// peak is captured, slower ramp-up (20 ms) for boost convergence.
+					const float tau = (clampedGain < normSmoothedGain_) ? 0.01f : 0.02f;
+					const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * tau / static_cast<float> (numSamples)));
+					normSmoothedGain_ += (clampedGain - normSmoothedGain_) * coeff;
 				}
 
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
