@@ -39,8 +39,11 @@ public:
 	static constexpr const char* kParamNormA        = "norm_a";
 	static constexpr const char* kParamRvsA         = "rvs_a";
 	static constexpr const char* kParamChaosA       = "chaos_a";
-	static constexpr const char* kParamChaosAmtA    = "chaos_amt_a";
-	static constexpr const char* kParamChaosSpdA    = "chaos_spd_a";
+	static constexpr const char* kParamChaosFilterA    = "chaos_filter_a";
+	static constexpr const char* kParamChaosAmtA       = "chaos_amt_a";
+	static constexpr const char* kParamChaosSpdA       = "chaos_spd_a";
+	static constexpr const char* kParamChaosAmtFilterA = "chaos_amt_filter_a";
+	static constexpr const char* kParamChaosSpdFilterA = "chaos_spd_filter_a";
 	static constexpr const char* kParamModeInA      = "mode_in_a";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutA     = "mode_out_a"; // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamSumBusA      = "sum_bus_a"; // 0=ST, 1=→M, 2=→S
@@ -72,8 +75,11 @@ public:
 	static constexpr const char* kParamNormB        = "norm_b";
 	static constexpr const char* kParamRvsB         = "rvs_b";
 	static constexpr const char* kParamChaosB       = "chaos_b";
-	static constexpr const char* kParamChaosAmtB    = "chaos_amt_b";
-	static constexpr const char* kParamChaosSpdB    = "chaos_spd_b";
+	static constexpr const char* kParamChaosFilterB    = "chaos_filter_b";
+	static constexpr const char* kParamChaosAmtB       = "chaos_amt_b";
+	static constexpr const char* kParamChaosSpdB       = "chaos_spd_b";
+	static constexpr const char* kParamChaosAmtFilterB = "chaos_amt_filter_b";
+	static constexpr const char* kParamChaosSpdFilterB = "chaos_spd_filter_b";
 	static constexpr const char* kParamModeInB      = "mode_in_b";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutB     = "mode_out_b"; // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamSumBusB      = "sum_bus_b"; // 0=ST, 1=→M, 2=→S
@@ -105,8 +111,11 @@ public:
 	static constexpr const char* kParamNormC        = "norm_c";
 	static constexpr const char* kParamRvsC         = "rvs_c";
 	static constexpr const char* kParamChaosC       = "chaos_c";
-	static constexpr const char* kParamChaosAmtC    = "chaos_amt_c";
-	static constexpr const char* kParamChaosSpdC    = "chaos_spd_c";
+	static constexpr const char* kParamChaosFilterC    = "chaos_filter_c";
+	static constexpr const char* kParamChaosAmtC       = "chaos_amt_c";
+	static constexpr const char* kParamChaosSpdC       = "chaos_spd_c";
+	static constexpr const char* kParamChaosAmtFilterC = "chaos_amt_filter_c";
+	static constexpr const char* kParamChaosSpdFilterC = "chaos_spd_filter_c";
 	static constexpr const char* kParamModeInC      = "mode_in_c";
 	static constexpr const char* kParamModeOutC     = "mode_out_c";
 	static constexpr const char* kParamSumBusC      = "sum_bus_c"; // 0=ST, 1=→M, 2=→S
@@ -448,6 +457,12 @@ public:
 		float chaosGainPhase = 0.0f;        // phase accumulator for gain S&H
 		juce::Random chaosGainRng;
 
+		// CHAOS filter S&H (independent from delay S&H, same rate/amount)
+		float chaosFilterPhase = 0.0f;      // phase accumulator for filter S&H
+		float chaosFilterTarget = 0.0f;     // S&H target: -1..+1
+		float chaosFilterSmoothed = 0.0f;   // EMA-smoothed value
+		juce::Random chaosFilterRng;
+
 		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
 		std::atomic<float> irSlopeDbPerOct { 0.0f };
 
@@ -525,14 +540,20 @@ private:
 	std::atomic<float>* pOutB = nullptr;
 	std::atomic<float>* pTiltB = nullptr;
 	std::atomic<float>* pChaosA = nullptr;
+	std::atomic<float>* pChaosFilterA = nullptr;
 	std::atomic<float>* pChaosAmtA = nullptr;
 	std::atomic<float>* pChaosSpdA = nullptr;
+	std::atomic<float>* pChaosAmtFilterA = nullptr;
+	std::atomic<float>* pChaosSpdFilterA = nullptr;
 	std::atomic<float>* pModeInA = nullptr;
 	std::atomic<float>* pModeOutA = nullptr;
 	std::atomic<float>* pSumBusA = nullptr;
 	std::atomic<float>* pChaosB = nullptr;
+	std::atomic<float>* pChaosFilterB = nullptr;
 	std::atomic<float>* pChaosAmtB = nullptr;
 	std::atomic<float>* pChaosSpdB = nullptr;
+	std::atomic<float>* pChaosAmtFilterB = nullptr;
+	std::atomic<float>* pChaosSpdFilterB = nullptr;
 	std::atomic<float>* pModeInB = nullptr;
 	std::atomic<float>* pModeOutB = nullptr;
 	std::atomic<float>* pSumBusB = nullptr;
@@ -552,8 +573,11 @@ private:
 	std::atomic<float>* pOutC = nullptr;
 	std::atomic<float>* pTiltC = nullptr;
 	std::atomic<float>* pChaosC = nullptr;
+	std::atomic<float>* pChaosFilterC = nullptr;
 	std::atomic<float>* pChaosAmtC = nullptr;
 	std::atomic<float>* pChaosSpdC = nullptr;
+	std::atomic<float>* pChaosAmtFilterC = nullptr;
+	std::atomic<float>* pChaosSpdFilterC = nullptr;
 	std::atomic<float>* pModeInC = nullptr;
 	std::atomic<float>* pModeOutC = nullptr;
 	std::atomic<float>* pSumBusC = nullptr;

@@ -1129,8 +1129,9 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqA, CABTRAudioProcessor::kParamLpFreqA, CABTRAudioProcessor::kParamInA, CABTRAudioProcessor::kParamOutA, CABTRAudioProcessor::kParamTiltA,
 		CABTRAudioProcessor::kParamStartA,  CABTRAudioProcessor::kParamEndA,    CABTRAudioProcessor::kParamSizeA,
 		CABTRAudioProcessor::kParamDelayA,  CABTRAudioProcessor::kParamPanA,    CABTRAudioProcessor::kParamFredA, CABTRAudioProcessor::kParamPosA, CABTRAudioProcessor::kParamResoA,
-		CABTRAudioProcessor::kParamInvA,    CABTRAudioProcessor::kParamNormA,   CABTRAudioProcessor::kParamRvsA,  CABTRAudioProcessor::kParamChaosA,
+		CABTRAudioProcessor::kParamInvA,    CABTRAudioProcessor::kParamNormA,   CABTRAudioProcessor::kParamRvsA,  CABTRAudioProcessor::kParamChaosA, CABTRAudioProcessor::kParamChaosFilterA,
 		CABTRAudioProcessor::kParamChaosAmtA, CABTRAudioProcessor::kParamChaosSpdA,
+		CABTRAudioProcessor::kParamChaosAmtFilterA, CABTRAudioProcessor::kParamChaosSpdFilterA,
 		CABTRAudioProcessor::kParamModeInA, CABTRAudioProcessor::kParamModeOutA, CABTRAudioProcessor::kParamSumBusA, CABTRAudioProcessor::kParamMixA
 	},
 	{ // B
@@ -1138,8 +1139,9 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqB, CABTRAudioProcessor::kParamLpFreqB, CABTRAudioProcessor::kParamInB, CABTRAudioProcessor::kParamOutB, CABTRAudioProcessor::kParamTiltB,
 		CABTRAudioProcessor::kParamStartB,  CABTRAudioProcessor::kParamEndB,    CABTRAudioProcessor::kParamSizeB,
 		CABTRAudioProcessor::kParamDelayB,  CABTRAudioProcessor::kParamPanB,    CABTRAudioProcessor::kParamFredB, CABTRAudioProcessor::kParamPosB, CABTRAudioProcessor::kParamResoB,
-		CABTRAudioProcessor::kParamInvB,    CABTRAudioProcessor::kParamNormB,   CABTRAudioProcessor::kParamRvsB,  CABTRAudioProcessor::kParamChaosB,
+		CABTRAudioProcessor::kParamInvB,    CABTRAudioProcessor::kParamNormB,   CABTRAudioProcessor::kParamRvsB,  CABTRAudioProcessor::kParamChaosB, CABTRAudioProcessor::kParamChaosFilterB,
 		CABTRAudioProcessor::kParamChaosAmtB, CABTRAudioProcessor::kParamChaosSpdB,
+		CABTRAudioProcessor::kParamChaosAmtFilterB, CABTRAudioProcessor::kParamChaosSpdFilterB,
 		CABTRAudioProcessor::kParamModeInB, CABTRAudioProcessor::kParamModeOutB, CABTRAudioProcessor::kParamSumBusB, CABTRAudioProcessor::kParamMixB
 	},
 	{ // C
@@ -1147,8 +1149,9 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqC, CABTRAudioProcessor::kParamLpFreqC, CABTRAudioProcessor::kParamInC, CABTRAudioProcessor::kParamOutC, CABTRAudioProcessor::kParamTiltC,
 		CABTRAudioProcessor::kParamStartC,  CABTRAudioProcessor::kParamEndC,    CABTRAudioProcessor::kParamSizeC,
 		CABTRAudioProcessor::kParamDelayC,  CABTRAudioProcessor::kParamPanC,    CABTRAudioProcessor::kParamFredC, CABTRAudioProcessor::kParamPosC, CABTRAudioProcessor::kParamResoC,
-		CABTRAudioProcessor::kParamInvC,    CABTRAudioProcessor::kParamNormC,   CABTRAudioProcessor::kParamRvsC,  CABTRAudioProcessor::kParamChaosC,
+		CABTRAudioProcessor::kParamInvC,    CABTRAudioProcessor::kParamNormC,   CABTRAudioProcessor::kParamRvsC,  CABTRAudioProcessor::kParamChaosC, CABTRAudioProcessor::kParamChaosFilterC,
 		CABTRAudioProcessor::kParamChaosAmtC, CABTRAudioProcessor::kParamChaosSpdC,
+		CABTRAudioProcessor::kParamChaosAmtFilterC, CABTRAudioProcessor::kParamChaosSpdFilterC,
 		CABTRAudioProcessor::kParamModeInC, CABTRAudioProcessor::kParamModeOutC, CABTRAudioProcessor::kParamSumBusC, CABTRAudioProcessor::kParamMixC
 	}
 };
@@ -1164,17 +1167,17 @@ CABTRAudioProcessorEditor::LoaderRefs CABTRAudioProcessorEditor::getLoaderRefs (
 		case 1: return { enableButtonB, browseButtonB, fileDisplayB,
 		                 hpFreqSliderB, lpFreqSliderB, inSliderB, outSliderB, tiltSliderB, startSliderB, endSliderB,
 		                 sizeSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB, resoSliderB,
-		                 invButtonB, normButtonB, rvsButtonB, chaosButtonB, chaosDisplayB,
+		                 invButtonB, normButtonB, rvsButtonB, chaosButtonB, chaosFilterButtonB, chaosDisplayB,
 		                 modeInComboB, modeOutComboB, sumBusComboB, filterBarB_, mixSliderB };
 		case 2: return { enableButtonC, browseButtonC, fileDisplayC,
 		                 hpFreqSliderC, lpFreqSliderC, inSliderC, outSliderC, tiltSliderC, startSliderC, endSliderC,
 		                 sizeSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC, resoSliderC,
-		                 invButtonC, normButtonC, rvsButtonC, chaosButtonC, chaosDisplayC,
+		                 invButtonC, normButtonC, rvsButtonC, chaosButtonC, chaosFilterButtonC, chaosDisplayC,
 		                 modeInComboC, modeOutComboC, sumBusComboC, filterBarC_, mixSliderC };
 		default: return { enableButtonA, browseButtonA, fileDisplayA,
 		                  hpFreqSliderA, lpFreqSliderA, inSliderA, outSliderA, tiltSliderA, startSliderA, endSliderA,
 		                  sizeSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA, resoSliderA,
-		                  invButtonA, normButtonA, rvsButtonA, chaosButtonA, chaosDisplayA,
+		                  invButtonA, normButtonA, rvsButtonA, chaosButtonA, chaosFilterButtonA, chaosDisplayA,
 		                  modeInComboA, modeOutComboA, sumBusComboA, filterBarA_, mixSliderA };
 	}
 }
@@ -1186,17 +1189,17 @@ CABTRAudioProcessorEditor::AttachRefs CABTRAudioProcessorEditor::getAttachRefs (
 		case 1: return { enableAttachB,
 		                 hpFreqAttachB, lpFreqAttachB, inAttachB, outAttachB, tiltAttachB, startAttachB, endAttachB,
 		                 sizeAttachB, delayAttachB, panAttachB, fredAttachB, posAttachB, resoAttachB,
-		                 invAttachB, normAttachB, rvsAttachB, chaosAttachB,
+		                 invAttachB, normAttachB, rvsAttachB, chaosAttachB, chaosFilterAttachB,
 		                 modeInAttachB, modeOutAttachB, sumBusAttachB, mixAttachB };
 		case 2: return { enableAttachC,
 		                 hpFreqAttachC, lpFreqAttachC, inAttachC, outAttachC, tiltAttachC, startAttachC, endAttachC,
 		                 sizeAttachC, delayAttachC, panAttachC, fredAttachC, posAttachC, resoAttachC,
-		                 invAttachC, normAttachC, rvsAttachC, chaosAttachC,
+		                 invAttachC, normAttachC, rvsAttachC, chaosAttachC, chaosFilterAttachC,
 		                 modeInAttachC, modeOutAttachC, sumBusAttachC, mixAttachC };
 		default: return { enableAttachA,
 		                  hpFreqAttachA, lpFreqAttachA, inAttachA, outAttachA, tiltAttachA, startAttachA, endAttachA,
 		                  sizeAttachA, delayAttachA, panAttachA, fredAttachA, posAttachA, resoAttachA,
-		                  invAttachA, normAttachA, rvsAttachA, chaosAttachA,
+		                  invAttachA, normAttachA, rvsAttachA, chaosAttachA, chaosFilterAttachA,
 		                  modeInAttachA, modeOutAttachA, sumBusAttachA, mixAttachA };
 	}
 }
@@ -1250,7 +1253,10 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
 	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
 	addAndMakeVisible (r.rvs);   r.rvs.setButtonText ("RVS");           r.rvs.addListener (this);
-	addAndMakeVisible (r.chaos); r.chaos.setButtonText ("CHAOS"); r.chaos.addListener (this);
+	addAndMakeVisible (r.chaos); r.chaos.setButtonText ("CHSD"); r.chaos.addListener (this);
+	r.chaos.addMouseListener (this, false);
+	addAndMakeVisible (r.chaosFilter); r.chaosFilter.setButtonText ("CHSF"); r.chaosFilter.addListener (this);
+	r.chaosFilter.addMouseListener (this, false);
 
 	{
 		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
@@ -1321,6 +1327,7 @@ void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorVal
 	a.normAtt    = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.norm,    ui.norm);
 	a.rvsAtt     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.rvs,     ui.rvs);
 	a.chaosAtt   = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.chaos,   ui.chaos);
+	a.chaosFilterAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (params, ids.chaosFilter, ui.chaosFilter);
 	a.modeInAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeIn,  ui.modeIn);
 	a.modeOutAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeOut, ui.modeOut);
 	a.sumBusAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.sumBus, ui.sumBus);
@@ -1858,6 +1865,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& norm  = pick (normButtonA,    normButtonB,    normButtonC);
 	auto& rvs   = pick (rvsButtonA,     rvsButtonB,     rvsButtonC);
 	auto& chaos = pick (chaosButtonA,   chaosButtonB,   chaosButtonC);
+	auto& chaosFilter = pick (chaosFilterButtonA, chaosFilterButtonB, chaosFilterButtonC);
 	auto& filterBar  = pick (filterBarA_,      filterBarB_,      filterBarC_);
 	auto& modeInCmb  = pick (modeInComboA,     modeInComboB,     modeInComboC);
 	auto& modeOutCmb = pick (modeOutComboA,    modeOutComboB,    modeOutComboC);
@@ -1910,13 +1918,17 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		sumBusCmb.setVisible (true);
 		area.removeFromTop (gap * 2);
 
-		// CHAOS checkbox — full column width since it's alone in its row
+		// CHSF + CHSD checkboxes — CHSF aligned with sliders, CHSD aligned with value column
 		auto checkArea = area.removeFromTop (comboH);
-		const int chaosW = checkArea.getWidth();
-		chaos.setBounds (checkArea.getX(), checkArea.getY(), chaosW, comboH);
-		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), chaosW, comboH);
+		constexpr int valuePadPx = 8;
+		const int chsfW = sliderW;
+		const int chsdX = checkArea.getX() + sliderW + valuePadPx;
+		const int chsdW = checkArea.getRight() - chsdX;
+		chaosFilter.setBounds (checkArea.getX(), checkArea.getY(), chsfW, comboH);
+		chaos.setBounds (chsdX, checkArea.getY(), chsdW, comboH);
+		chaosFilter.setVisible (true);
 		chaos.setVisible (true);
-		chaosDisp.setVisible (true);
+		chaosDisp.setVisible (false);
 
 		// Hide collapsed-only controls
 		hp.setVisible (false);     lp.setVisible (false);
@@ -1992,7 +2004,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		filterBar.setVisible (false);
 		mix.setVisible (false);
 		modeInCmb.setVisible (false);    modeOutCmb.setVisible (false);    sumBusCmb.setVisible (false);
-		chaos.setVisible (false);      chaosDisp.setVisible (false);
+		chaos.setVisible (false);      chaosFilter.setVisible (false);  chaosDisp.setVisible (false);
 		hp.setVisible (false);         lp.setVisible (false);
 	}
 }
@@ -2012,7 +2024,7 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 		&r.browseBtn, &r.fileDisp,
 		&r.hp, &r.lp, &r.in, &r.out, &r.tilt,
 		&r.start, &r.end, &r.size, &r.delay, &r.pan, &r.fred, &r.pos, &r.reso,
-		&r.inv, &r.norm, &r.rvs, &r.chaos, &r.chaosDisp,
+		&r.inv, &r.norm, &r.rvs, &r.chaos, &r.chaosFilter, &r.chaosDisp,
 		&r.modeIn, &r.modeOut, &r.sumBus,
 		&r.filterBar, &r.mix
 	};
@@ -2491,21 +2503,26 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 		return;
 	}
 
-	// CHAOS display overlay: left-click toggles, right-click opens prompt
+	// CHAOS checkboxes: right-click on CHSF or CHSD opens chaos amount/speed prompt
 	{
-		juce::Label*        chaosDisps[]   = { &chaosDisplayA,  &chaosDisplayB,  &chaosDisplayC };
 		juce::ToggleButton* enableBtns[]   = { &enableButtonA,  &enableButtonB,  &enableButtonC };
 		juce::ToggleButton* chaosBtns[]    = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
+		juce::ToggleButton* chaosFilterBtns[] = { &chaosFilterButtonA, &chaosFilterButtonB, &chaosFilterButtonC };
 
 		for (int i = 0; i < 3; ++i)
 		{
-			if (chaosDisps[i]->getBounds().contains (p) && enableBtns[i]->getToggleState())
+			if (enableBtns[i]->getToggleState() && e.mods.isPopupMenu())
 			{
-				if (e.mods.isPopupMenu())
-					openChaosPrompt (i);
-				else
-					chaosBtns[i]->setToggleState (! chaosBtns[i]->getToggleState(), juce::sendNotificationSync);
-				return;
+				if (chaosFilterBtns[i]->getBounds().contains (p))
+				{
+					openChaosPrompt (i, true);
+					return;
+				}
+				if (chaosBtns[i]->getBounds().contains (p))
+				{
+					openChaosPrompt (i, false);
+					return;
+				}
 			}
 		}
 	}
@@ -3685,18 +3702,26 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 //==============================================================================
 //  CHAOS prompt (AMOUNT + SPEED)
 //==============================================================================
-void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex)
+void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 {
 	using namespace TR;
 	lnf.setScheme (activeScheme);
 	const auto scheme = activeScheme;
 
-	const auto& amtId = loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosAmtA
-	                   : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosAmtB
-	                                       : CABTRAudioProcessor::kParamChaosAmtC);
-	const auto& spdId = loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosSpdA
-	                   : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosSpdB
-	                                       : CABTRAudioProcessor::kParamChaosSpdC);
+	const auto& amtId = isFilter
+	    ? (loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosAmtFilterA
+	       : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosAmtFilterB
+	                           : CABTRAudioProcessor::kParamChaosAmtFilterC))
+	    : (loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosAmtA
+	       : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosAmtB
+	                           : CABTRAudioProcessor::kParamChaosAmtC));
+	const auto& spdId = isFilter
+	    ? (loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosSpdFilterA
+	       : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosSpdFilterB
+	                           : CABTRAudioProcessor::kParamChaosSpdFilterC))
+	    : (loaderIndex == 0 ? CABTRAudioProcessor::kParamChaosSpdA
+	       : (loaderIndex == 1 ? CABTRAudioProcessor::kParamChaosSpdB
+	                           : CABTRAudioProcessor::kParamChaosSpdC));
 
 	const float currentAmt = audioProcessor.getValueTreeState().getRawParameterValue (amtId)->load();
 	const float currentSpd = audioProcessor.getValueTreeState().getRawParameterValue (spdId)->load();

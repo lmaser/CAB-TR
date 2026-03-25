@@ -269,12 +269,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamRvsA, "Reverse A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamChaosA, "Chaos A", false));
+		kParamChaosA, "Chaos D A", false));
+	layout.add (std::make_unique<juce::AudioParameterBool> (
+		kParamChaosFilterA, "Chaos F A", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosAmtA, "Chaos Amount A",
 		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosSpdA, "Chaos Speed A",
+		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosAmtFilterA, "Chaos Filter Amount A",
+		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosSpdFilterA, "Chaos Filter Speed A",
 		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeInA, "Mode In A", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
@@ -352,12 +360,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamRvsB, "Reverse B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamChaosB, "Chaos B", false));
+		kParamChaosB, "Chaos D B", false));
+	layout.add (std::make_unique<juce::AudioParameterBool> (
+		kParamChaosFilterB, "Chaos F B", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosAmtB, "Chaos Amount B",
 		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosSpdB, "Chaos Speed B",
+		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosAmtFilterB, "Chaos Filter Amount B",
+		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosSpdFilterB, "Chaos Filter Speed B",
 		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeInB, "Mode In B", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
@@ -435,12 +451,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamRvsC, "Reverse C", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
-		kParamChaosC, "Chaos C", false));
+		kParamChaosC, "Chaos D C", false));
+	layout.add (std::make_unique<juce::AudioParameterBool> (
+		kParamChaosFilterC, "Chaos F C", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosAmtC, "Chaos Amount C",
 		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamChaosSpdC, "Chaos Speed C",
+		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosAmtFilterC, "Chaos Filter Amount C",
+		juce::NormalisableRange<float> (kChaosAmtMin, kChaosAmtMax, 0.1f), kChaosAmtDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamChaosSpdFilterC, "Chaos Filter Speed C",
 		juce::NormalisableRange<float> (kChaosSpdMin, kChaosSpdMax, 0.01f, 0.3f), kChaosSpdDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeInC, "Mode In C", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
@@ -618,14 +642,20 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pInB     = parameters.getRawParameterValue (kParamInB);
 	pTiltB   = parameters.getRawParameterValue (kParamTiltB);
 	pChaosA    = parameters.getRawParameterValue (kParamChaosA);
+	pChaosFilterA = parameters.getRawParameterValue (kParamChaosFilterA);
 	pChaosAmtA = parameters.getRawParameterValue (kParamChaosAmtA);
 	pChaosSpdA = parameters.getRawParameterValue (kParamChaosSpdA);
+	pChaosAmtFilterA = parameters.getRawParameterValue (kParamChaosAmtFilterA);
+	pChaosSpdFilterA = parameters.getRawParameterValue (kParamChaosSpdFilterA);
 	pModeInA   = parameters.getRawParameterValue (kParamModeInA);
 	pModeOutA  = parameters.getRawParameterValue (kParamModeOutA);
 	pSumBusA   = parameters.getRawParameterValue (kParamSumBusA);
 	pChaosB    = parameters.getRawParameterValue (kParamChaosB);
+	pChaosFilterB = parameters.getRawParameterValue (kParamChaosFilterB);
 	pChaosAmtB = parameters.getRawParameterValue (kParamChaosAmtB);
 	pChaosSpdB = parameters.getRawParameterValue (kParamChaosSpdB);
+	pChaosAmtFilterB = parameters.getRawParameterValue (kParamChaosAmtFilterB);
+	pChaosSpdFilterB = parameters.getRawParameterValue (kParamChaosSpdFilterB);
 	pModeInB   = parameters.getRawParameterValue (kParamModeInB);
 	pModeOutB  = parameters.getRawParameterValue (kParamModeOutB);
 	pSumBusB   = parameters.getRawParameterValue (kParamSumBusB);
@@ -646,8 +676,11 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pInC       = parameters.getRawParameterValue (kParamInC);
 	pTiltC     = parameters.getRawParameterValue (kParamTiltC);
 	pChaosC    = parameters.getRawParameterValue (kParamChaosC);
+	pChaosFilterC = parameters.getRawParameterValue (kParamChaosFilterC);
 	pChaosAmtC = parameters.getRawParameterValue (kParamChaosAmtC);
 	pChaosSpdC = parameters.getRawParameterValue (kParamChaosSpdC);
+	pChaosAmtFilterC = parameters.getRawParameterValue (kParamChaosAmtFilterC);
+	pChaosSpdFilterC = parameters.getRawParameterValue (kParamChaosSpdFilterC);
 	pModeInC   = parameters.getRawParameterValue (kParamModeInC);
 	pModeOutC  = parameters.getRawParameterValue (kParamModeOutC);
 	pSumBusC   = parameters.getRawParameterValue (kParamSumBusC);
@@ -2709,8 +2742,11 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float inDb  = pick (pInA,  pInB,  pInC)->load();
 	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
 	const bool chaosEnabled = pick (pChaosA, pChaosB, pChaosC)->load() > 0.5f;
+	const bool chaosFilterEnabled = pick (pChaosFilterA, pChaosFilterB, pChaosFilterC)->load() > 0.5f;
 	const float chaosAmt = pick (pChaosAmtA, pChaosAmtB, pChaosAmtC)->load();
 	const float chaosSpd = pick (pChaosSpdA, pChaosSpdB, pChaosSpdC)->load();
+	const float chaosAmtFilter = pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC)->load();
+	const float chaosSpdFilter = pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC)->load();
 	
 	// (FRED processing happens after convolution + filters)
 	
@@ -2802,13 +2838,48 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// 5-6. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
 	// Per-sample EMA frequency smoothing + coefficient update every 32 samples
+	const bool chaosFilterActive = chaosFilterEnabled && chaosAmtFilter > 0.01f;
 	{
+
+		// CHAOS FILTER S&H: advance per-block, modulate HP/LP target frequencies (±2 oct)
+		float hpTarget = hpFreq;
+		float lpTarget = lpFreq;
+		if (chaosFilterActive)
+		{
+			const float amountNorm = chaosAmtFilter * 0.01f;
+			const float chaosFilterMaxOct = amountNorm * 2.0f;  // ±2 octaves at 100%
+			const float shPeriodSamples = (float) currentSampleRate / chaosSpdFilter;
+			constexpr float kFilterChaosTau = 0.060f;  // 60ms EMA (ECHO-TR match)
+			const float filterSmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * kFilterChaosTau));
+
+			// Advance filter S&H for the block (lightweight per-sample loop)
+			for (int i = 0; i < numSamples; ++i)
+			{
+				state.chaosFilterPhase += 1.0f;
+				if (state.chaosFilterPhase >= shPeriodSamples)
+				{
+					state.chaosFilterPhase -= shPeriodSamples;
+					state.chaosFilterTarget = state.chaosFilterRng.nextFloat() * 2.0f - 1.0f;
+				}
+				state.chaosFilterSmoothed = filterSmoothCoeff * state.chaosFilterSmoothed
+				                          + (1.0f - filterSmoothCoeff) * state.chaosFilterTarget;
+			}
+
+			const float octaveShift = state.chaosFilterSmoothed * chaosFilterMaxOct;
+			const float freqMult = std::exp2 (octaveShift);
+			// When HP/LP knobs are off, chaos sweeps the full 20–20k range (ECHO-TR match)
+			const float hpBase = hpOn ? hpFreq : kFilterFreqMin;
+			const float lpBase = lpOn ? lpFreq : kFilterFreqMax;
+			hpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, hpBase * freqMult);
+			lpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, lpBase * freqMult);
+		}
+
 		constexpr float kSmoothCoeff = 0.9955f; // ~5ms @ 44.1kHz
 		const float oneMinusCoeff = 1.0f - kSmoothCoeff;
 
-		// EMA smooth toward target frequencies
-		state.smoothedHpFreq += (hpFreq - state.smoothedHpFreq) * oneMinusCoeff;
-		state.smoothedLpFreq += (lpFreq - state.smoothedLpFreq) * oneMinusCoeff;
+		// EMA smooth toward target frequencies (chaos-modulated or raw)
+		state.smoothedHpFreq += (hpTarget - state.smoothedHpFreq) * oneMinusCoeff;
+		state.smoothedLpFreq += (lpTarget - state.smoothedLpFreq) * oneMinusCoeff;
 
 		// Recalculate coefficients every 32 samples (not every block)
 		if (--state.filterCoeffCountdown <= 0)
@@ -2870,7 +2941,8 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	}
 
 	// Apply HP filter (1 or 2 stages depending on slope)
-	if (hpOn && state.smoothedHpFreq >= 21.0f)
+	// Also apply when chaos filter is active, even if HP knob is off (full-range sweep)
+	if ((hpOn || chaosFilterActive) && state.smoothedHpFreq >= 21.0f)
 	{
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> context (block);
@@ -2880,7 +2952,8 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	}
 
 	// Apply LP filter (1 or 2 stages depending on slope)
-	if (lpOn && state.smoothedLpFreq <= 19900.0f)
+	// Also apply when chaos filter is active, even if LP knob is off (full-range sweep)
+	if ((lpOn || chaosFilterActive) && state.smoothedLpFreq <= 19900.0f)
 	{
 		juce::dsp::AudioBlock<float> block (buffer);
 		juce::dsp::ProcessContextReplacing<float> context (block);

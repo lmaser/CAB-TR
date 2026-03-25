@@ -44,7 +44,7 @@ private:
 	void loadIRFile (const juce::String& path, int loaderIndex);
 	void openInfoPopup();
 	void openGraphicsPopup();
-	void openChaosPrompt (int loaderIndex);
+	void openChaosPrompt (int loaderIndex, bool isFilter);
 	void openFilterPrompt (int loaderIndex);
 	void openExportPrompt();
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
@@ -270,7 +270,7 @@ private:
 	{
 		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
 		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso;
-		juce::ToggleButton &inv, &norm, &rvs, &chaos;  juce::Label &chaosDisp;
+		juce::ToggleButton &inv, &norm, &rvs, &chaos, &chaosFilter;  juce::Label &chaosDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus;
 		FilterBarComponent &filterBar;  BarSlider &mix;
 	};
@@ -278,7 +278,7 @@ private:
 	{
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &inAtt, &outAtt, &tiltAtt, &startAtt, &endAtt, &sizeAtt, &delayAtt, &panAtt, &fredAtt, &posAtt, &resoAtt;
-		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt, &chaosFilterAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt, &sumBusAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
 	};
@@ -294,8 +294,9 @@ private:
 		const char* hpFreq;  const char* lpFreq;  const char* in;  const char* out;  const char* tilt;
 		const char* start;   const char* end;     const char* size;
 		const char* delay;   const char* pan;     const char* fred;   const char* pos;   const char* reso;
-		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;
+		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;  const char* chaosFilter;
 		const char* chaosAmt; const char* chaosSpd;
+		const char* chaosAmtFilter; const char* chaosSpdFilter;
 		const char* modeIn;  const char* modeOut; const char* sumBus; const char* mix;
 	};
 	static const LoaderParamIds kLoaderParams[3];
@@ -335,6 +336,7 @@ private:
 	juce::ToggleButton normButtonA;
 	juce::ToggleButton rvsButtonA;
 	juce::ToggleButton chaosButtonA;
+	juce::ToggleButton chaosFilterButtonA;
 	juce::Label chaosDisplayA;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachA;
@@ -355,6 +357,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachA;
 	juce::ComboBox modeInComboA;
 	juce::ComboBox modeOutComboA;
 	juce::ComboBox sumBusComboA;
@@ -387,6 +390,7 @@ private:
 	juce::ToggleButton normButtonB;
 	juce::ToggleButton rvsButtonB;
 	juce::ToggleButton chaosButtonB;
+	juce::ToggleButton chaosFilterButtonB;
 	juce::Label chaosDisplayB;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachB;
@@ -407,6 +411,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachB;
 	juce::ComboBox modeInComboB;
 	juce::ComboBox modeOutComboB;
 	juce::ComboBox sumBusComboB;
@@ -439,6 +444,7 @@ private:
 	juce::ToggleButton normButtonC;
 	juce::ToggleButton rvsButtonC;
 	juce::ToggleButton chaosButtonC;
+	juce::ToggleButton chaosFilterButtonC;
 	juce::Label chaosDisplayC;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachC;
@@ -459,6 +465,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachC;
 	juce::ComboBox modeInComboC;
 	juce::ComboBox modeOutComboC;
 	juce::ComboBox sumBusComboC;
