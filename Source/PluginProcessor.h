@@ -616,9 +616,16 @@ private:
 	// Debug / rate-limiting
 	juce::int64 lastAlignTime = 0;
 
+	// Pre-computed coefficients (set once in prepareToPlay, avoids per-block std::exp)
+	float cachedTiltSmoothCoeff_  = 0.0f;  // 1 - exp(-1/(sr*0.03))
+	float cachedDcBlockR_         = 0.0f;  // 1 - 2*pi*5/sr
+	float cachedNormFastCoeff_    = 0.0f;  // for NORM AGC 10ms tau
+	float cachedNormSlowCoeff_    = 0.0f;  // for NORM AGC 20ms tau
+
 	// DC blocking filter state (per-channel)
 	float dcBlockX_[2] = { 0.0f, 0.0f };
 	float dcBlockY_[2] = { 0.0f, 0.0f };
+
 
 	// ══════════════════════════════════════════════════════════════
 	//  Private Helper methods

@@ -574,7 +574,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 			return juce::String (v, 1) + " dB";
 
 		case Type::Tilt:
-			return juce::String (v, 2) + " dB/oct";
+			return juce::String (v, 1) + " dB/oct";
 
 		case Type::Start:
 		case Type::End:
@@ -1115,8 +1115,13 @@ void CABTRAudioProcessorEditor::MinimalLNF::drawTooltip (juce::Graphics& g,
 
 	g.setColour (findColour (juce::TooltipWindow::textColourId));
 	g.setFont (f);
-	g.drawText (text, textInsetX, textInsetY, width - textInsetX * 2, height - textInsetY * 2,
-	            juce::Justification::centredLeft, true);
+	g.drawFittedText (text,
+	                  textInsetX,
+	                  textInsetY,
+	                  juce::jmax (1, width - (textInsetX * 2)),
+	                  juce::jmax (1, height - (textInsetY * 2)),
+	                  juce::Justification::centred,
+	                  1);
 }
 
 //==============================================================================
@@ -1332,6 +1337,11 @@ void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorVal
 	a.modeOutAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.modeOut, ui.modeOut);
 	a.sumBusAtt  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, ids.sumBus, ui.sumBus);
 	a.mixAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.mix,     ui.mix);
+
+	// UI-only skew: changes slider feel without altering VST3 parameter normalization
+	ui.hp.setSkewFactor (0.35);
+	ui.lp.setSkewFactor (0.35);
+	ui.out.setSkewFactor (3.23);
 }
 
 //==============================================================================
@@ -3048,7 +3058,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		if (isHpLp)
 		{
 			minVal = 20.0;   maxVal = 20000.0;
-			maxDecs = 3;     maxLen = 9;     // "20000.000"
+			maxDecs = 0;     maxLen = 5;     // "20000"
 		}
 		else if (isIn)
 		{

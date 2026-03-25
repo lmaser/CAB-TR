@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../ThirdParty/FFTConvolver/TwoStageFFTConvolver.h"
+#include "DspDebugLog.h"
 #include <JuceHeader.h>
 #include <atomic>
 #include <thread>
@@ -98,8 +99,10 @@ public:
     {
         _blockSize = blockSize;
         _sampleRate = sampleRate;
-        _scratch.setSize(2, blockSize);
-        _crossScratch.setSize(2, blockSize);
+        // Generous pre-allocation for hosts with variable buffer sizes (e.g. FL Studio)
+        const int allocSize = std::max (blockSize, 8192);
+        _scratch.setSize(2, allocSize);
+        _crossScratch.setSize(2, allocSize);
         _prepared = true;
     }
 
@@ -126,6 +129,63 @@ public:
 
         newL->init(headBlock, tailBlock, irL, static_cast<size_t>(numSamples));
         newR->init(headBlock, tailBlock, irR, static_cast<size_t>(numSamples));
+
+#if CABTR_DSP_DEBUG_LOG
+        // ── Convolver verification: unit-impulse test ──
+        // Create a throwaway convolver, feed it a unit impulse, and check
+        // that the first output sample matches ir[0].  Any FFT scaling bug
+        // (e.g. missing 1/N from FFTW) will show up here immediately.
+        {
+            MonoThreadedConvolver testConv;
+            testConv.init(headBlock, tailBlock, irL, static_cast<size_t>(numSamples));
+
+            // Feed one block of zeros first (to prime the convolver)
+            const size_t testLen = static_cast<size_t>(_blockSize);
+            std::vector<float> testIn(testLen, 0.0f);
+            std::vector<float> testOut(testLen, 0.0f);
+            testConv.process(testIn.data(), testOut.data(), testLen);
+
+            // Now feed a unit impulse at sample 0
+            testIn[0] = 1.0f;
+            std::fill(testIn.begin() + 1, testIn.end(), 0.0f);
+            std::fill(testOut.begin(), testOut.end(), 0.0f);
+            testConv.process(testIn.data(), testOut.data(), testLen);
+
+            // The output of conv(impulse, ir) should be ir[0], ir[1], ...
+            // Compare first few samples
+            float maxErr = 0.0f;
+            float outPeak = 0.0f;
+            juce::String detail;
+            const int checkLen = std::min(8, numSamples);
+            for (int i = 0; i < checkLen; ++i)
+            {
+                float expected = irL[i];
+                float got = testOut[i];
+                float err = std::abs(got - expected);
+                maxErr = std::max(maxErr, err);
+                outPeak = std::max(outPeak, std::abs(got));
+                detail << "  [" << i << "] expected=" << juce::String(expected, 6)
+                       << " got=" << juce::String(got, 6)
+                       << " err=" << juce::String(err, 6) << "\n";
+            }
+            // Also check peak of entire output block
+            float blockPeak = 0.0f;
+            for (size_t i = 0; i < testLen; ++i)
+                blockPeak = std::max(blockPeak, std::abs(testOut[i]));
+
+            juce::String msg;
+            msg << "CONVOLVER VERIFY: headBlock=" << (int)headBlock
+                << " tailBlock=" << (int)tailBlock
+                << " irLen=" << numSamples
+                << " ir[0]=" << juce::String(irL[0], 6)
+                << " out[0]=" << juce::String(testOut[0], 6)
+                << " maxErr(0.." << checkLen << ")=" << juce::String(maxErr, 6)
+                << " blockPeak=" << juce::String(blockPeak, 6)
+                << " ratio=" << juce::String(blockPeak / std::max(0.00001f, std::abs(irL[0])), 2)
+                << "\n" << detail;
+            LOG_IR_EVENT(msg);
+        }
+#endif
 
         // Swap under lock — old convolvers kept for crossfade
         std::unique_ptr<MonoThreadedConvolver> discardL, discardR;
@@ -162,6 +222,14 @@ public:
 
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
+
+        // Guard: some hosts (e.g. FL Studio) may send blocks larger
+        // than the blockSize passed to prepare(). Resize scratch buffers.
+        if (numSamples > _scratch.getNumSamples())
+        {
+            _scratch.setSize (2, numSamples);
+            _crossScratch.setSize (2, numSamples);
+        }
 
         // Copy raw input to scratch buffer BEFORE convolution.
         for (int ch = 0; ch < numChannels; ++ch)

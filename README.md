@@ -221,3 +221,10 @@ Renders the combined output of all active loaders (through the full routing and 
 - JUCE Framework, C++17, VST3 format.
 - Visual Studio 2022 (MSBuild, x64).
 - Dependencies: JUCE modules, FFTConvolver (MIT), FFTW (optional).
+
+## Changelog
+
+### v1.4
+- Fixed temp buffer allocation causing distortion in hosts with small block sizes (e.g. FL Studio at 96 samples).
+- Cached per-block `std::exp` coefficients in `prepareToPlay` (tilt smoothing, DC blocker, NORM AGC).
+- Aligned tooltip rendering with shared TR-series style (centred `drawFittedText`).

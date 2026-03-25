@@ -102,6 +102,57 @@
  }
 #endif
 
+// ---------------------------------------------------------------------------
+// DSP utility functions (consistent with ECHO-TR)
+// ---------------------------------------------------------------------------
+namespace
+{
+	// Fast dB→linear conversion using exp2 instead of pow(10, dB/20).
+	// Mathematically equivalent: 10^(dB/20) = 2^(dB * log2(10)/20) = 2^(dB * 0.16609640474)
+	inline float fastDecibelsToGain (float dB) noexcept
+	{
+		return (dB <= -100.0f) ? 0.0f : std::exp2 (dB * 0.16609640474f);
+	}
+
+	// Relaxed atomic load helpers — safe for audio thread (single-writer GUI, single-reader audio).
+	// Avoids unnecessary memory fences from default seq_cst ordering.
+	inline float loadRelaxed (std::atomic<float>* p, float def = 0.0f) noexcept
+	{
+		return p != nullptr ? p->load (std::memory_order_relaxed) : def;
+	}
+	inline bool loadRelaxedBool (std::atomic<float>* p, bool def = false) noexcept
+	{
+		return loadRelaxed (p, def ? 1.0f : 0.0f) > 0.5f;
+	}
+	inline int loadRelaxedInt (std::atomic<float>* p, int def = 0) noexcept
+	{
+		return static_cast<int> (std::lround (loadRelaxed (p, static_cast<float> (def))));
+	}
+
+	// Compute 1st-order symmetric tilt shelf coefficients (bilinear, pivot 1kHz).
+	// Shared by per-loader tilt EQ and global MATCH tilt EQ.
+	inline void computeTiltShelfCoeffs (double sampleRate, float slopeDb,
+	                                    float& outB0, float& outB1, float& outA1) noexcept
+	{
+		if (std::abs (slopeDb) < 0.1f)
+		{
+			outB0 = 1.0f; outB1 = 0.0f; outA1 = 0.0f;
+			return;
+		}
+		const double pivot = 1000.0;
+		const double octavesToNyquist = std::log2 ((sampleRate * 0.5) / pivot);
+		const double gainAtNyquistDb  = static_cast<double> (slopeDb) * octavesToNyquist;
+		const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
+		const double wc = 2.0 * sampleRate * std::tan (juce::MathConstants<double>::pi * pivot / sampleRate);
+		const double K  = wc / (2.0 * sampleRate);
+		const double g  = std::sqrt (gNy);
+		const double norm = 1.0 / (1.0 + K * g);
+		outB0 = static_cast<float> ((g + K) * norm);
+		outB1 = static_cast<float> ((K - g) * norm);
+		outA1 = static_cast<float> ((K * g - 1.0) * norm);
+	}
+}
+
 //==============================================================================
 CABTRAudioProcessor::CABTRAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -602,11 +653,14 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	stateC.smoothedDelay.setCurrentAndTargetValue (0.0f);
 	
 	// Prepare temp buffers (pre-allocated for audio thread)
-	tempBufferA.setSize (2, samplesPerBlock);
-	tempBufferB.setSize (2, samplesPerBlock);
-	tempBufferC.setSize (2, samplesPerBlock);
-	globalDryBuffer.setSize (2, samplesPerBlock);
-	loaderDryBuffer.setSize (2, samplesPerBlock);
+	// Use generous size to handle hosts that send variable/larger blocks
+	// (e.g. FL Studio). Runtime guard in processBlock handles anything larger.
+	const int bufAlloc = juce::jmax (samplesPerBlock, 8192);
+	tempBufferA.setSize (2, bufAlloc);
+	tempBufferB.setSize (2, bufAlloc);
+	tempBufferC.setSize (2, bufAlloc);
+	globalDryBuffer.setSize (2, bufAlloc);
+	loaderDryBuffer.setSize (2, bufAlloc);
 
 	// Cache raw parameter pointers (avoids hash-table lookup every processBlock)
 	pEnableA = parameters.getRawParameterValue (kParamEnableA);
@@ -696,6 +750,17 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	normPeakFollower_  = 0.0f;
 	normSmoothedGain_  = 1.0f;
 	normWarmupSamples_ = 0;
+
+	// Pre-compute coefficients that depend only on sample rate (avoids per-block std::exp)
+	{
+		const float sr = static_cast<float> (sampleRate);
+		cachedTiltSmoothCoeff_ = 1.0f - std::exp (-1.0f / (sr * 0.03f));
+		cachedDcBlockR_        = 1.0f - (juce::MathConstants<float>::twoPi * 5.0f / sr);
+		// NORM AGC: per-block coefficients depend on numSamples, but the base tau is fixed.
+		// We store the per-sample versions; processBlock scales by numSamples.
+		cachedNormFastCoeff_   = 1.0f - std::exp (-1.0f / (sr * 0.01f)); // 10ms ramp-down
+		cachedNormSlowCoeff_   = 1.0f - std::exp (-1.0f / (sr * 0.02f)); // 20ms ramp-up
+	}
 
 	// Fade-in to suppress convolver/filter warmup transients (~5ms)
 	fadeInTotalSamples_     = juce::jmax (64, (int) (sampleRate * 0.005));
@@ -845,10 +910,24 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	if (numSamples == 0)
 		return;
 
-	// Get global parameters (cached pointers — no hash lookup)
-	const bool enableA = pEnableA->load() > 0.5f;
-	const bool enableB = pEnableB->load() > 0.5f;
-	const bool enableC = pEnableC->load() > 0.5f;
+	// Resize work buffers to match actual block size each call.
+	// avoidReallocating=true keeps existing allocation if big enough (zero-alloc path).
+	// This is CRITICAL: the temp buffers must report the correct numSamples so that
+	// processLoader (which reads buffer.getNumSamples()) only processes valid data.
+	// Without this, stale data beyond numSamples creates a feedback loop.
+	{
+		const int nc = buffer.getNumChannels();
+		tempBufferA.setSize  (nc, numSamples, false, false, true);
+		tempBufferB.setSize  (nc, numSamples, false, false, true);
+		tempBufferC.setSize  (nc, numSamples, false, false, true);
+		globalDryBuffer.setSize (nc, numSamples, false, false, true);
+		loaderDryBuffer.setSize (nc, numSamples, false, false, true);
+	}
+
+	// Get global parameters (cached pointers — relaxed atomic, no hash lookup)
+	const bool enableA = loadRelaxedBool (pEnableA);
+	const bool enableB = loadRelaxedBool (pEnableB);
+	const bool enableC = loadRelaxedBool (pEnableC);
 
 	// A loader is "active" only if enabled AND has an IR loaded.
 	// Enabled without IR = transparent pass-through (no silence).
@@ -856,26 +935,76 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const bool activeB = enableB && stateB.impulseResponse.getNumSamples() > 0;
 	const bool activeC = enableC && stateC.impulseResponse.getNumSamples() > 0;
 
-	const int route = static_cast<int> (pRoute->load());
-	const float globalMix = pMix->load();
+	const int route = loadRelaxedInt (pRoute);
+	const float globalMix = loadRelaxed (pMix);
 
 	// Per-loader mode parameters
-	const int modeInA  = static_cast<int> (pModeInA->load());
-	const int modeOutA = static_cast<int> (pModeOutA->load());
-	const int modeInB  = static_cast<int> (pModeInB->load());
-	const int modeOutB = static_cast<int> (pModeOutB->load());
-	const int modeInC  = static_cast<int> (pModeInC->load());
-	const int modeOutC = static_cast<int> (pModeOutC->load());
-	const int sumBusA  = static_cast<int> (pSumBusA->load());
-	const int sumBusB  = static_cast<int> (pSumBusB->load());
-	const int sumBusC  = static_cast<int> (pSumBusC->load());
-	const float mixA = pMixA->load();
-	const float mixB = pMixB->load();
-	const float mixC = pMixC->load();
+	const int modeInA  = loadRelaxedInt (pModeInA);
+	const int modeOutA = loadRelaxedInt (pModeOutA);
+	const int modeInB  = loadRelaxedInt (pModeInB);
+	const int modeOutB = loadRelaxedInt (pModeOutB);
+	const int modeInC  = loadRelaxedInt (pModeInC);
+	const int modeOutC = loadRelaxedInt (pModeOutC);
+	const int sumBusA  = loadRelaxedInt (pSumBusA);
+	const int sumBusB  = loadRelaxedInt (pSumBusB);
+	const int sumBusC  = loadRelaxedInt (pSumBusC);
+	const float mixA = loadRelaxed (pMixA);
+	const float mixB = loadRelaxed (pMixB);
+	const float mixC = loadRelaxed (pMixC);
 
-	// Apply input gain (SIMD optimized)
-	const float inputGain = juce::Decibels::decibelsToGain (pInput->load());
+	// Apply input gain
+	const float inputGain = fastDecibelsToGain (loadRelaxed (pInput));
 	buffer.applyGain (inputGain);
+
+	// ── DIAGNOSTIC LOG (throttled ~1s) ──
+#if CABTR_DSP_DEBUG_LOG
+	{
+		static int diagBlockCount = 0;
+		++diagBlockCount;
+		// Log every ~1 second (sampleRate / numSamples = blocks per second)
+		const int blocksPerSecond = juce::jmax (1, (int)(currentSampleRate / juce::jmax (1, numSamples)));
+		if (diagBlockCount >= blocksPerSecond)
+		{
+			diagBlockCount = 0;
+
+			// Peak levels of input (post input gain)
+			float peakL = 0.0f, peakR = 0.0f;
+			if (buffer.getNumChannels() >= 1)
+				peakL = buffer.getMagnitude (0, 0, numSamples);
+			if (buffer.getNumChannels() >= 2)
+				peakR = buffer.getMagnitude (1, 0, numSamples);
+
+			const float inputDb = loadRelaxed (pInput);
+			const float outputDb = loadRelaxed (pOutput);
+			const float outA_dB = loadRelaxed (pOutA);
+			const float outB_dB = loadRelaxed (pOutB);
+			const float outC_dB = loadRelaxed (pOutC);
+			const float inA_dB = loadRelaxed (pInA);
+			const float inB_dB = loadRelaxed (pInB);
+			const float inC_dB = loadRelaxed (pInC);
+
+			juce::String diag;
+			diag << "BLOCK numSamples=" << numSamples
+			     << " sRate=" << (int) currentSampleRate
+			     << " ch=" << buffer.getNumChannels()
+			     << " | inPeak L=" << juce::String (peakL, 4)
+			     << " R=" << juce::String (peakR, 4)
+			     << " | route=" << route
+			     << " globalMix=" << juce::String (globalMix, 3)
+			     << " | Input=" << juce::String (inputDb, 2) << "dB"
+			     << " Output=" << juce::String (outputDb, 2) << "dB"
+			     << " | enableA=" << (int) enableA << " activeA=" << (int) activeA
+			     << " enableB=" << (int) enableB << " activeB=" << (int) activeB
+			     << " enableC=" << (int) enableC << " activeC=" << (int) activeC
+			     << " | InA=" << juce::String (inA_dB, 2) << " OutA=" << juce::String (outA_dB, 2)
+			     << " InB=" << juce::String (inB_dB, 2) << " OutB=" << juce::String (outB_dB, 2)
+			     << " InC=" << juce::String (inC_dB, 2) << " OutC=" << juce::String (outC_dB, 2)
+			     << " | mixA=" << juce::String (mixA, 3) << " mixB=" << juce::String (mixB, 3) << " mixC=" << juce::String (mixC, 3)
+			     << " | tempBufA=" << tempBufferA.getNumSamples() << " tempBufB=" << tempBufferB.getNumSamples();
+			LOG_IR_EVENT (diag);
+		}
+	}
+#endif
 
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
@@ -1121,7 +1250,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// then applies compensating tilt to match the selected target profile.
 	// Target slopes: White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6 dB/oct
 	{
-		const int matchProfile = static_cast<int> (pMatch->load());
+		const int matchProfile = loadRelaxedInt (pMatch);
 
 		if (matchProfile != 0) // 0 = None
 		{
@@ -1172,32 +1301,12 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			{
 				tiltLastProfile_ = matchProfile;
 				tiltLastSlope_ = compensatingSlope;
-
-				if (std::abs (compensatingSlope) < 0.1f)
-				{
-					tiltTargetB0_ = 1.0f; tiltTargetB1_ = 0.0f; tiltTargetA1_ = 0.0f;
-				}
-				else
-				{
-					const double sr = getSampleRate();
-					const double pivot = 1000.0;
-					const double octavesToNyquist = std::log2 ((sr * 0.5) / pivot);
-					const double gainAtNyquistDb = compensatingSlope * octavesToNyquist;
-					const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
-
-					const double wc = 2.0 * sr * std::tan (juce::MathConstants<double>::pi * pivot / sr);
-					const double K = wc / (2.0 * sr);
-					const double g = std::sqrt (gNy);
-
-					const double norm = 1.0 / (1.0 + K * g);
-					tiltTargetB0_ = static_cast<float> ((g + K) * norm);
-					tiltTargetB1_ = static_cast<float> ((K - g) * norm);
-					tiltTargetA1_ = static_cast<float> ((K * g - 1.0) * norm);
-				}
+				computeTiltShelfCoeffs (getSampleRate(), compensatingSlope,
+				                       tiltTargetB0_, tiltTargetB1_, tiltTargetA1_);
 			}
 
 			// Smooth coefficients towards target (~30ms ramp) to avoid zipper noise
-			const float smoothCoeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * 0.03f));
+			const float smoothCoeff = cachedTiltSmoothCoeff_;
 
 			for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 			{
@@ -1246,7 +1355,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// A warmup period (~150 ms) prevents boost during convolver crossfade /
 	// session restore, where early peaks are unreliable and could cause a spike.
 	{
-		const int normIdx = static_cast<int> (pTrim->load());
+		const int normIdx = loadRelaxedInt (pTrim);
 		if (normIdx > 0)
 		{
 			const float target = kNormTargets[juce::jlimit (0, kNumNormTargets - 1, normIdx)];
@@ -1278,8 +1387,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 				// Bi-directional smoothing: fast ramp-down (10 ms) when a louder
 				// peak is captured, slower ramp-up (20 ms) for boost convergence.
-				const float tau = (effectiveGain < normSmoothedGain_) ? 0.01f : 0.02f;
-				const float coeff = 1.0f - std::exp (-1.0f / (static_cast<float> (getSampleRate()) * tau / static_cast<float> (numSamples)));
+				const float baseCoeff = (effectiveGain < normSmoothedGain_) ? cachedNormFastCoeff_ : cachedNormSlowCoeff_;
+				const float coeff = 1.0f - std::pow (1.0f - baseCoeff, static_cast<float> (numSamples));
 				normSmoothedGain_ += (effectiveGain - normSmoothedGain_) * coeff;
 
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -1314,7 +1423,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// Removes DC offset introduced by convolution, resampled IRs, or filter artefacts.
 	// y[n] = x[n] - x[n-1] + R * y[n-1],  R = 1 - 2*pi*fc/sr
 	{
-		const float R = 1.0f - (kTwoPi * 5.0f / static_cast<float> (getSampleRate()));
+		const float R = cachedDcBlockR_;
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		{
 			auto* data = buffer.getWritePointer (ch);
@@ -1333,8 +1442,19 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 	}
 
-	// Apply output gain (SIMD optimized)
-	const float outputGain = juce::Decibels::decibelsToGain (pOutput->load());
+	// ── Flush denormals in global filter states (per-block, near-zero cost) ──
+	{
+		constexpr float kDnr = 1e-20f;
+		if (std::abs (tiltState_[0]) < kDnr) tiltState_[0] = 0.0f;
+		if (std::abs (tiltState_[1]) < kDnr) tiltState_[1] = 0.0f;
+		if (std::abs (dcBlockX_[0])  < kDnr) dcBlockX_[0]  = 0.0f;
+		if (std::abs (dcBlockX_[1])  < kDnr) dcBlockX_[1]  = 0.0f;
+		if (std::abs (dcBlockY_[0])  < kDnr) dcBlockY_[0]  = 0.0f;
+		if (std::abs (dcBlockY_[1])  < kDnr) dcBlockY_[1]  = 0.0f;
+	}
+
+	// Apply output gain
+	const float outputGain = fastDecibelsToGain (loadRelaxed (pOutput));
 	buffer.applyGain (outputGain);
 
 	// Post-prepare fade-in: suppress convolver/filter warmup transients
@@ -1357,6 +1477,27 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// Safety hard-limiter: prevent catastrophic output only (NaN/Inf runaway).
 	// Set very high (+48 dBFS) so it never engages during normal operation.
 	{
+#if CABTR_DSP_DEBUG_LOG
+		// Log output levels before safety limiter (throttled — same ~1s cadence)
+		{
+			static int diagOutCount = 0;
+			++diagOutCount;
+			const int bps = juce::jmax (1, (int)(currentSampleRate / juce::jmax (1, numSamples)));
+			if (diagOutCount >= bps)
+			{
+				diagOutCount = 0;
+				float outPeakL = 0.0f, outPeakR = 0.0f;
+				if (buffer.getNumChannels() >= 1) outPeakL = buffer.getMagnitude (0, 0, numSamples);
+				if (buffer.getNumChannels() >= 2) outPeakR = buffer.getMagnitude (1, 0, numSamples);
+				juce::String d;
+				d << "OUTPUT peakL=" << juce::String (outPeakL, 4) << " peakR=" << juce::String (outPeakR, 4)
+				  << " outputGain=" << juce::String (outputGain, 6)
+				  << " outputDb=" << juce::String (loadRelaxed (pOutput), 2)
+				  << " fadeRemaining=" << fadeInSamplesRemaining_;
+				LOG_IR_EVENT (d);
+			}
+		}
+#endif
 		constexpr float kSafetyLimit = 251.19f; // +48 dBFS — only catches runaways
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		{
@@ -2232,24 +2373,12 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 
 			if (std::abs (compensatingSlope) >= 0.1f)
 			{
-				const double pivot = 1000.0;
-				const double octavesToNyquist = std::log2 ((workingSR * 0.5) / pivot);
-				const double gainAtNyquistDb = compensatingSlope * octavesToNyquist;
-				const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
-
-				const double wc = 2.0 * workingSR * std::tan (juce::MathConstants<double>::pi * pivot / workingSR);
-				const double K = wc / (2.0 * workingSR);
-				const double g = std::sqrt (gNy);
-
-				const double norm = 1.0 / (1.0 + K * g);
-				const float b0 = static_cast<float> ((g + K) * norm);
-				const float b1 = static_cast<float> ((K - g) * norm);
-				const float a1 = static_cast<float> ((K * g - 1.0) * norm);
+				float b0, b1, a1;
+				computeTiltShelfCoeffs (workingSR, compensatingSlope, b0, b1, a1);
 
 				LOG_IR_EVENT ("MATCH: APPLYING tilt — b0=" + juce::String (b0, 6)
 				             + " b1=" + juce::String (b1, 6)
-				             + " a1=" + juce::String (a1, 6)
-				             + " gNy=" + juce::String (gNy, 6));
+				             + " a1=" + juce::String (a1, 6));
 
 				for (int ch = 0; ch < result.getNumChannels(); ++ch)
 				{
@@ -2510,19 +2639,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	// Per-loader TILT EQ (1st-order symmetric shelf, pivot 1kHz)
 	if (std::abs (tiltDb) > 0.05f)
 	{
-		const double pivot = 1000.0;
-		const double octavesToNyquist = std::log2 ((sampleRate * 0.5) / pivot);
-		const double gainAtNyquistDb  = static_cast<double> (tiltDb) * octavesToNyquist;
-		const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
-
-		const double wc = 2.0 * sampleRate * std::tan (juce::MathConstants<double>::pi * pivot / sampleRate);
-		const double K  = wc / (2.0 * sampleRate);
-		const double g  = std::sqrt (gNy);
-
-		const double norm = 1.0 / (1.0 + K * g);
-		const float b0 = static_cast<float> ((g + K) * norm);
-		const float b1 = static_cast<float> ((K - g) * norm);
-		const float a1 = static_cast<float> ((K * g - 1.0) * norm);
+		float b0, b1, a1;
+		computeTiltShelfCoeffs (sampleRate, tiltDb, b0, b1, a1);
 
 		for (int ch = 0; ch < numChannels; ++ch)
 		{
@@ -2726,34 +2844,33 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c)
 		-> std::atomic<float>* { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
 
-	const float hpFreq = pick (pHpFreqA, pHpFreqB, pHpFreqC)->load();
-	const float lpFreq = pick (pLpFreqA, pLpFreqB, pLpFreqC)->load();
-	const bool  hpOn   = pick (pHpOnA,   pHpOnB,   pHpOnC)->load() > 0.5f;
-	const bool  lpOn   = pick (pLpOnA,   pLpOnB,   pLpOnC)->load() > 0.5f;
+	const float hpFreq = loadRelaxed (pick (pHpFreqA, pHpFreqB, pHpFreqC));
+	const float lpFreq = loadRelaxed (pick (pLpFreqA, pLpFreqB, pLpFreqC));
+	const bool  hpOn   = loadRelaxedBool (pick (pHpOnA,   pHpOnB,   pHpOnC));
+	const bool  lpOn   = loadRelaxedBool (pick (pLpOnA,   pLpOnB,   pLpOnC));
 	const int   hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
-	                                    (int) pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)->load());
+	                                    loadRelaxedInt (pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)));
 	const int   lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
-	                                    (int) pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)->load());
-	const float delayMs = pick (pDelayA, pDelayB, pDelayC)->load();
-	const float pan = pick (pPanA, pPanB, pPanC)->load();
-	const float fred = pick (pFredA, pFredB, pFredC)->load();
-	const float pos = pick (pPosA, pPosB, pPosC)->load();
-	const float outDb = pick (pOutA, pOutB, pOutC)->load();
-	const float inDb  = pick (pInA,  pInB,  pInC)->load();
-	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
-	const bool chaosEnabled = pick (pChaosA, pChaosB, pChaosC)->load() > 0.5f;
-	const bool chaosFilterEnabled = pick (pChaosFilterA, pChaosFilterB, pChaosFilterC)->load() > 0.5f;
-	const float chaosAmt = pick (pChaosAmtA, pChaosAmtB, pChaosAmtC)->load();
-	const float chaosSpd = pick (pChaosSpdA, pChaosSpdB, pChaosSpdC)->load();
-	const float chaosAmtFilter = pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC)->load();
-	const float chaosSpdFilter = pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC)->load();
+	                                    loadRelaxedInt (pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)));
+	const float delayMs = loadRelaxed (pick (pDelayA, pDelayB, pDelayC));
+	const float pan = loadRelaxed (pick (pPanA, pPanB, pPanC));
+	const float fred = loadRelaxed (pick (pFredA, pFredB, pFredC));
+	const float pos = loadRelaxed (pick (pPosA, pPosB, pPosC));
+	const float outDb = loadRelaxed (pick (pOutA, pOutB, pOutC));
+	const float inDb  = loadRelaxed (pick (pInA,  pInB,  pInC));
+	const float tiltDb = loadRelaxed (pick (pTiltA, pTiltB, pTiltC));
+	const bool chaosEnabled = loadRelaxedBool (pick (pChaosA, pChaosB, pChaosC));
+	const bool chaosFilterEnabled = loadRelaxedBool (pick (pChaosFilterA, pChaosFilterB, pChaosFilterC));
+	const float chaosAmt = loadRelaxed (pick (pChaosAmtA, pChaosAmtB, pChaosAmtC));
+	const float chaosSpd = loadRelaxed (pick (pChaosSpdA, pChaosSpdB, pChaosSpdC));
+	const float chaosAmtFilter = loadRelaxed (pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC));
+	const float chaosSpdFilter = loadRelaxed (pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC));
 	
 	// (FRED processing happens after convolution + filters)
 	
 	// 1. INPUT GAIN (IN)
 	{
-		const float inGain = (inDb <= -100.0f) ? 0.0f
-		                   : juce::Decibels::decibelsToGain (inDb);
+		const float inGain = fastDecibelsToGain (inDb);
 		if (inGain < 0.999f)
 			buffer.applyGain (inGain);
 	}
@@ -2775,9 +2892,35 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	// 3. OUTPUT GAIN (OUT) — applied before tilt/filters per requested DSP order
 	if (std::abs (outDb) > 0.01f)
 	{
-		const float outGain = juce::Decibels::decibelsToGain (outDb);
+		const float outGain = fastDecibelsToGain (outDb);
 		buffer.applyGain (outGain);
 	}
+
+#if CABTR_DSP_DEBUG_LOG
+	// Per-loader post-convolution + post-out diagnostic (throttled)
+	{
+		static int diagLoaderCount[3] = {0, 0, 0};
+		++diagLoaderCount[loaderIndex];
+		const int bps = juce::jmax (1, (int)(currentSampleRate / juce::jmax (1, numSamples)));
+		if (diagLoaderCount[loaderIndex] >= bps)
+		{
+			diagLoaderCount[loaderIndex] = 0;
+			float pk = 0.0f;
+			for (int ch = 0; ch < numChannels; ++ch)
+				pk = juce::jmax (pk, buffer.getMagnitude (ch, 0, numSamples));
+			juce::String d;
+			d << "LOADER[" << loaderIndex << "] postConv+outGain peak=" << juce::String (pk, 4)
+			  << " inDb=" << juce::String (inDb, 2)
+			  << " outDb=" << juce::String (outDb, 2)
+			  << " tiltDb=" << juce::String (tiltDb, 2)
+			  << " hpOn=" << (int) hpOn << " lpOn=" << (int) lpOn
+			  << " hpFreq=" << juce::String (hpFreq, 1) << " lpFreq=" << juce::String (lpFreq, 1)
+			  << " irLen=" << state.impulseResponse.getNumSamples()
+			  << " hasIR=" << (int) (!state.currentFilePath.isEmpty());
+			LOG_IR_EVENT (d);
+		}
+	}
+#endif
 
 	// 4. PER-LOADER TILT EQ (1st-order symmetric shelf, pivot 1kHz)
 	if (std::abs (tiltDb) > 0.05f)
@@ -2786,23 +2929,11 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		if (std::abs (tiltDb - state.lastTiltDb) > 0.02f)
 		{
 			state.lastTiltDb = tiltDb;
-
-			const double pivot = 1000.0;
-			const double octavesToNyquist = std::log2 ((currentSampleRate * 0.5) / pivot);
-			const double gainAtNyquistDb  = static_cast<double> (tiltDb) * octavesToNyquist;
-			const double gNy = std::pow (10.0, gainAtNyquistDb / 20.0);
-
-			const double wc = 2.0 * currentSampleRate * std::tan (juce::MathConstants<double>::pi * pivot / currentSampleRate);
-			const double K  = wc / (2.0 * currentSampleRate);
-			const double g  = std::sqrt (gNy);
-
-			const double norm = 1.0 / (1.0 + K * g);
-			state.tiltTargetB0 = static_cast<float> ((g + K) * norm);
-			state.tiltTargetB1 = static_cast<float> ((K - g) * norm);
-			state.tiltTargetA1 = static_cast<float> ((K * g - 1.0) * norm);
+			computeTiltShelfCoeffs (currentSampleRate, tiltDb,
+			                       state.tiltTargetB0, state.tiltTargetB1, state.tiltTargetA1);
 		}
 
-		const float smoothCoeff = 1.0f - std::exp (-1.0f / (static_cast<float> (currentSampleRate) * 0.03f));
+		const float smoothCoeff = cachedTiltSmoothCoeff_;
 
 		for (int ch = 0; ch < numChannels; ++ch)
 		{
@@ -3057,7 +3188,8 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		const float maxDelaySamples = amountNorm * maxDelaySec * (float) currentSampleRate;
 		
 		// Delay EMA τ scales with speed: 15ms @ 0.01Hz → 120ms @ 100Hz (log mapping)
-		const float spdNorm = std::log (chaosSpd / 0.01f) / std::log (100.0f / 0.01f); // 0..1
+		constexpr float kInvLogRange = 1.0f / 9.2103404f; // 1/log(100/0.01) — precomputed
+		const float spdNorm = std::log (chaosSpd / 0.01f) * kInvLogRange; // 0..1
 		const float delayTau = 0.015f + spdNorm * 0.105f; // 15ms → 120ms
 		const float delaySmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * delayTau));
 		const float gainSmoothCoeff  = std::exp (-1.0f / ((float) currentSampleRate * 0.015f));
@@ -3137,6 +3269,16 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			
 			state.chaosDelayWritePos = (wp + 1) % delayBufLen;
 		}
+	}
+
+	// ── Flush denormals in filter/tilt states (per-block, near-zero cost) ──
+	{
+		constexpr float kDnr = 1e-20f;
+		if (std::abs (state.tiltState[0])       < kDnr) state.tiltState[0]       = 0.0f;
+		if (std::abs (state.tiltState[1])       < kDnr) state.tiltState[1]       = 0.0f;
+		if (std::abs (state.chaosFilterSmoothed) < kDnr) state.chaosFilterSmoothed = 0.0f;
+		if (std::abs (state.chaosSmoothedValue)  < kDnr) state.chaosSmoothedValue  = 0.0f;
+		if (std::abs (state.chaosGainSmoothed)   < kDnr) state.chaosGainSmoothed   = 0.0f;
 	}
 }
 
