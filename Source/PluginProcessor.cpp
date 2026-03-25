@@ -93,7 +93,7 @@
 
        // 3) The VST3 install directory under Program Files
        {
-           wchar_t pf[MAX_PATH] = L"C:\\Program Files\\Common Files\\VST3\\NEMESTER PLUGINS\\TR SERIES\\1.3\\";
+           wchar_t pf[MAX_PATH] = L"C:\\Program Files\\Common Files\\VST3\\NEMESTER PLUGINS\\TR SERIES\\1.4\\";
            if (tryLoadFrom (pf, L"[programfiles]")) return;
        }
 
