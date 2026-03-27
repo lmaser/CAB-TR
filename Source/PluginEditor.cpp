@@ -574,7 +574,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 			return juce::String (v, 1) + " dB";
 
 		case Type::Tilt:
-			return juce::String (v, 1) + " dB/oct";
+			return juce::String (v, 1) + " dB";
 
 		case Type::Start:
 		case Type::End:
@@ -1232,20 +1232,19 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.fileDisp.setInterceptsMouseClicks (false, false);
 
 	using ST = BarSlider::Type;
-	auto setupSlider = [this] (BarSlider& slider, const juce::String& tooltip, ST type) {
+	auto setupSlider = [this] (BarSlider& slider, const juce::String& /*tooltip*/, ST type) {
 		addAndMakeVisible (slider);
 		slider.setOwner (this);
 		slider.setType (type);
 		setupBar (slider);
 		slider.addListener (this);
-		slider.setTooltip (tooltip);
 	};
 
 	setupSlider (r.hp,    "HP Filter " + suffix,                       ST::HpFreq);
 	setupSlider (r.lp,    "LP Filter " + suffix,                       ST::LpFreq);
 	setupSlider (r.in,    "Input Gain " + suffix,                      ST::Input);
 	setupSlider (r.out,   "Output Gain " + suffix,                     ST::Output);
-	setupSlider (r.tilt,  "Tilt EQ " + suffix + " (-6/+6 dB/oct)",    ST::Tilt);
+	setupSlider (r.tilt,  "Tilt EQ " + suffix + " (-6/+6 dB)",    ST::Tilt);
 	setupSlider (r.start, "IR Start Time " + suffix,                   ST::Start);
 	setupSlider (r.end,   "IR End Time " + suffix,                     ST::End);
 	setupSlider (r.size,  "Size " + suffix + " (25%-400%)",            ST::Size);
@@ -1384,7 +1383,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	matchCombo.addItem ("Bright+ (+6dB)", 6);
 	matchCombo.setJustificationType (juce::Justification::centred);
 	matchCombo.setLookAndFeel (&lnf);
-	matchCombo.setTooltip ("Match: apply tilt EQ to wet signal (pivot 1kHz)");
 
 	addAndMakeVisible (trimCombo);
 	trimCombo.addItem ("Off", 1);
@@ -1395,7 +1393,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	trimCombo.addItem ("-18 dB", 6);
 	trimCombo.setJustificationType (juce::Justification::centred);
 	trimCombo.setLookAndFeel (&lnf);
-	trimCombo.setTooltip ("Norm: auto-normalize wet signal peak to target level");
 
 	// Global MIX bar slider (footer)
 	addAndMakeVisible (globalMixSlider);
@@ -1403,7 +1400,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	globalMixSlider.setType (BarSlider::Type::GlobalMix);
 	setupBar (globalMixSlider);
 	globalMixSlider.addListener (this);
-	globalMixSlider.setTooltip ("Global Mix (Dry/Wet)");
 
 	// Global OUTPUT bar slider (footer)
 	addAndMakeVisible (globalOutputSlider);
@@ -1411,7 +1407,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	globalOutputSlider.setType (BarSlider::Type::GlobalOutput);
 	setupBar (globalOutputSlider);
 	globalOutputSlider.addListener (this);
-	globalOutputSlider.setTooltip ("Global Output");
 
 	// Create parameter attachments
 	auto& params = audioProcessor.getValueTreeState();
@@ -1438,7 +1433,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	ioSectionExpanded_ = audioProcessor.getUiIoExpanded();
 
 	// Setup tooltip window
-	tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 700);
+	tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 250);
+	tooltipWindow->setLookAndFeel (&lnf);
+	tooltipWindow->setAlwaysOnTop (true);
+	tooltipWindow->setInterceptsMouseClicks (false, false);
 
 	// Setup prompt overlay
 	addChildComponent (promptOverlay);
@@ -1491,6 +1489,10 @@ CABTRAudioProcessorEditor::~CABTRAudioProcessorEditor()
 	audioProcessor.setUiFxTailEnabled (crtEnabled);
 
 	setComponentEffect (nullptr);
+
+	if (tooltipWindow != nullptr)
+		tooltipWindow->setLookAndFeel (nullptr);
+
 	setLookAndFeel (nullptr);
 
 	auto& params = audioProcessor.getValueTreeState();
@@ -1938,7 +1940,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		chaos.setBounds (chsdX, checkArea.getY(), chsdW, comboH);
 		chaosFilter.setVisible (true);
 		chaos.setVisible (true);
-		chaosDisp.setVisible (false);
+		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), checkArea.getWidth(), comboH);
+		chaosDisp.setVisible (true);
 
 		// Hide collapsed-only controls
 		hp.setVisible (false);     lp.setVisible (false);
@@ -2513,26 +2516,44 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 		return;
 	}
 
-	// CHAOS checkboxes: right-click on CHSF or CHSD opens chaos amount/speed prompt
+	// CHAOS checkboxes: left-click toggles, right-click opens chaos amount/speed prompt
 	{
-		juce::ToggleButton* enableBtns[]   = { &enableButtonA,  &enableButtonB,  &enableButtonC };
-		juce::ToggleButton* chaosBtns[]    = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
+		juce::ToggleButton* enableBtns[]      = { &enableButtonA,  &enableButtonB,  &enableButtonC };
+		juce::ToggleButton* chaosBtns[]       = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
 		juce::ToggleButton* chaosFilterBtns[] = { &chaosFilterButtonA, &chaosFilterButtonB, &chaosFilterButtonC };
+		juce::Label*        chaosDisps[]      = { &chaosDisplayA,  &chaosDisplayB,  &chaosDisplayC };
 
 		for (int i = 0; i < 3; ++i)
 		{
-			if (enableBtns[i]->getToggleState() && e.mods.isPopupMenu())
+			if (! enableBtns[i]->getToggleState())
+				continue;
+
+			// Hit-test chaos filter button or its display overlay half
+			const bool hitFilter = chaosFilterBtns[i]->getBounds().contains (p)
+				|| (chaosDisps[i]->isVisible() && chaosDisps[i]->getBounds().contains (p)
+					&& p.x < chaosFilterBtns[i]->getBounds().getRight());
+
+			// Hit-test chaos delay button or its display overlay half
+			const bool hitDelay = !hitFilter
+				&& (chaosBtns[i]->getBounds().contains (p)
+					|| (chaosDisps[i]->isVisible() && chaosDisps[i]->getBounds().contains (p)
+						&& p.x >= chaosBtns[i]->getBounds().getX()));
+
+			if (hitFilter)
 			{
-				if (chaosFilterBtns[i]->getBounds().contains (p))
-				{
+				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, true);
-					return;
-				}
-				if (chaosBtns[i]->getBounds().contains (p))
-				{
+				else
+					chaosFilterBtns[i]->setToggleState (! chaosFilterBtns[i]->getToggleState(), juce::sendNotificationSync);
+				return;
+			}
+			if (hitDelay)
+			{
+				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, false);
-					return;
-				}
+				else
+					chaosBtns[i]->setToggleState (! chaosBtns[i]->getToggleState(), juce::sendNotificationSync);
+				return;
 			}
 		}
 	}
@@ -2631,7 +2652,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 		return "R" + juce::String (pct);
 	};
 
-	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=dB/oct
+	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=tilt(dB)
 	struct ParamFmt { int type; const char* label; };
 	const ParamFmt fmts[kNumCachedParams] = {
 		{0,"HP"}, {0,"LP"}, {1,"IN"}, {1,"OUT"}, {5,"TILT"}, {2,"START"}, {2,"END"},
@@ -2683,9 +2704,9 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 					ct.short_  = formatPan ((float) val);
 					ct.intOnly = formatPan ((float) val);
 					break;
-				case 5: // dB/oct (Tilt)
-					ct.full    = juce::String (val, 1) + " dB/oct " + fmt.label;
-					ct.short_  = juce::String (val, 1) + " dB/o";
+				case 5: // dB (Tilt)
+					ct.full    = juce::String (val, 1) + " dB " + fmt.label;
+					ct.short_  = juce::String (val, 1) + " dB";
 					ct.intOnly = juce::String (juce::roundToInt (val));
 					break;
 			}
@@ -2911,7 +2932,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	if (isHpLp)             { suffix = " Hz";          suffixShort = " Hz"; }
 	else if (isIn)          { suffix = " dB INPUT";    suffixShort = " dB"; }
 	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB"; }
-	else if (isTilt)        { suffix = " dB/oct TILT"; suffixShort = " dB/o"; }
+	else if (isTilt)        { suffix = " dB TILT"; suffixShort = " dB"; }
 	else if (isStart)       { suffix = " ms START";    suffixShort = " ms"; }
 	else if (isEnd)         { suffix = " ms END";      suffixShort = " ms"; }
 	else if (isSize)        { suffix = " % SIZE";      suffixShort = " %"; }
