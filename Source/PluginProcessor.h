@@ -147,11 +147,13 @@ public:
 	// ══════════════════════════════════════════════════════════════
 	struct UiStateKeys
 	{
-		static constexpr const char* ioExpanded = "uiIoExpanded";
+		static constexpr const char* ioExpandedA = "uiIoExpandedA";
+		static constexpr const char* ioExpandedB = "uiIoExpandedB";
+		static constexpr const char* ioExpandedC = "uiIoExpandedC";
 	};
 
-	void setUiIoExpanded (bool expanded);
-	bool getUiIoExpanded() const noexcept;
+	void  setUiIoExpanded (int loaderIndex, bool expanded);
+	bool  getUiIoExpanded (int loaderIndex) const noexcept;
 
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter Ranges & Defaults — Filters

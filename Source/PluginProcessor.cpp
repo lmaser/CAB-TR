@@ -3553,15 +3553,21 @@ void CABTRAudioProcessor::timerCallback()
 //==============================================================================
 // UI state persistence (non-automatable collapse state)
 //==============================================================================
-void CABTRAudioProcessor::setUiIoExpanded (bool expanded)
+void CABTRAudioProcessor::setUiIoExpanded (int loaderIndex, bool expanded)
 {
-	parameters.state.setProperty (UiStateKeys::ioExpanded, expanded, nullptr);
+	const char* keys[] = { UiStateKeys::ioExpandedA, UiStateKeys::ioExpandedB, UiStateKeys::ioExpandedC };
+	if (loaderIndex >= 0 && loaderIndex < 3)
+		parameters.state.setProperty (keys[loaderIndex], expanded, nullptr);
 }
 
-bool CABTRAudioProcessor::getUiIoExpanded() const noexcept
+bool CABTRAudioProcessor::getUiIoExpanded (int loaderIndex) const noexcept
 {
-	const auto fromState = parameters.state.getProperty (UiStateKeys::ioExpanded);
-	if (! fromState.isVoid()) return (bool) fromState;
+	const char* keys[] = { UiStateKeys::ioExpandedA, UiStateKeys::ioExpandedB, UiStateKeys::ioExpandedC };
+	if (loaderIndex >= 0 && loaderIndex < 3)
+	{
+		const auto fromState = parameters.state.getProperty (keys[loaderIndex]);
+		if (! fromState.isVoid()) return (bool) fromState;
+	}
 	return false;
 }
 

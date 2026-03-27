@@ -1429,8 +1429,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	globalOutputAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
 		params, CABTRAudioProcessor::kParamOutput, globalOutputSlider);
 
-	// Initialize collapse state from processor
-	ioSectionExpanded_ = audioProcessor.getUiIoExpanded();
+	// Initialize per-loader collapse state from processor
+	ioExpandedA_ = audioProcessor.getUiIoExpanded (0);
+	ioExpandedB_ = audioProcessor.getUiIoExpanded (1);
+	ioExpandedC_ = audioProcessor.getUiIoExpanded (2);
 
 	// Setup tooltip window
 	tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 250);
@@ -1608,8 +1610,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		}
 	}
 
-	// Per-loader MODE IN / MODE OUT labels (only when expanded/visible)
-	if (ioSectionExpanded_)
+	// Per-loader MODE IN / MODE OUT labels (only when that loader is expanded)
 	{
 		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ComboBox& sumBus, juce::ToggleButton& enableBtn)
 		{
@@ -1629,9 +1630,9 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText (useShort ? "OUT" : "MODE OUT", moArea, juce::Justification::centred);
 			g.drawText (useShort ? "SUM" : "SUM BUS",  sbArea, juce::Justification::centred);
 		};
-		drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, enableButtonA);
-		drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, enableButtonB);
-		drawModeLabels (modeInComboC, modeOutComboC, sumBusComboC, enableButtonC);
+		if (ioExpandedA_) drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, enableButtonA);
+		if (ioExpandedB_) drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, enableButtonB);
+		if (ioExpandedC_) drawModeLabels (modeInComboC, modeOutComboC, sumBusComboC, enableButtonC);
 	}
 
 	// Draw gear icon (in paint, like other TR plugins)
@@ -1699,8 +1700,8 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 	if (promptOverlayActive)
 		return;
 
-	// ── Toggle bars (triangle + rounded horizontal bar) ──
-	auto drawToggleBar = [&] (const juce::Rectangle<int>& area)
+	// ── Per-loader toggle bars (triangle + rounded horizontal bar) ──
+	auto drawToggleBar = [&] (const juce::Rectangle<int>& area, bool expanded)
 	{
 		if (area.isEmpty()) return;
 		const float barRadius = (float) area.getHeight() * 0.3f;
@@ -1713,7 +1714,7 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 		const float cy = (float) area.getCentreY();
 
 		juce::Path tri;
-		if (ioSectionExpanded_)
+		if (expanded)
 		{
 			tri.addTriangle (cx - triW * 0.5f, cy + triH * 0.35f,
 			                 cx + triW * 0.5f, cy + triH * 0.35f,
@@ -1729,7 +1730,9 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 		g.fillPath (tri);
 	};
 
-	drawToggleBar (cachedToggleBarArea_);
+	drawToggleBar (cachedToggleBarAreaA_, ioExpandedA_);
+	drawToggleBar (cachedToggleBarAreaB_, ioExpandedB_);
+	drawToggleBar (cachedToggleBarAreaC_, ioExpandedC_);
 }
 
 //==============================================================================
@@ -1768,8 +1771,7 @@ void CABTRAudioProcessorEditor::resized()
 	// Layout IR Loader C
 	layoutIRSection (rightArea, 2);
 
-	// Compute single continuous toggle bar from all column areas
-	cachedToggleBarArea_ = cachedToggleBarAreaA_.getUnion (cachedToggleBarAreaB_).getUnion (cachedToggleBarAreaC_);
+
 
 	// Layout footer: aligned to 3-column grid
 	// ┌──── col A ─────┐┌──── col B ─────┐┌──── col C ─────┐
@@ -1884,7 +1886,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& sumBusCmb  = pick (sumBusComboA,     sumBusComboB,     sumBusComboC);
 	auto& chaosDisp  = pick (chaosDisplayA,    chaosDisplayB,    chaosDisplayC);
 
-	if (ioSectionExpanded_)
+	const bool expanded = (loaderIndex == 0) ? ioExpandedA_
+	                     : (loaderIndex == 1) ? ioExpandedB_
+	                     :                      ioExpandedC_;
+
+	if (expanded)
 	{
 		// ── Expanded IO view: IN, OUT, TILT, FILTER, MIX, MODE IN/OUT, CHAOS ──
 		// 5 sliders fill remaining space; mode + chaos get fixed height
@@ -2492,14 +2498,24 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 {
 	const auto p = e.getEventRelativeTo (this).getPosition();
 
-	// Toggle IO section expand/collapse
-	if (cachedToggleBarArea_.contains (p))
+	// Toggle IO section expand/collapse (per-loader independent)
 	{
-		ioSectionExpanded_ = ! ioSectionExpanded_;
-		audioProcessor.setUiIoExpanded (ioSectionExpanded_);
-		resized();
-		repaint();
-		return;
+		struct { juce::Rectangle<int>& area; bool& state; int idx; } bars[] = {
+			{ cachedToggleBarAreaA_, ioExpandedA_, 0 },
+			{ cachedToggleBarAreaB_, ioExpandedB_, 1 },
+			{ cachedToggleBarAreaC_, ioExpandedC_, 2 }
+		};
+		for (auto& b : bars)
+		{
+			if (b.area.contains (p))
+			{
+				b.state = ! b.state;
+				audioProcessor.setUiIoExpanded (b.idx, b.state);
+				resized();
+				repaint();
+				return;
+			}
+		}
 	}
 
 	// Click on gear icon opens info popup (with Graphics button inside)

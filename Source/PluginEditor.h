@@ -488,13 +488,14 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachC;
 
 	// ══════════════════════════════════════════════════════════════
-	//  Collapse/Expand state
+	//  Collapse/Expand state  (per-loader independent)
 	// ══════════════════════════════════════════════════════════════
-	bool ioSectionExpanded_ = false;
+	bool ioExpandedA_ = false;
+	bool ioExpandedB_ = false;
+	bool ioExpandedC_ = false;
 	juce::Rectangle<int> cachedToggleBarAreaA_;
 	juce::Rectangle<int> cachedToggleBarAreaB_;
 	juce::Rectangle<int> cachedToggleBarAreaC_;
-	juce::Rectangle<int> cachedToggleBarArea_;     // continuous bar (used for drawing/clicks)
 
 	// ══════════════════════════════════════════════════════════════
 	//  UI Components — Global
