@@ -1582,7 +1582,8 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		g.drawText ("MATCH", matchArea, juce::Justification::centred);
 
 		const auto trimArea = trimCombo.getBounds().withHeight (16).translated (0, -18);
-		g.drawText ("NORM", trimArea, juce::Justification::centred);
+		if (trimCombo.isVisible())
+			g.drawText ("NORM", trimArea, juce::Justification::centred);
 
 		// Global MIX label + value (right of bar)
 		if (globalMixSlider.isVisible())
@@ -1796,7 +1797,17 @@ void CABTRAudioProcessorEditor::resized()
 		row.removeFromLeft (footerGap);
 		matchCombo.setBounds (row.removeFromLeft (matchW));
 		row.removeFromLeft (footerGap);
-		trimCombo.setBounds (row.removeFromLeft (trimW));
+
+		// Hide trimCombo if remaining space is too narrow
+		if (row.getWidth() >= trimW)
+		{
+			trimCombo.setVisible (true);
+			trimCombo.setBounds (row.removeFromLeft (trimW));
+		}
+		else
+		{
+			trimCombo.setVisible (false);
+		}
 	}
 
 	// Column B area: MIX bar + value text to the right

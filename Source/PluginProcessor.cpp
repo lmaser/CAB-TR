@@ -2506,9 +2506,10 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		const int irLen = result.getNumSamples();
 		const int numCh = result.getNumChannels();
 
-		// FFT size: next power-of-2 >= 2*irLen (zero-pad for cepstral analysis)
+		// FFT size: next power-of-2 >= 8*irLen — generous zero-padding
+		// reduces cepstral aliasing for sub-sample-accurate min-phase
 		int mptOrder = 0;
-		while ((1 << mptOrder) < irLen * 2)
+		while ((1 << mptOrder) < irLen * 8)
 			++mptOrder;
 		const int fftSize = 1 << mptOrder;
 		const int halfSize = fftSize / 2;
