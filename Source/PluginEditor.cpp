@@ -4298,31 +4298,34 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 	};
 	fy += rowH + gap;
 
-	// TRIM SILENCE
+	// TRIM SILENCE + MPT (same row, aligned with control area)
 	auto* trimToggle = new juce::ToggleButton ("TRIM SILENCE");
 	trimToggle->setToggleState (true, juce::dontSendNotification);
 	trimToggle->setLookAndFeel (&lnf);
 	trimToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
 	trimToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
+
+	auto* mptToggle = new juce::ToggleButton ("MPT");
+	mptToggle->setToggleState (false, juce::dontSendNotification);
+	mptToggle->setLookAndFeel (&lnf);
+	mptToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
+	mptToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
 	{
-		const int toggleW = juce::jmin (controlW, 200);
-		const int toggleX = (formW - toggleW) / 2;
-		trimToggle->setBounds (toggleX, fy, toggleW, rowH);
+		const int halfW = controlW / 2;
+		trimToggle->setBounds (controlX, fy, halfW, rowH);
+		mptToggle->setBounds (controlX + halfW, fy, halfW, rowH);
 	}
 	formPanel->addAndMakeVisible (trimToggle);
+	formPanel->addAndMakeVisible (mptToggle);
 	fy += rowH + gap;
 
-	// NORMALIZE 0dB
+	// NORMALIZE 0dB (aligned with control area)
 	auto* normalizeToggle = new juce::ToggleButton ("NORMALIZE 0dB");
 	normalizeToggle->setToggleState (false, juce::dontSendNotification);
 	normalizeToggle->setLookAndFeel (&lnf);
 	normalizeToggle->setColour (juce::ToggleButton::textColourId, activeScheme.text);
 	normalizeToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
-	{
-		const int toggleW = juce::jmin (controlW, 200);
-		const int toggleX = (formW - toggleW) / 2;
-		normalizeToggle->setBounds (toggleX, fy, toggleW, rowH);
-	}
+	normalizeToggle->setBounds (controlX, fy, controlW, rowH);
 	formPanel->addAndMakeVisible (normalizeToggle);
 	fy += rowH;
 
@@ -4354,7 +4357,7 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 
 	aw->enterModalState (true,
 		juce::ModalCallbackFunction::create (
-			[safeThis, aw, formPanel, rateCombo, formatCombo, lengthLabel, trimToggle, normalizeToggle] (int result) mutable
+			[safeThis, aw, formPanel, rateCombo, formatCombo, lengthLabel, trimToggle, normalizeToggle, mptToggle] (int result) mutable
 		{
 			const int rateId = (rateCombo != nullptr) ? rateCombo->getSelectedId() : 2;
 			const int formatId = (formatCombo != nullptr) ? formatCombo->getSelectedId() : 2;
@@ -4362,6 +4365,7 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 			    ? juce::jlimit (0.01f, 10.0f, lengthLabel->getText().trimCharactersAtEnd ("s").getFloatValue()) : 10.0f;
 			const bool trim = (trimToggle != nullptr) ? trimToggle->getToggleState() : true;
 			const bool normalize = (normalizeToggle != nullptr) ? normalizeToggle->getToggleState() : false;
+			const bool mpt = (mptToggle != nullptr) ? mptToggle->getToggleState() : false;
 
 			// Delete all form children, then form panel, then AlertWindow
 			while (formPanel->getNumChildComponents() > 0)
@@ -4405,7 +4409,7 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 			auto safeThis2 = safeThis;
 			safeThis->exportChooser->launchAsync (
 				juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-				[safeThis2, targetRate, formatType, maxLen, trim, normalize, ext] (const juce::FileChooser& fc)
+				[safeThis2, targetRate, formatType, maxLen, trim, normalize, mpt, ext] (const juce::FileChooser& fc)
 				{
 					if (safeThis2 == nullptr)
 						return;
@@ -4418,7 +4422,7 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 						file = file.withFileExtension (ext.substring (1));
 
 					const bool ok = safeThis2->audioProcessor.exportCombinedIR (
-						targetRate, formatType, maxLen, trim, normalize, file);
+						targetRate, formatType, maxLen, trim, normalize, mpt, file);
 
 					if (! ok)
 					{

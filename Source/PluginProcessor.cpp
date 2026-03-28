@@ -1926,6 +1926,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
                                              int formatType, double maxLengthSec,
                                              bool trimSilence,
                                              bool normalizeOutput,
+                                             bool minimumPhase,
                                              const juce::File& outputFile)
 {
 	// Read current global parameters
@@ -2492,6 +2493,97 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		const int trimLength = juce::jmax (64, lastNonSilent + 1);
 		if (trimLength < result.getNumSamples())
 			result.setSize (result.getNumChannels(), trimLength, true);
+	}
+
+	// ── Minimum Phase Transform (cepstrum method) ──
+	// Preserves the magnitude spectrum while replacing the phase with the
+	// minimum-phase equivalent.  This removes any pre-ringing / linear-phase
+	// latency from the IR, concentrating energy at the start.
+	if (minimumPhase)
+	{
+		const int irLen = result.getNumSamples();
+		const int numCh = result.getNumChannels();
+
+		// FFT size: next power-of-2 >= 2*irLen (zero-pad for cepstral analysis)
+		int mptOrder = 0;
+		while ((1 << mptOrder) < irLen * 2)
+			++mptOrder;
+		const int fftSize = 1 << mptOrder;
+		const int halfSize = fftSize / 2;
+
+		juce::dsp::FFT fft (mptOrder);
+		std::vector<float> buf (static_cast<size_t> (fftSize) * 2, 0.0f);
+
+		for (int ch = 0; ch < numCh; ++ch)
+		{
+			// 1) Copy IR into real part, zero-pad
+			std::fill (buf.begin(), buf.end(), 0.0f);
+			const float* src = result.getReadPointer (ch);
+			for (int i = 0; i < irLen; ++i)
+				buf[static_cast<size_t> (i)] = src[i];
+
+			// 2) Forward FFT (interleaved complex output)
+			fft.performRealOnlyForwardTransform (buf.data(), true);
+
+			// 3) Log-magnitude (real cepstrum) — keep phase slot for reconstruction
+			constexpr float kFloor = 1e-30f;
+			for (int bin = 0; bin <= halfSize; ++bin)
+			{
+				const size_t ri = static_cast<size_t> (bin) * 2;
+				const size_t ii = ri + 1;
+				const float re = buf[ri];
+				const float im = buf[ii];
+				const float mag = std::sqrt (re * re + im * im);
+				buf[ri] = std::log (juce::jmax (kFloor, mag));  // log-magnitude
+				buf[ii] = 0.0f;                                  // zero phase
+			}
+
+			// 4) Inverse FFT → real cepstrum
+			fft.performRealOnlyInverseTransform (buf.data());
+
+			// 5) Apply causal window: keep c[0], double c[1..N/2-1], zero c[N/2..N-1]
+			//    This is the "minimum-phase cepstrum" operation
+			// buf now has fftSize real values (the real cepstrum)
+			// We need to fold it: keep c[0], double c[1..halfSize-1], zero c[halfSize..fftSize-1]
+			for (int i = 1; i < halfSize; ++i)
+				buf[static_cast<size_t> (i)] *= 2.0f;
+			for (int i = halfSize; i < fftSize; ++i)
+				buf[static_cast<size_t> (i)] = 0.0f;
+
+			// 6) Forward FFT of causal cepstrum → complex log-spectrum with min-phase
+			// Pack back into interleaved format for forward transform
+			{
+				// buf[0..fftSize-1] is real cepstrum after causal window
+				// We need to do a complex FFT to get the analytic signal in frequency domain
+				// But JUCE performRealOnlyForwardTransform expects real input
+				// So we re-use the real-only forward transform
+				std::vector<float> cepBuf (static_cast<size_t> (fftSize) * 2, 0.0f);
+				for (int i = 0; i < fftSize; ++i)
+					cepBuf[static_cast<size_t> (i)] = buf[static_cast<size_t> (i)];
+
+				fft.performRealOnlyForwardTransform (cepBuf.data(), true);
+
+				// 7) Exponentiate: exp(logMag + j*minPhase) → complex spectrum
+				for (int bin = 0; bin <= halfSize; ++bin)
+				{
+					const size_t ri = static_cast<size_t> (bin) * 2;
+					const size_t ii = ri + 1;
+					const float logMag = cepBuf[ri];
+					const float phase  = cepBuf[ii];
+					const float mag = std::exp (logMag);
+					cepBuf[ri] = mag * std::cos (phase);
+					cepBuf[ii] = mag * std::sin (phase);
+				}
+
+				// 8) Inverse FFT → minimum-phase IR
+				fft.performRealOnlyInverseTransform (cepBuf.data());
+
+				// 9) Copy back (only irLen samples)
+				float* dst = result.getWritePointer (ch);
+				for (int i = 0; i < irLen; ++i)
+					dst[i] = cepBuf[static_cast<size_t> (i)];
+			}
+		}
 	}
 
 	// Normalize to 0dB peak if requested

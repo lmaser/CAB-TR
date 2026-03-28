@@ -492,7 +492,7 @@ public:
 	void loadImpulseResponse (IRLoaderState& state, const juce::String& filePath);
 	bool exportCombinedIR (double targetSampleRate, int formatType,
 	                       double maxLengthSec, bool trimSilence,
-	                       bool normalizeOutput,
+	                       bool normalizeOutput, bool minimumPhase,
 	                       const juce::File& outputFile);
 
 private:
