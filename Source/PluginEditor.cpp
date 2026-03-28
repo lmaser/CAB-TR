@@ -1892,12 +1892,12 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 	if (expanded)
 	{
-		// ── Expanded IO view: IN, OUT, TILT, FILTER, MIX, MODE IN/OUT, CHAOS ──
-		// 5 sliders fill remaining space; mode + chaos get fixed height
+		// ── Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS ──
+		// 6 sliders fill remaining space; mode + chaos get fixed height
 		const int modeLabelGap = gap * 2;
 		const int comboH = 30;
-		const int fixedH = comboH * 2 + modeLabelGap + gap * 5 + gap * 2;
-		const int sliderH = juce::jmax (20, (area.getHeight() - fixedH) / 5);
+		const int fixedH = comboH * 2 + modeLabelGap + gap * 6 + gap * 2;
+		const int sliderH = juce::jmax (20, (area.getHeight() - fixedH) / 6);
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		in_.setBounds (sliderRow.removeFromLeft (sliderW));
@@ -1917,6 +1917,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		sliderRow = area.removeFromTop (sliderH);
 		filterBar.setBounds (sliderRow.removeFromLeft (sliderW));
 		filterBar.setVisible (true);
+		area.removeFromTop (gap);
+
+		sliderRow = area.removeFromTop (sliderH);
+		pan.setBounds (sliderRow.removeFromLeft (sliderW));
+		pan.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
@@ -1953,18 +1958,18 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		hp.setVisible (false);     lp.setVisible (false);
 		start.setVisible (false);  end.setVisible (false);
 		size.setVisible (false);   delay.setVisible (false);
-		pan.setVisible (false);    fred.setVisible (false);
+		fred.setVisible (false);
 		pos.setVisible (false);    reso.setVisible (false);
 		inv.setVisible (false);    norm.setVisible (false);
 		rvs.setVisible (false);
 	}
 	else
 	{
-		// ── Collapsed main view: 8 sliders + INV/NORM/RVS checkboxes ──
+		// ── Collapsed main view: 7 sliders + INV/NORM/RVS checkboxes ──
 		// Checkboxes get fixed height; sliders fill remaining space
 		const int checkH = 30;
-		const int totalGap = gap * 7 + gap * 2; // 7 gaps between 8 sliders + extra gap before checkboxes
-		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH) / 8);
+		const int totalGap = gap * 6 + gap * 2; // 6 gaps between 7 sliders + extra gap before checkboxes
+		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH) / 7);
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		start.setBounds (sliderRow.removeFromLeft (sliderW));
@@ -1984,11 +1989,6 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		sliderRow = area.removeFromTop (sliderH);
 		delay.setBounds (sliderRow.removeFromLeft (sliderW));
 		delay.setVisible (true);
-		area.removeFromTop (gap);
-
-		sliderRow = area.removeFromTop (sliderH);
-		pan.setBounds (sliderRow.removeFromLeft (sliderW));
-		pan.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
@@ -2020,7 +2020,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 		// Hide expanded-only controls
 		in_.setVisible (false);        out.setVisible (false);     tilt.setVisible (false);
-		filterBar.setVisible (false);
+		filterBar.setVisible (false);  pan.setVisible (false);
 		mix.setVisible (false);
 		modeInCmb.setVisible (false);    modeOutCmb.setVisible (false);    sumBusCmb.setVisible (false);
 		chaos.setVisible (false);      chaosFilter.setVisible (false);  chaosDisp.setVisible (false);
