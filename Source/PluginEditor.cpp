@@ -4312,8 +4312,9 @@ void CABTRAudioProcessorEditor::openExportPrompt()
 	mptToggle->setColour (juce::ToggleButton::tickColourId, activeScheme.text);
 	{
 		const int halfW = controlW / 2;
-		trimToggle->setBounds (controlX, fy, halfW, rowH);
-		mptToggle->setBounds (controlX + halfW, fy, halfW, rowH);
+		const int pad = 8;
+		trimToggle->setBounds (controlX, fy, halfW - pad, rowH);
+		mptToggle->setBounds (controlX + halfW + pad, fy, halfW - pad, rowH);
 	}
 	formPanel->addAndMakeVisible (trimToggle);
 	formPanel->addAndMakeVisible (mptToggle);

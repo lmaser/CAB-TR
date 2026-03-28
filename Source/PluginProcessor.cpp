@@ -2499,6 +2499,8 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	// Preserves the magnitude spectrum while replacing the phase with the
 	// minimum-phase equivalent.  This removes any pre-ringing / linear-phase
 	// latency from the IR, concentrating energy at the start.
+	// Uses full complex FFT (fft.perform) for robustness — matches the
+	// SciPy minimum_phase reference implementation exactly.
 	if (minimumPhase)
 	{
 		const int irLen = result.getNumSamples();
@@ -2512,77 +2514,58 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		const int halfSize = fftSize / 2;
 
 		juce::dsp::FFT fft (mptOrder);
-		std::vector<float> buf (static_cast<size_t> (fftSize) * 2, 0.0f);
+
+		// Two complex buffers for out-of-place perform()
+		using Cpx = std::complex<float>;
+		std::vector<Cpx> timeBuf (static_cast<size_t> (fftSize));
+		std::vector<Cpx> freqBuf (static_cast<size_t> (fftSize));
 
 		for (int ch = 0; ch < numCh; ++ch)
 		{
-			// 1) Copy IR into real part, zero-pad
-			std::fill (buf.begin(), buf.end(), 0.0f);
+			// 1) Copy IR into complex buffer, zero-pad
 			const float* src = result.getReadPointer (ch);
 			for (int i = 0; i < irLen; ++i)
-				buf[static_cast<size_t> (i)] = src[i];
+				timeBuf[static_cast<size_t> (i)] = { src[i], 0.0f };
+			for (int i = irLen; i < fftSize; ++i)
+				timeBuf[static_cast<size_t> (i)] = { 0.0f, 0.0f };
 
-			// 2) Forward FFT (interleaved complex output)
-			fft.performRealOnlyForwardTransform (buf.data(), true);
+			// 2) Forward FFT (complex, unnormalized)
+			fft.perform (timeBuf.data(), freqBuf.data(), false);
 
-			// 3) Log-magnitude (real cepstrum) — keep phase slot for reconstruction
+			// 3) Log-magnitude spectrum (all N bins)
 			constexpr float kFloor = 1e-30f;
-			for (int bin = 0; bin <= halfSize; ++bin)
+			for (int k = 0; k < fftSize; ++k)
 			{
-				const size_t ri = static_cast<size_t> (bin) * 2;
-				const size_t ii = ri + 1;
-				const float re = buf[ri];
-				const float im = buf[ii];
-				const float mag = std::sqrt (re * re + im * im);
-				buf[ri] = std::log (juce::jmax (kFloor, mag));  // log-magnitude
-				buf[ii] = 0.0f;                                  // zero phase
+				const float mag = std::abs (freqBuf[static_cast<size_t> (k)]);
+				freqBuf[static_cast<size_t> (k)] = { std::log (std::max (kFloor, mag)), 0.0f };
 			}
 
-			// 4) Inverse FFT → real cepstrum
-			fft.performRealOnlyInverseTransform (buf.data());
+			// 4) IFFT → real cepstrum (normalized by 1/N by JUCE's perform)
+			fft.perform (freqBuf.data(), timeBuf.data(), true);
 
-			// 5) Apply causal window: keep c[0], double c[1..N/2-1], zero c[N/2..N-1]
-			//    This is the "minimum-phase cepstrum" operation
-			// buf now has fftSize real values (the real cepstrum)
-			// We need to fold it: keep c[0], double c[1..halfSize-1], zero c[halfSize..fftSize-1]
+			// 5) Causal window (minimum-phase cepstrum)
+			//    c[0] unchanged, c[1..N/2-1] doubled, c[N/2] unchanged,
+			//    c[N/2+1..N-1] zeroed
 			for (int i = 1; i < halfSize; ++i)
-				buf[static_cast<size_t> (i)] *= 2.0f;
-			for (int i = halfSize; i < fftSize; ++i)
-				buf[static_cast<size_t> (i)] = 0.0f;
+				timeBuf[static_cast<size_t> (i)] *= 2.0f;
+			// timeBuf[halfSize] unchanged (Nyquist cepstral coeff)
+			for (int i = halfSize + 1; i < fftSize; ++i)
+				timeBuf[static_cast<size_t> (i)] = { 0.0f, 0.0f };
 
 			// 6) Forward FFT of causal cepstrum → complex log-spectrum with min-phase
-			// Pack back into interleaved format for forward transform
-			{
-				// buf[0..fftSize-1] is real cepstrum after causal window
-				// We need to do a complex FFT to get the analytic signal in frequency domain
-				// But JUCE performRealOnlyForwardTransform expects real input
-				// So we re-use the real-only forward transform
-				std::vector<float> cepBuf (static_cast<size_t> (fftSize) * 2, 0.0f);
-				for (int i = 0; i < fftSize; ++i)
-					cepBuf[static_cast<size_t> (i)] = buf[static_cast<size_t> (i)];
+			fft.perform (timeBuf.data(), freqBuf.data(), false);
 
-				fft.performRealOnlyForwardTransform (cepBuf.data(), true);
+			// 7) Exponentiate: exp(logMag + j*minPhase) → complex spectrum
+			for (int k = 0; k < fftSize; ++k)
+				freqBuf[static_cast<size_t> (k)] = std::exp (freqBuf[static_cast<size_t> (k)]);
 
-				// 7) Exponentiate: exp(logMag + j*minPhase) → complex spectrum
-				for (int bin = 0; bin <= halfSize; ++bin)
-				{
-					const size_t ri = static_cast<size_t> (bin) * 2;
-					const size_t ii = ri + 1;
-					const float logMag = cepBuf[ri];
-					const float phase  = cepBuf[ii];
-					const float mag = std::exp (logMag);
-					cepBuf[ri] = mag * std::cos (phase);
-					cepBuf[ii] = mag * std::sin (phase);
-				}
+			// 8) IFFT → minimum-phase IR (normalized by 1/N)
+			fft.perform (freqBuf.data(), timeBuf.data(), true);
 
-				// 8) Inverse FFT → minimum-phase IR
-				fft.performRealOnlyInverseTransform (cepBuf.data());
-
-				// 9) Copy back (only irLen samples)
-				float* dst = result.getWritePointer (ch);
-				for (int i = 0; i < irLen; ++i)
-					dst[i] = cepBuf[static_cast<size_t> (i)];
-			}
+			// 9) Copy real part back (only irLen samples)
+			float* dst = result.getWritePointer (ch);
+			for (int i = 0; i < irLen; ++i)
+				dst[i] = timeBuf[static_cast<size_t> (i)].real();
 		}
 	}
 
