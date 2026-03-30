@@ -302,7 +302,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayA, "Delay A",
-		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
+		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.25f),
 		kDelayDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanA, "Pan A", kPanMin, kPanMax, kPanDefault));
@@ -393,7 +393,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayB, "Delay B",
-		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f), // Skew 0.3 = logarítmico
+		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.25f),
 		kDelayDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanB, "Pan B", kPanMin, kPanMax, kPanDefault));
@@ -484,7 +484,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kSizeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamDelayC, "Delay C",
-		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.3f),
+		juce::NormalisableRange<float> (kDelayMin, kDelayMax, 0.001f, 0.25f),
 		kDelayDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPanC, "Pan C", kPanMin, kPanMax, kPanDefault));
