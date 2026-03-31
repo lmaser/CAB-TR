@@ -132,6 +132,10 @@ public:
 	static constexpr const char* kParamMatch        = "match";
 	static constexpr const char* kParamTrim         = "trim";     // Tilt EQ profile (0=None..5=Bright+)
 
+	// Limiter
+	static constexpr const char* kParamLimThreshold = "lim_threshold";
+	static constexpr const char* kParamLimMode      = "lim_mode";
+
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from DAW automation)
 	// ══════════════════════════════════════════════════════════════
@@ -175,7 +179,12 @@ public:
 	static constexpr float kSqrt2        = 1.41421356f;   // √2    — MID impulse compensation
 	static constexpr float kTwoPi        = 6.2831853f;     // 2π
 	static constexpr float kDistDecay    = 2.0794f;        // DIST exponential rolloff rate
-	static constexpr float kMaxNormBoost = 7.94f;          // +18 dB gain cap for NORM
+
+	// Limiter ranges
+	static constexpr float kLimThresholdMin     = -36.0f;
+	static constexpr float kLimThresholdMax     =   0.0f;
+	static constexpr float kLimThresholdDefault =   0.0f;
+	static constexpr int   kLimModeDefault      = 0;
 
 	// MATCH tilt target slopes (dB/oct): None, White, Pink, Brown, Bright, Bright+
 	static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
@@ -184,6 +193,7 @@ public:
 	// NORM peak-target levels: Off, 0 dB, -3 dB, -6 dB, -12 dB, -18 dB
 	static constexpr float kNormTargets[] = { 1.0f, 1.0f, 0.70795f, 0.50119f, 0.25119f, 0.12589f };
 	static constexpr int   kNumNormTargets = 6;
+	static constexpr float kMaxNormBoost   = 7.94328f; // +18 dB
 
 	// ══════════════════════════════════════════════════════════════
 	//  Parameter Ranges & Defaults — IR Controls
@@ -586,6 +596,8 @@ private:
 	std::atomic<float>* pMixC = nullptr;
 	std::atomic<float>* pMatch = nullptr;
 	std::atomic<float>* pTrim  = nullptr;
+	std::atomic<float>* pLimThreshold = nullptr;
+	std::atomic<float>* pLimMode     = nullptr;
 
 	// Tilt EQ filter state (1st-order shelf, per-channel)
 	float tiltState_[2] = { 0.0f, 0.0f };
@@ -594,10 +606,62 @@ private:
 	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;        // current (smoothed)
 	float tiltTargetB0_ = 1.0f, tiltTargetB1_ = 0.0f, tiltTargetA1_ = 0.0f; // target
 
-	// Wet NORM AGC state (peak follower + gain smoothing)
+	// Wet NORM AGC state (peak follower + gain smoothing) — kept for TRIM
 	float normPeakFollower_  = 0.0f;
 	float normSmoothedGain_  = 1.0f;
 	int   normWarmupSamples_ = 0;    // samples since peak follower activated
+
+	// ── Dual-stage transparent peak limiter ──
+	static constexpr float kLimFloor = 1.0e-12f;
+	float limEnv1_[2] = { kLimFloor, kLimFloor };
+	float limEnv2_[2] = { kLimFloor, kLimFloor };
+	float limAtt1_  = 0.0f;
+	float limRel1_  = 0.0f;
+	float limRel2_  = 0.0f;
+
+	inline void applyLimiter (float* leftData, float* rightData, int numSamples,
+	                         float thresholdGain) noexcept
+	{
+		for (int i = 0; i < numSamples; ++i)
+		{
+			const float peakL = std::abs (leftData[i]);
+			const float peakR = std::abs (rightData[i]);
+
+			// Stage 1 — leveler (2 ms attack, 10 ms release)
+			for (int ch = 0; ch < 2; ++ch)
+			{
+				const float p = (ch == 0) ? peakL : peakR;
+				if (p > limEnv1_[ch])
+					limEnv1_[ch] = limAtt1_ * limEnv1_[ch] + (1.0f - limAtt1_) * p;
+				else
+					limEnv1_[ch] = limRel1_ * limEnv1_[ch] + (1.0f - limRel1_) * p;
+				if (limEnv1_[ch] < kLimFloor) limEnv1_[ch] = kLimFloor;
+			}
+
+			// Stage 2 — brickwall (instant attack, 100 ms release)
+			for (int ch = 0; ch < 2; ++ch)
+			{
+				const float p = (ch == 0) ? peakL : peakR;
+				if (p > limEnv2_[ch])
+					limEnv2_[ch] = p;
+				else
+					limEnv2_[ch] = limRel2_ * limEnv2_[ch] + (1.0f - limRel2_) * p;
+				if (limEnv2_[ch] < kLimFloor) limEnv2_[ch] = kLimFloor;
+			}
+
+			// Stereo-linked gain reduction
+			float gr = 1.0f;
+			const float maxEnv1 = juce::jmax (limEnv1_[0], limEnv1_[1]);
+			const float maxEnv2 = juce::jmax (limEnv2_[0], limEnv2_[1]);
+			if (maxEnv1 > thresholdGain)
+				gr = juce::jmin (gr, thresholdGain / maxEnv1);
+			if (maxEnv2 > thresholdGain)
+				gr = juce::jmin (gr, thresholdGain / maxEnv2);
+
+			leftData[i]  *= gr;
+			rightData[i] *= gr;
+		}
+	}
 
 	// Post-prepare fade-in to suppress convolver/filter warmup transients
 	int fadeInSamplesRemaining_ = 0;

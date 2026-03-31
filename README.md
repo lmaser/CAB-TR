@@ -187,6 +187,24 @@ Renders the combined output of all active loaders (through the full routing and 
 - **Formats**: WAV (16/24/32-bit), AIFF (24-bit), FLAC (24-bit).
 - **Length**: 0.01–10 seconds (editable).
 
+### LIM THRESHOLD (−36 to 0 dB)
+
+Peak limiter threshold. Sets the ceiling above which the limiter engages.
+At 0 dB (default) the limiter acts as a transparent safety net. Lower values compress the signal harder.
+
+### LIM MODE
+
+Limiter insertion point:
+- **NONE**: Limiter disabled.
+- **WET**: Limiter applied to the wet signal only (after processing, before dry/wet mix).
+- **GLOBAL**: Limiter applied to the final output (after output gain and dry/wet mix).
+
+The limiter is a dual-stage transparent peak limiter:
+- **Stage 1 (Leveler)**: 2 ms attack, 10 ms release — catches sustained overs.
+- **Stage 2 (Brickwall)**: Instant attack, 100 ms release — catches transient peaks.
+
+Stereo-linked gain reduction ensures consistent imaging.
+
 ## Technical Details
 
 ### DSP Architecture
@@ -228,3 +246,4 @@ Renders the combined output of all active loaders (through the full routing and 
 - Fixed temp buffer allocation causing distortion in hosts with small block sizes (e.g. FL Studio at 96 samples).
 - Cached per-block `std::exp` coefficients in `prepareToPlay` (tilt smoothing, DC blocker, NORM AGC).
 - Aligned tooltip rendering with shared TR-series style (centred `drawFittedText`).
+- Added dual-stage transparent peak limiter with LIM THRESHOLD (−36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.

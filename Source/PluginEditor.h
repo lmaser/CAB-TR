@@ -72,9 +72,7 @@ private:
 	public:
 		enum class Type { Unknown, HpFreq, LpFreq, Input, Output, Tilt,
 		                  Start, End, Size, Delay, Pan, Fred, Pos, Reso,
-		                  Mix, GlobalMix, GlobalOutput };
-
-		using juce::Slider::Slider;
+	                  Mix, GlobalMix, GlobalOutput, LimThreshold };
 
 		void setOwner (CABTRAudioProcessorEditor* o) { owner = o; }
 		void setType (Type t) { type_ = t; }
@@ -504,16 +502,20 @@ private:
 	juce::ToggleButton alignButton;
 	juce::ComboBox matchCombo;
 	juce::ComboBox trimCombo;
+	juce::ComboBox limModeCombo;
 
 	BarSlider globalMixSlider;   // Global dry/wet MIX (kParamMix)
 	BarSlider globalOutputSlider; // Global output gain (kParamOutput)
+	BarSlider limThresholdSlider; // Limiter threshold (kParamLimThreshold)
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> routeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> alignAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> matchAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> trimAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> limModeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalMixAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalOutputAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> limThresholdAttach;
 
 	// ══════════════════════════════════════════════════════════════
 	//  CRT Effect
@@ -570,6 +572,7 @@ private:
 		applyComboScheme (routeCombo);
 		applyComboScheme (matchCombo);
 		applyComboScheme (trimCombo);
+		applyComboScheme (limModeCombo);
 	}
 
 	// ══════════════════════════════════════════════════════════════

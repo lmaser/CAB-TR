@@ -571,6 +571,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 
 		case Type::Output:
 		case Type::GlobalOutput:
+		case Type::LimThreshold:
 			return juce::String (v, 1) + " dB";
 
 		case Type::Tilt:
@@ -1408,6 +1409,21 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	setupBar (globalOutputSlider);
 	globalOutputSlider.addListener (this);
 
+	// Limiter threshold bar slider (footer)
+	addAndMakeVisible (limThresholdSlider);
+	limThresholdSlider.setOwner (this);
+	limThresholdSlider.setType (BarSlider::Type::LimThreshold);
+	setupBar (limThresholdSlider);
+	limThresholdSlider.addListener (this);
+
+	// Limiter mode combo (footer)
+	addAndMakeVisible (limModeCombo);
+	limModeCombo.addItem ("NONE",   1);
+	limModeCombo.addItem ("WET",    2);
+	limModeCombo.addItem ("GLOBAL", 3);
+	limModeCombo.setJustificationType (juce::Justification::centred);
+	limModeCombo.setLookAndFeel (&lnf);
+
 	// Create parameter attachments
 	auto& params = audioProcessor.getValueTreeState();
 
@@ -1428,6 +1444,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamMix, globalMixSlider);
 	globalOutputAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
 		params, CABTRAudioProcessor::kParamOutput, globalOutputSlider);
+	limThresholdAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+		params, CABTRAudioProcessor::kParamLimThreshold, limThresholdSlider);
+	limModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+		params, CABTRAudioProcessor::kParamLimMode, limModeCombo);
 
 	// Initialize per-loader collapse state from processor
 	ioExpandedA_ = audioProcessor.getUiIoExpanded (0);
@@ -1581,9 +1601,11 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		const auto matchArea = matchCombo.getBounds().withHeight (16).translated (0, -18);
 		g.drawText ("MATCH", matchArea, juce::Justification::centred);
 
-		const auto trimArea = trimCombo.getBounds().withHeight (16).translated (0, -18);
 		if (trimCombo.isVisible())
+		{
+			const auto trimArea = trimCombo.getBounds().withHeight (16).translated (0, -18);
 			g.drawText ("NORM", trimArea, juce::Justification::centred);
+		}
 
 		// Global MIX label + value (right of bar)
 		if (globalMixSlider.isVisible())
@@ -1608,6 +1630,26 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			juce::String outTxt = (gOutDb <= -80.0f) ? "-INF" : juce::String (gOutDb, 1) + " dB";
 			const auto valArea = juce::Rectangle<int> (outBounds.getRight() + 4, outBounds.getY(), 66, outBounds.getHeight());
 			g.drawText (outTxt, valArea, juce::Justification::centredLeft);
+		}
+
+		// LIM THRESHOLD label + value (right of bar)
+		if (limThresholdSlider.isVisible())
+		{
+			const auto limBounds = limThresholdSlider.getBounds();
+			const auto limArea = limBounds.withHeight (16).translated (0, -18);
+			g.drawText ("LIM", limArea, juce::Justification::centred);
+
+			const float limDb = (float) limThresholdSlider.getValue();
+			juce::String limTxt = (limDb <= -35.9f) ? "-36 dB" : juce::String (limDb, 1) + " dB";
+			const auto valArea = juce::Rectangle<int> (limBounds.getRight() + 4, limBounds.getY(), 66, limBounds.getHeight());
+			g.drawText (limTxt, valArea, juce::Justification::centredLeft);
+		}
+
+		// LIM MODE combo label
+		if (limModeCombo.isVisible())
+		{
+			const auto lmArea = limModeCombo.getBounds().withHeight (16).translated (0, -18);
+			g.drawText ("LIMIT", lmArea, juce::Justification::centred);
 		}
 	}
 
@@ -1774,18 +1816,20 @@ void CABTRAudioProcessorEditor::resized()
 
 
 
-	// Layout footer: aligned to 3-column grid
-	// ┌──── col A ─────┐┌──── col B ─────┐┌──── col C ─────┐
-	// │ ROUTE  ALIGN    ││  MIX  [===] val ││ OUTPUT [===] val│
-	// └─────────────────┘└─────────────────┘└─────────────────┘
+	// Layout footer: aligned to grid
+	// ┌── col A ──┐┌─── MIX ───┐┌─── OUTPUT ──┐┌─── LIM ──── MODE ─┐
+	// │ ROUTE ALIGN││ [====] val ││ [====]  val  ││ [====] val [COMBO]│
+	// └────────────┘└────────────┘└──────────────┘└───────────────────┘
 	const int footerMargin = 10;
 	const int footerGap    = 8;
 	const int barH         = 22;
-	const int colW         = getWidth() / 3;
+	const int totalW       = getWidth();
+	const int colAW        = totalW / 4;
+	const int remainW      = totalW - colAW;
 
 	// Column A area: ROUTE + ALIGN + MATCH + TRIM
 	{
-		auto colA = footer.withWidth (colW).reduced (footerMargin, 0);
+		auto colA = footer.withWidth (colAW).reduced (footerMargin, 0);
 		auto row = colA.withSizeKeepingCentre (colA.getWidth(), 30);
 		const int comboW = 80;
 		const int btnW   = 70;
@@ -1795,14 +1839,18 @@ void CABTRAudioProcessorEditor::resized()
 		row.removeFromLeft (footerGap);
 		alignButton.setBounds (row.removeFromLeft (btnW));
 		row.removeFromLeft (footerGap);
-		matchCombo.setBounds (row.removeFromLeft (matchW));
-		row.removeFromLeft (footerGap);
 
-		// Hide trimCombo if remaining space is too narrow
-		if (row.getWidth() >= trimW)
+		if (row.getWidth() >= matchW + footerGap + trimW)
 		{
+			matchCombo.setBounds (row.removeFromLeft (matchW));
+			row.removeFromLeft (footerGap);
 			trimCombo.setVisible (true);
 			trimCombo.setBounds (row.removeFromLeft (trimW));
+		}
+		else if (row.getWidth() >= matchW)
+		{
+			matchCombo.setBounds (row.removeFromLeft (matchW));
+			trimCombo.setVisible (false);
 		}
 		else
 		{
@@ -1810,20 +1858,37 @@ void CABTRAudioProcessorEditor::resized()
 		}
 	}
 
-	// Column B area: MIX bar + value text to the right
+	// Columns B+C+D: MIX / OUTPUT / LIM — uniform bar widths
 	{
-		auto colB = footer.withX (colW).withWidth (colW).reduced (footerMargin, 0);
-		auto row = colB.withSizeKeepingCentre (colB.getWidth(), barH);
-		row.removeFromRight (60);  // reserve space for value text
-		globalMixSlider.setBounds (row);
-	}
+		const int mixValW    = 60;   // space for "100%"
+		const int outValW    = 70;   // space for "-12.0 dB"
+		const int limValW    = 70;   // space for "-36 dB"
+		const int limComboW  = 80;   // NONE/WET/GLOBAL combo
+		const int secGap     = 12;   // gap between sections
 
-	// Column C area: OUTPUT bar + value text to the right
-	{
-		auto colC = footer.withX (colW * 2).withWidth (getWidth() - colW * 2).reduced (footerMargin, 0);
-		auto row = colC.withSizeKeepingCentre (colC.getWidth(), barH);
-		row.removeFromRight (70);  // reserve space for value text
-		globalOutputSlider.setBounds (row);
+		auto area = footer.withX (colAW).withWidth (remainW).reduced (footerMargin, 0);
+		auto row  = area.withSizeKeepingCentre (area.getWidth(), barH);
+
+		const int fixedW = mixValW + outValW + limValW + limComboW + secGap * 3;
+		const int barW   = juce::jmax (30, (row.getWidth() - fixedW) / 3);
+
+		// MIX bar + value space
+		globalMixSlider.setBounds (row.removeFromLeft (barW));
+		row.removeFromLeft (mixValW);
+		row.removeFromLeft (secGap);
+
+		// OUTPUT bar + value space
+		globalOutputSlider.setBounds (row.removeFromLeft (barW));
+		row.removeFromLeft (outValW);
+		row.removeFromLeft (secGap);
+
+		// LIM THRESHOLD bar + value space
+		limThresholdSlider.setBounds (row.removeFromLeft (barW));
+		row.removeFromLeft (limValW);
+		row.removeFromLeft (secGap);
+
+		// LIM MODE combo (takes remaining)
+		limModeCombo.setBounds (row.removeFromLeft (juce::jmin (limComboW, row.getWidth())));
 	}
 
 	promptOverlay.setBounds (getLocalBounds());

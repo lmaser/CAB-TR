@@ -544,6 +544,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamTrim, "Norm", juce::StringArray { "Off", "0 dB", "-3 dB", "-6 dB", "-12 dB", "-18 dB" }, kTrimDefault));
 
+	// Limiter
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamLimThreshold, "Lim Threshold",
+		juce::NormalisableRange<float> (kLimThresholdMin, kLimThresholdMax, 0.1f), kLimThresholdDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamLimMode, "Lim Mode", juce::StringArray { "NONE", "WET", "GLOBAL" }, kLimModeDefault));
+
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from automation)
 	// ══════════════════════════════════════════════════════════════
@@ -741,6 +748,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pMixC      = parameters.getRawParameterValue (kParamMixC);
 	pMatch     = parameters.getRawParameterValue (kParamMatch);
 	pTrim      = parameters.getRawParameterValue (kParamTrim);
+	pLimThreshold = parameters.getRawParameterValue (kParamLimThreshold);
+	pLimMode     = parameters.getRawParameterValue (kParamLimMode);
 
 	// Reset tilt EQ state
 	tiltState_[0] = tiltState_[1] = 0.0f;
@@ -750,6 +759,13 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	normPeakFollower_  = 0.0f;
 	normSmoothedGain_  = 1.0f;
 	normWarmupSamples_ = 0;
+
+	// Limiter state reset
+	limEnv1_[0] = limEnv1_[1] = kLimFloor;
+	limEnv2_[0] = limEnv2_[1] = kLimFloor;
+	limAtt1_ = std::exp (-1.0f / ((float) sampleRate * 0.002f));
+	limRel1_ = std::exp (-1.0f / ((float) sampleRate * 0.010f));
+	limRel2_ = std::exp (-1.0f / ((float) sampleRate * 0.100f));
 
 	// Pre-compute coefficients that depend only on sample rate (avoids per-block std::exp)
 	{
@@ -937,6 +953,12 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	const int route = loadRelaxedInt (pRoute);
 	const float globalMix = loadRelaxed (pMix);
+
+	// ── Limiter ──
+	const int limMode = loadRelaxedInt (pLimMode);
+	const float limThreshLin = (limMode != 0)
+		? fastDecibelsToGain (loadRelaxed (pLimThreshold, kLimThresholdDefault))
+		: 1.0f;
 
 	// Per-loader mode parameters
 	const int modeInA  = loadRelaxedInt (pModeInA);
@@ -1404,6 +1426,10 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 	}
 
+	// ── User limiter (WET: on processed signal, before global dry/wet mix) ──
+	if (limMode == 1 && buffer.getNumChannels() >= 2)
+		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
+
 	// Global MIX: blend unprocessed dry with fully processed wet
 	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
 	if (needsDry)
@@ -1473,6 +1499,10 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 		fadeInSamplesRemaining_ -= fadeThisBlock;
 	}
+
+	// ── User limiter (GLOBAL: after output gain, before safety clip) ──
+	if (limMode == 2 && buffer.getNumChannels() >= 2)
+		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
 
 	// Safety hard-limiter: prevent catastrophic output only (NaN/Inf runaway).
 	// Set very high (+48 dBFS) so it never engages during normal operation.
