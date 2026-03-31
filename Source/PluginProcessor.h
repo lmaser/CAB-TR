@@ -136,6 +136,10 @@ public:
 	static constexpr const char* kParamLimThreshold = "lim_threshold";
 	static constexpr const char* kParamLimMode      = "lim_mode";
 
+	// Invert Polarity / Invert Stereo
+	static constexpr const char* kParamInvPol       = "inv_pol";
+	static constexpr const char* kParamInvStr       = "inv_str";
+
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from DAW automation)
 	// ══════════════════════════════════════════════════════════════
@@ -185,6 +189,10 @@ public:
 	static constexpr float kLimThresholdMax     =   0.0f;
 	static constexpr float kLimThresholdDefault =   0.0f;
 	static constexpr int   kLimModeDefault      = 0;
+
+	// Invert Polarity / Invert Stereo defaults
+	static constexpr int   kInvPolDefault       = 0;   // 0=NONE  1=WET  2=GLOBAL
+	static constexpr int   kInvStrDefault       = 0;   // 0=NONE  1=WET  2=GLOBAL
 
 	// MATCH tilt target slopes (dB/oct): None, White, Pink, Brown, Bright, Bright+
 	static constexpr float kTargetSlopes[] = { 0.0f, 0.0f, -3.0f, -6.0f, 3.0f, 6.0f };
@@ -598,6 +606,8 @@ private:
 	std::atomic<float>* pTrim  = nullptr;
 	std::atomic<float>* pLimThreshold = nullptr;
 	std::atomic<float>* pLimMode     = nullptr;
+	std::atomic<float>* pInvPol      = nullptr;
+	std::atomic<float>* pInvStr      = nullptr;
 
 	// Tilt EQ filter state (1st-order shelf, per-channel)
 	float tiltState_[2] = { 0.0f, 0.0f };

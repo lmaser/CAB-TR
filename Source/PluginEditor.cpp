@@ -1424,6 +1424,20 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	limModeCombo.setJustificationType (juce::Justification::centred);
 	limModeCombo.setLookAndFeel (&lnf);
 
+	addAndMakeVisible (invPolCombo);
+	invPolCombo.addItem ("NONE",   1);
+	invPolCombo.addItem ("WET",    2);
+	invPolCombo.addItem ("GLOBAL", 3);
+	invPolCombo.setJustificationType (juce::Justification::centred);
+	invPolCombo.setLookAndFeel (&lnf);
+
+	addAndMakeVisible (invStrCombo);
+	invStrCombo.addItem ("NONE",   1);
+	invStrCombo.addItem ("WET",    2);
+	invStrCombo.addItem ("GLOBAL", 3);
+	invStrCombo.setJustificationType (juce::Justification::centred);
+	invStrCombo.setLookAndFeel (&lnf);
+
 	// Create parameter attachments
 	auto& params = audioProcessor.getValueTreeState();
 
@@ -1448,6 +1462,10 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamLimThreshold, limThresholdSlider);
 	limModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
 		params, CABTRAudioProcessor::kParamLimMode, limModeCombo);
+	invPolAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+		params, CABTRAudioProcessor::kParamInvPol, invPolCombo);
+	invStrAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+		params, CABTRAudioProcessor::kParamInvStr, invStrCombo);
 
 	// Initialize per-loader collapse state from processor
 	ioExpandedA_ = audioProcessor.getUiIoExpanded (0);
@@ -1490,7 +1508,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	const int restoredH = juce::jlimit (500, 1200, audioProcessor.getUiEditorHeight());
 	setSize (restoredW, restoredH);
 	setResizable (true, true);
-	setResizeLimits (800, 500, 2000, 1200);
+	setResizeLimits (800, 560, 2000, 1200);
 
 	// Start timer
 	startTimer (kIdleTimerHz);
@@ -1514,6 +1532,10 @@ CABTRAudioProcessorEditor::~CABTRAudioProcessorEditor()
 
 	if (tooltipWindow != nullptr)
 		tooltipWindow->setLookAndFeel (nullptr);
+
+	invPolCombo.setLookAndFeel (nullptr);
+	invStrCombo.setLookAndFeel (nullptr);
+	limModeCombo.setLookAndFeel (nullptr);
 
 	setLookAndFeel (nullptr);
 
@@ -1601,12 +1623,6 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		const auto matchArea = matchCombo.getBounds().withHeight (16).translated (0, -18);
 		g.drawText ("MATCH", matchArea, juce::Justification::centred);
 
-		if (trimCombo.isVisible())
-		{
-			const auto trimArea = trimCombo.getBounds().withHeight (16).translated (0, -18);
-			g.drawText ("NORM", trimArea, juce::Justification::centred);
-		}
-
 		// Global MIX label + value (right of bar)
 		if (globalMixSlider.isVisible())
 		{
@@ -1650,6 +1666,20 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		{
 			const auto lmArea = limModeCombo.getBounds().withHeight (16).translated (0, -18);
 			g.drawText ("LIMIT", lmArea, juce::Justification::centred);
+		}
+
+		// INV POL combo label
+		if (invPolCombo.isVisible())
+		{
+			const auto ipArea = invPolCombo.getBounds().withHeight (16).translated (0, -18);
+			g.drawText ("INV POL", ipArea, juce::Justification::centred);
+		}
+
+		// INV STR combo label
+		if (invStrCombo.isVisible())
+		{
+			const auto isArea = invStrCombo.getBounds().withHeight (16).translated (0, -18);
+			g.drawText ("INV STR", isArea, juce::Justification::centred);
 		}
 	}
 
@@ -1791,8 +1821,8 @@ void CABTRAudioProcessorEditor::resized()
 	// Header (title area + buttons)
 	auto header = bounds.removeFromTop (40);
 
-	// Footer for global controls
-	auto footer = bounds.removeFromBottom (50);
+	// Footer for global controls (two rows)
+	auto footer = bounds.removeFromBottom (100);
 	
 	// Split remaining area into three columns for A, B and C
 	const int colWidth = bounds.getWidth() / 3;
@@ -1816,79 +1846,65 @@ void CABTRAudioProcessorEditor::resized()
 
 
 
-	// Layout footer: aligned to grid
-	// ┌── col A ──┐┌─── MIX ───┐┌─── OUTPUT ──┐┌─── LIM ──── MODE ─┐
-	// │ ROUTE ALIGN││ [====] val ││ [====]  val  ││ [====] val [COMBO]│
-	// └────────────┘└────────────┘└──────────────┘└───────────────────┘
+	// Layout footer: two rows
+	// Row 1: MIX bar+val | OUTPUT bar+val | LIM bar+val
+	// Row 2: ROUTE | MATCH | LIMIT | INV POL | INV STR | ALIGN
 	const int footerMargin = 10;
-	const int footerGap    = 8;
 	const int barH         = 22;
-	const int totalW       = getWidth();
-	const int colAW        = totalW / 4;
-	const int remainW      = totalW - colAW;
+	const int topPad       = 10;   // space above row 1 (separation from loaders)
+	const int rowGap       = 14;   // space between row 1 and row 2
+	const int bottomPad    = 12;   // space below row 2
 
-	// Column A area: ROUTE + ALIGN + MATCH + TRIM
+	// Apply vertical padding
+	footer.removeFromTop (topPad);
+	footer.removeFromBottom (bottomPad);
+
+	// Split remaining footer into two rows
+	auto footerRow1 = footer.removeFromTop ((footer.getHeight() - rowGap) / 2);
+	footer.removeFromTop (rowGap);
+	auto footerRow2 = footer;
+
+	// Row 1: MIX / OUTPUT / LIM — uniform bar widths across full width
 	{
-		auto colA = footer.withWidth (colAW).reduced (footerMargin, 0);
-		auto row = colA.withSizeKeepingCentre (colA.getWidth(), 30);
-		const int comboW = 80;
-		const int btnW   = 70;
-		const int matchW = 105;
-		const int trimW  = 70;
-		routeCombo.setBounds (row.removeFromLeft (comboW));
-		row.removeFromLeft (footerGap);
-		alignButton.setBounds (row.removeFromLeft (btnW));
-		row.removeFromLeft (footerGap);
+		const int mixValW    = 60;
+		const int outValW    = 70;
+		const int limValW    = 70;
+		const int secGap     = 12;
 
-		if (row.getWidth() >= matchW + footerGap + trimW)
-		{
-			matchCombo.setBounds (row.removeFromLeft (matchW));
-			row.removeFromLeft (footerGap);
-			trimCombo.setVisible (true);
-			trimCombo.setBounds (row.removeFromLeft (trimW));
-		}
-		else if (row.getWidth() >= matchW)
-		{
-			matchCombo.setBounds (row.removeFromLeft (matchW));
-			trimCombo.setVisible (false);
-		}
-		else
-		{
-			trimCombo.setVisible (false);
-		}
-	}
-
-	// Columns B+C+D: MIX / OUTPUT / LIM — uniform bar widths
-	{
-		const int mixValW    = 60;   // space for "100%"
-		const int outValW    = 70;   // space for "-12.0 dB"
-		const int limValW    = 70;   // space for "-36 dB"
-		const int limComboW  = 80;   // NONE/WET/GLOBAL combo
-		const int secGap     = 12;   // gap between sections
-
-		auto area = footer.withX (colAW).withWidth (remainW).reduced (footerMargin, 0);
+		auto area = footerRow1.reduced (footerMargin, 0);
 		auto row  = area.withSizeKeepingCentre (area.getWidth(), barH);
 
-		const int fixedW = mixValW + outValW + limValW + limComboW + secGap * 3;
+		const int fixedW = mixValW + outValW + limValW + secGap * 2;
 		const int barW   = juce::jmax (30, (row.getWidth() - fixedW) / 3);
 
-		// MIX bar + value space
 		globalMixSlider.setBounds (row.removeFromLeft (barW));
 		row.removeFromLeft (mixValW);
 		row.removeFromLeft (secGap);
 
-		// OUTPUT bar + value space
 		globalOutputSlider.setBounds (row.removeFromLeft (barW));
 		row.removeFromLeft (outValW);
 		row.removeFromLeft (secGap);
 
-		// LIM THRESHOLD bar + value space
 		limThresholdSlider.setBounds (row.removeFromLeft (barW));
-		row.removeFromLeft (limValW);
-		row.removeFromLeft (secGap);
+	}
 
-		// LIM MODE combo (takes remaining)
-		limModeCombo.setBounds (row.removeFromLeft (juce::jmin (limComboW, row.getWidth())));
+	// Row 2: ROUTE | MATCH | LIMIT | INV POL | INV STR | ALIGN — uniform
+	{
+		auto area = footerRow2.reduced (footerMargin, 0);
+		auto row  = area.withSizeKeepingCentre (area.getWidth(), 26);
+
+		trimCombo.setVisible (false);
+
+		const int numItems = 6;
+		const int gap = 4;
+		const int itemW = (row.getWidth() - gap * (numItems - 1)) / numItems;
+
+		routeCombo.setBounds   (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
+		matchCombo.setBounds   (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
+		limModeCombo.setBounds (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
+		invPolCombo.setBounds  (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
+		invStrCombo.setBounds  (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
+		alignButton.setBounds  (row);
 	}
 
 	promptOverlay.setBounds (getLocalBounds());
@@ -2082,17 +2098,21 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		reso.setVisible (true);
 		area.removeFromTop (gap * 2);
 
-		// Checkboxes: INV, NORM, RVS — distribute evenly across sliderW
+		// Checkboxes: INV, NORM, RVS — equal spacing between items
+		// INV: left-aligned with slider bar start
+		// NRM: centered between INV and RVS
+		// RVS: left-aligned with value column (right of slider bar)
 		auto checkArea = area.removeFromTop (checkH);
-		const int numButtons = 3;
-		const int checkboxW = sliderW / numButtons;
+		const int invX  = checkArea.getX();
+		const int rvsX  = checkArea.getX() + sliderW;
+		const int normX = (invX + rvsX) / 2;
+		const int invW  = normX - invX;
+		const int normW = rvsX - normX;
+		const int rvsW  = checkArea.getRight() - rvsX;
 
-		int bx = checkArea.getX();
-		inv.setBounds  (bx, checkArea.getY(), checkboxW, checkH);  inv.setVisible (true);
-		bx += checkboxW;
-		norm.setBounds (bx, checkArea.getY(), checkboxW, checkH);  norm.setVisible (true);
-		bx += checkboxW;
-		rvs.setBounds  (bx, checkArea.getY(), checkboxW, checkH);  rvs.setVisible (true);
+		inv.setBounds  (invX,  checkArea.getY(), invW,  checkH);  inv.setVisible (true);
+		norm.setBounds (normX, checkArea.getY(), normW, checkH);  norm.setVisible (true);
+		rvs.setBounds  (rvsX,  checkArea.getY(), rvsW,  checkH);  rvs.setVisible (true);
 
 		// Hide expanded-only controls
 		in_.setVisible (false);        out.setVisible (false);     tilt.setVisible (false);

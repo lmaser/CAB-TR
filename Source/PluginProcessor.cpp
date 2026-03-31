@@ -551,6 +551,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamLimMode, "Lim Mode", juce::StringArray { "NONE", "WET", "GLOBAL" }, kLimModeDefault));
 
+	// Invert Polarity / Invert Stereo
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamInvPol, "Invert Polarity",
+		juce::StringArray { "NONE", "WET", "GLOBAL" }, kInvPolDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamInvStr, "Invert Stereo",
+		juce::StringArray { "NONE", "WET", "GLOBAL" }, kInvStrDefault));
+
 	// ══════════════════════════════════════════════════════════════
 	//  UI State Parameters (hidden from automation)
 	// ══════════════════════════════════════════════════════════════
@@ -750,6 +758,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pTrim      = parameters.getRawParameterValue (kParamTrim);
 	pLimThreshold = parameters.getRawParameterValue (kParamLimThreshold);
 	pLimMode     = parameters.getRawParameterValue (kParamLimMode);
+	pInvPol      = parameters.getRawParameterValue (kParamInvPol);
+	pInvStr      = parameters.getRawParameterValue (kParamInvStr);
 
 	// Reset tilt EQ state
 	tiltState_[0] = tiltState_[1] = 0.0f;
@@ -959,6 +969,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const float limThreshLin = (limMode != 0)
 		? fastDecibelsToGain (loadRelaxed (pLimThreshold, kLimThresholdDefault))
 		: 1.0f;
+
+	const int invPol = loadRelaxedInt (pInvPol);
+	const int invStr = loadRelaxedInt (pInvStr);
 
 	// Per-loader mode parameters
 	const int modeInA  = loadRelaxedInt (pModeInA);
@@ -1430,6 +1443,21 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	if (limMode == 1 && buffer.getNumChannels() >= 2)
 		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
 
+	// ── Invert Polarity / Stereo (WET mode: after Limiter WET, before mix) ──
+	{
+		const int nc = buffer.getNumChannels();
+		if (invPol == 1)
+			for (int ch = 0; ch < nc; ++ch)
+				juce::FloatVectorOperations::multiply (buffer.getWritePointer (ch), -1.0f, numSamples);
+		if (invStr == 1 && nc >= 2)
+		{
+			float* sL = buffer.getWritePointer (0);
+			float* sR = buffer.getWritePointer (1);
+			for (int n = 0; n < numSamples; ++n)
+				std::swap (sL[n], sR[n]);
+		}
+	}
+
 	// Global MIX: blend unprocessed dry with fully processed wet
 	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
 	if (needsDry)
@@ -1503,6 +1531,21 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// ── User limiter (GLOBAL: after output gain, before safety clip) ──
 	if (limMode == 2 && buffer.getNumChannels() >= 2)
 		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
+
+	// ── Invert Polarity / Stereo (GLOBAL mode: after Limiter GLOBAL, before safety clip) ──
+	{
+		const int nc = buffer.getNumChannels();
+		if (invPol == 2)
+			for (int ch = 0; ch < nc; ++ch)
+				juce::FloatVectorOperations::multiply (buffer.getWritePointer (ch), -1.0f, numSamples);
+		if (invStr == 2 && nc >= 2)
+		{
+			float* sL = buffer.getWritePointer (0);
+			float* sR = buffer.getWritePointer (1);
+			for (int n = 0; n < numSamples; ++n)
+				std::swap (sL[n], sR[n]);
+		}
+	}
 
 	// Safety hard-limiter: prevent catastrophic output only (NaN/Inf runaway).
 	// Set very high (+48 dBFS) so it never engages during normal operation.

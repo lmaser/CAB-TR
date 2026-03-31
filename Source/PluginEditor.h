@@ -503,6 +503,8 @@ private:
 	juce::ComboBox matchCombo;
 	juce::ComboBox trimCombo;
 	juce::ComboBox limModeCombo;
+	juce::ComboBox invPolCombo;
+	juce::ComboBox invStrCombo;
 
 	BarSlider globalMixSlider;   // Global dry/wet MIX (kParamMix)
 	BarSlider globalOutputSlider; // Global output gain (kParamOutput)
@@ -513,6 +515,8 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> matchAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> trimAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> limModeAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> invPolAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> invStrAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalMixAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalOutputAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> limThresholdAttach;
@@ -573,6 +577,8 @@ private:
 		applyComboScheme (matchCombo);
 		applyComboScheme (trimCombo);
 		applyComboScheme (limModeCombo);
+		applyComboScheme (invPolCombo);
+		applyComboScheme (invStrCombo);
 	}
 
 	// ══════════════════════════════════════════════════════════════
