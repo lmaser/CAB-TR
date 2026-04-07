@@ -175,7 +175,7 @@ The final output combines all three buses: `outL = stL + midBus + sideBus`, `out
 Micro-variation engine that adds organic randomness to the loader's output:
 - **ENABLE**: Toggle chaos modulation on/off.
 - **AMOUNT (0–100%)**: Modulation depth — controls the range of delay variation (0–1024 samples).
-- **SPEED (0.01–100 Hz)**: Sample-and-hold rate — how often a new random target is picked.
+- **SPEED (0.01–100 Hz)**: Random target rate — how often a new random value is generated.
 
 Creates subtle tape-like wobble or aggressive detuning effects depending on settings.
 

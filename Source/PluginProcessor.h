@@ -129,6 +129,9 @@ public:
 	static constexpr const char* kParamRoute        = "route";     // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
 	static constexpr const char* kParamAlign        = "align";     // Auto phase alignment
 	static constexpr const char* kParamMix          = "mix";       // Global dry/wet mix
+	static constexpr const char* kParamMixMode      = "mix_mode";  // 0=INSERT, 1=SEND
+	static constexpr const char* kParamDryLevel     = "dry_level"; // SEND mode dry level
+	static constexpr const char* kParamWetLevel     = "wet_level"; // SEND mode wet level
 	static constexpr const char* kParamMatch        = "match";
 	static constexpr const char* kParamTrim         = "trim";     // Tilt EQ profile (0=None..5=Bright+)
 
@@ -244,6 +247,7 @@ public:
 	static constexpr float kChaosSpdMin              = 0.01f;      // Hz
 	static constexpr float kChaosSpdMax              = 100.0f;     // Hz
 	static constexpr float kChaosSpdDefault          = 5.0f;       // Hz
+	static constexpr float kChaosDriftAmp            = 0.3f;
 
 	static constexpr float kFredMin                 = 0.0f;
 	static constexpr float kFredMax                 = 1.0f;
@@ -252,6 +256,10 @@ public:
 	static constexpr float kGlobalMixMin            = 0.0f;
 	static constexpr float kGlobalMixMax            = 1.0f;
 	static constexpr float kGlobalMixDefault        = 1.0f;       // 100% wet by default
+
+	static constexpr int   kMixModeDefault  = 0;   // 0=INSERT, 1=SEND
+	static constexpr float kDryLevelDefault = 0.0f;
+	static constexpr float kWetLevelDefault = 1.0f;
 
 	static constexpr float kPosMin                  = 0.0f;       // 0% = no effect
 	static constexpr float kPosMax                  = 1.0f;       // 100% = full Friedman simulation
@@ -461,27 +469,40 @@ public:
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
 
-		// CHAOS (S&H micro-delay modulation)
-		// Micro-delay line: max ±5ms @ 192kHz = 960 samples, round to 1024
+		// CHAOS micro-delay line (reused by Hermite+Drift engine)
 		static constexpr int kChaosDelayMaxSamples = 1024;
 		float chaosDelayBuffer[2][kChaosDelayMaxSamples] = {};
 		int chaosDelayWritePos = 0;
-		float chaosCurrentTarget = 0.0f;    // S&H target: -1..+1
-		float chaosSmoothedValue = 0.0f;    // EMA-smoothed value
-		float chaosPhaseSamples = 0.0f;     // phase accumulator for S&H
-		juce::Random chaosRng;
 
-		// CHAOS gain S&H (independent from delay S&H)
-		float chaosGainTarget = 0.0f;       // S&H target (gain): -1..+1
-		float chaosGainSmoothed = 0.0f;     // EMA-smoothed gain value
-		float chaosGainPhase = 0.0f;        // phase accumulator for gain S&H
-		juce::Random chaosGainRng;
+		// CHS D Hermite+Drift: delay (per-channel for stereo)
+		float chaosDPrev[2]         = {};
+		float chaosDCurr[2]         = {};
+		float chaosDNext[2]         = {};
+		float chaosDPhase[2]        = {};
+		float chaosDDriftPhase[2]   = {};
+		float chaosDDriftFreqHz[2]  = {};
+		float chaosDOut[2]          = {};
+		juce::Random chaosDRng[2];
 
-		// CHAOS filter S&H (independent from delay S&H, same rate/amount)
-		float chaosFilterPhase = 0.0f;      // phase accumulator for filter S&H
-		float chaosFilterTarget = 0.0f;     // S&H target: -1..+1
-		float chaosFilterSmoothed = 0.0f;   // EMA-smoothed value
-		juce::Random chaosFilterRng;
+		// CHS D Hermite+Drift: gain (per-channel, decorrelated)
+		float chaosGPrev[2]         = {};
+		float chaosGCurr[2]         = {};
+		float chaosGNext[2]         = {};
+		float chaosGPhase[2]        = {};
+		float chaosGDriftPhase[2]   = {};
+		float chaosGDriftFreqHz[2]  = {};
+		float chaosGOut[2]          = {};
+		juce::Random chaosGRng[2];
+
+		// CHS F Hermite+Drift: filter (mono S&H + quadrature drift)
+		float chaosFPrev            = 0.0f;
+		float chaosFCurr            = 0.0f;
+		float chaosFNext            = 0.0f;
+		float chaosFPhase           = 0.0f;
+		float chaosFDriftPhase      = 0.0f;
+		float chaosFDriftFreqHz     = 0.0f;
+		float chaosFOut[2]          = {};
+		juce::Random chaosFRng;
 
 		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
 		std::atomic<float> irSlopeDbPerOct { 0.0f };
@@ -608,6 +629,9 @@ private:
 	std::atomic<float>* pLimMode     = nullptr;
 	std::atomic<float>* pInvPol      = nullptr;
 	std::atomic<float>* pInvStr      = nullptr;
+	std::atomic<float>* pMixMode     = nullptr;
+	std::atomic<float>* pDryLevel    = nullptr;
+	std::atomic<float>* pWetLevel    = nullptr;
 
 	// Tilt EQ filter state (1st-order shelf, per-channel)
 	float tiltState_[2] = { 0.0f, 0.0f };
@@ -717,6 +741,41 @@ private:
 
 	// Shared M/S encoding helper (used by processBlock + offline export)
 	static void applyMidSideMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
+
+	// Generic Hermite + Drift chaos engine (per-sample advance)
+	inline void advanceChaosEngine (
+		float& prev, float& curr, float& next, float& phase,
+		float& driftPhase, float& driftFreqHz, float& output,
+		juce::Random& rng, float period, float amtNorm, float sr) noexcept
+	{
+		phase += 1.0f;
+		if (phase >= period)
+		{
+			phase -= period;
+			prev = curr;
+			curr = next;
+			next = rng.nextFloat() * 2.0f - 1.0f;
+			const float driftBase = sr / juce::jmax (1.0f, period) * 0.37f;
+			driftFreqHz = driftBase * (0.88f + rng.nextFloat() * 0.24f);
+		}
+		const float t  = phase / period;
+		const float t2 = t * t;
+		const float t3 = t2 * t;
+		const float h00 =  2.0f * t3 - 3.0f * t2 + 1.0f;
+		const float h10 =         t3 - 2.0f * t2 + t;
+		const float h01 = -2.0f * t3 + 3.0f * t2;
+		const float h11 =         t3 -        t2;
+		const float tangCurr = (next - prev) * 0.5f;
+		const float tangNext = -curr * 0.5f;
+		const float shValue  = h00 * curr + h10 * tangCurr + h01 * next + h11 * tangNext;
+
+		driftPhase += driftFreqHz / sr;
+		if (driftPhase > 1e6f) driftPhase -= 1e6f;
+		const float driftValue = std::sin (driftPhase * kTwoPi) * kChaosDriftAmp;
+
+		const float shWeight = juce::jlimit (0.0f, 1.0f, amtNorm * 1.5f - 0.15f);
+		output = driftValue + shValue * shWeight;
+	}
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CABTRAudioProcessor)
 };

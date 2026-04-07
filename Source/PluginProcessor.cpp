@@ -539,6 +539,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamAlign, "Align", false));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMix, "Mix", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
+
+	// Mix Mode (INSERT / SEND) + Dry/Wet levels for SEND mode
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamMixMode, "Mix Mode",
+		juce::StringArray { "INSERT", "SEND" }, kMixModeDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamDryLevel, "Dry Level",
+		juce::NormalisableRange<float> (0.0f, 1.0f, 0.0f, 1.0f), kDryLevelDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamWetLevel, "Wet Level",
+		juce::NormalisableRange<float> (0.0f, 1.0f, 0.0f, 1.0f), kWetLevelDefault));
+
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamMatch, "Match", juce::StringArray { "None", "White", "Pink (-3dB)", "Brown (-6dB)", "Bright (+3dB)", "Bright+ (+6dB)" }, kMatchDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
@@ -760,6 +772,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pLimMode     = parameters.getRawParameterValue (kParamLimMode);
 	pInvPol      = parameters.getRawParameterValue (kParamInvPol);
 	pInvStr      = parameters.getRawParameterValue (kParamInvStr);
+	pMixMode     = parameters.getRawParameterValue (kParamMixMode);
+	pDryLevel    = parameters.getRawParameterValue (kParamDryLevel);
+	pWetLevel    = parameters.getRawParameterValue (kParamWetLevel);
 
 	// Reset tilt EQ state
 	tiltState_[0] = tiltState_[1] = 0.0f;
@@ -799,12 +814,18 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		state->fredDelayIndex = 0;
 		std::memset (state->chaosDelayBuffer, 0, sizeof (state->chaosDelayBuffer));
 		state->chaosDelayWritePos = 0;
-		state->chaosCurrentTarget = 0.0f;
-		state->chaosSmoothedValue = 0.0f;
-		state->chaosPhaseSamples = 0.0f;
-		state->chaosGainTarget = 0.0f;
-		state->chaosGainSmoothed = 0.0f;
-		state->chaosGainPhase = 0.0f;
+		for (int c = 0; c < 2; ++c)
+		{
+			state->chaosDPrev[c] = state->chaosDCurr[c] = state->chaosDNext[c] = 0.0f;
+			state->chaosDPhase[c] = state->chaosDDriftPhase[c] = state->chaosDDriftFreqHz[c] = 0.0f;
+			state->chaosDOut[c] = 0.0f;
+			state->chaosGPrev[c] = state->chaosGCurr[c] = state->chaosGNext[c] = 0.0f;
+			state->chaosGPhase[c] = state->chaosGDriftPhase[c] = state->chaosGDriftFreqHz[c] = 0.0f;
+			state->chaosGOut[c] = 0.0f;
+		}
+		state->chaosFPrev = state->chaosFCurr = state->chaosFNext = 0.0f;
+		state->chaosFPhase = state->chaosFDriftPhase = state->chaosFDriftFreqHz = 0.0f;
+		state->chaosFOut[0] = state->chaosFOut[1] = 0.0f;
 		state->smoothedPosFreq = 12000.0f;
 		state->filterCoeffCountdown = 0;
 	}
@@ -963,6 +984,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	const int route = loadRelaxedInt (pRoute);
 	const float globalMix = loadRelaxed (pMix);
+	const int   mixMode   = loadRelaxedInt (pMixMode);
+	const float dryLevel  = (mixMode == 1) ? loadRelaxed (pDryLevel) : 0.0f;
+	const float wetLevel  = (mixMode == 1) ? loadRelaxed (pWetLevel) : 0.0f;
 
 	// ── Limiter ──
 	const int limMode = loadRelaxedInt (pLimMode);
@@ -1043,7 +1067,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
-	const bool needsDry = (globalMix < 0.999f);
+	const bool needsDry = (mixMode == 1) ? true : (globalMix < 0.999f);
 	if (needsDry)
 	{
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -1462,8 +1486,17 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
 	if (needsDry)
 	{
-		const float wet = globalMix;
-		const float dry = 1.0f - globalMix;
+		float wet, dry;
+		if (mixMode == 0)  // INSERT: classic crossfade
+		{
+			wet = globalMix;
+			dry = 1.0f - globalMix;
+		}
+		else  // SEND: independent dry + wet levels
+		{
+			dry = dryLevel;
+			wet = wetLevel;
+		}
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		{
 			auto* wetData = buffer.getWritePointer (ch);
@@ -3183,7 +3216,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const bool chaosFilterActive = chaosFilterEnabled && chaosAmtFilter > 0.01f;
 	{
 
-		// CHAOS FILTER S&H: advance per-block, modulate HP/LP target frequencies (±2 oct)
+		// CHAOS FILTER Hermite+Drift: advance per-block, modulate HP/LP target frequencies (±2 oct)
 		float hpTarget = hpFreq;
 		float lpTarget = lpFreq;
 		if (chaosFilterActive)
@@ -3191,23 +3224,17 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			const float amountNorm = chaosAmtFilter * 0.01f;
 			const float chaosFilterMaxOct = amountNorm * 2.0f;  // ±2 octaves at 100%
 			const float shPeriodSamples = (float) currentSampleRate / chaosSpdFilter;
-			constexpr float kFilterChaosTau = 0.060f;  // 60ms EMA (ECHO-TR match)
-			const float filterSmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * kFilterChaosTau));
+			const float sr = (float) currentSampleRate;
 
-			// Advance filter S&H for the block (lightweight per-sample loop)
+			// Advance Hermite+Drift F engine per-sample (mono S&H)
 			for (int i = 0; i < numSamples; ++i)
 			{
-				state.chaosFilterPhase += 1.0f;
-				if (state.chaosFilterPhase >= shPeriodSamples)
-				{
-					state.chaosFilterPhase -= shPeriodSamples;
-					state.chaosFilterTarget = state.chaosFilterRng.nextFloat() * 2.0f - 1.0f;
-				}
-				state.chaosFilterSmoothed = filterSmoothCoeff * state.chaosFilterSmoothed
-				                          + (1.0f - filterSmoothCoeff) * state.chaosFilterTarget;
+				advanceChaosEngine (state.chaosFPrev, state.chaosFCurr, state.chaosFNext,
+				                    state.chaosFPhase, state.chaosFDriftPhase, state.chaosFDriftFreqHz,
+				                    state.chaosFOut[0], state.chaosFRng, shPeriodSamples, amountNorm, sr);
 			}
 
-			const float octaveShift = state.chaosFilterSmoothed * chaosFilterMaxOct;
+			const float octaveShift = state.chaosFOut[0] * chaosFilterMaxOct;
 			const float freqMult = std::exp2 (octaveShift);
 			// When HP/LP knobs are off, chaos sweeps the full 20–20k range (ECHO-TR match)
 			const float hpBase = hpOn ? hpFreq : kFilterFreqMin;
@@ -3388,31 +3415,19 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 	}
 	
-	// 8. CHAOS (S&H micro-delay modulation + independent gain modulation)
-	// Delay S&H: random targets at 'speed' Hz → EMA smoothing → variable delay line.
-	// Gain S&H: independent random targets at same rate → EMA smoothing → ±1dB gain.
-	// Amount controls depth for both. Each loader has fully independent generators.
+	// 8. CHAOS (Hermite+Drift micro-delay + per-channel gain modulation)
 	if (chaosEnabled && chaosAmt > 0.01f)
 	{
 		const float maxDelaySec = 0.005f; // ±5ms max
 		const float amountNorm = chaosAmt * 0.01f; // 0..1
 		const float maxDelaySamples = amountNorm * maxDelaySec * (float) currentSampleRate;
-		
-		// Delay EMA τ scales with speed: 15ms @ 0.01Hz → 120ms @ 100Hz (log mapping)
-		constexpr float kInvLogRange = 1.0f / 9.2103404f; // 1/log(100/0.01) — precomputed
-		const float spdNorm = std::log (chaosSpd / 0.01f) * kInvLogRange; // 0..1
-		const float delayTau = 0.015f + spdNorm * 0.105f; // 15ms → 120ms
-		const float delaySmoothCoeff = std::exp (-1.0f / ((float) currentSampleRate * delayTau));
-		const float gainSmoothCoeff  = std::exp (-1.0f / ((float) currentSampleRate * 0.015f));
-		
-		// S&H period in samples
 		const float shPeriodSamples = (float) currentSampleRate / chaosSpd;
-		
-		// Gain modulation depth: ±1dB at amount=100% (±0.12 linear)
-		const float gainModDepth = amountNorm * 0.12f;
+		const float chaosGainMaxDb = amountNorm * 1.0f; // ±1dB at 100%
+		const float sr = (float) currentSampleRate;
 		
 		const int chCount = juce::jmin (numChannels, 2);
 		const int delayBufLen = IRLoaderState::kChaosDelayMaxSamples;
+		const int mask = delayBufLen - 1;
 		
 		float* channelData[2] = { nullptr, nullptr };
 		for (int ch = 0; ch < chCount; ++ch)
@@ -3420,49 +3435,36 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		
 		for (int i = 0; i < numSamples; ++i)
 		{
-			// Delay S&H: generate new random target when phase wraps
-			state.chaosPhaseSamples += 1.0f;
-			if (state.chaosPhaseSamples >= shPeriodSamples)
+			// Advance Hermite+Drift D+G engines (per-channel)
+			for (int c = 0; c < chCount; ++c)
 			{
-				state.chaosPhaseSamples -= shPeriodSamples;
-				state.chaosCurrentTarget = state.chaosRng.nextFloat() * 2.0f - 1.0f;
+				advanceChaosEngine (state.chaosDPrev[c], state.chaosDCurr[c], state.chaosDNext[c],
+				                    state.chaosDPhase[c], state.chaosDDriftPhase[c], state.chaosDDriftFreqHz[c],
+				                    state.chaosDOut[c], state.chaosDRng[c], shPeriodSamples, amountNorm, sr);
+				advanceChaosEngine (state.chaosGPrev[c], state.chaosGCurr[c], state.chaosGNext[c],
+				                    state.chaosGPhase[c], state.chaosGDriftPhase[c], state.chaosGDriftFreqHz[c],
+				                    state.chaosGOut[c], state.chaosGRng[c], shPeriodSamples, amountNorm, sr);
 			}
-			
-			// Gain S&H: independent phase + random (decorrelated from delay)
-			state.chaosGainPhase += 1.0f;
-			if (state.chaosGainPhase >= shPeriodSamples)
+			if (chCount < 2)
 			{
-				state.chaosGainPhase -= shPeriodSamples;
-				state.chaosGainTarget = state.chaosGainRng.nextFloat() * 2.0f - 1.0f;
+				state.chaosDOut[1] = state.chaosDOut[0];
+				state.chaosGOut[1] = state.chaosGOut[0];
 			}
-			
-			// EMA smoothing for both (delay=30ms, gain=15ms)
-			state.chaosSmoothedValue = delaySmoothCoeff * state.chaosSmoothedValue
-			                         + (1.0f - delaySmoothCoeff) * state.chaosCurrentTarget;
-			state.chaosGainSmoothed = gainSmoothCoeff * state.chaosGainSmoothed
-			                        + (1.0f - gainSmoothCoeff) * state.chaosGainTarget;
-			
-			// Convert to delay in samples (centered around midpoint so average is zero shift)
-			const float centerDelay = maxDelaySamples;
-			const float delaySamples = centerDelay + state.chaosSmoothedValue * maxDelaySamples;
-			const float clampedDelay = juce::jlimit (0.0f, (float) (delayBufLen - 2), delaySamples);
-			
-			// Gain modulation: ±1dB max
-			const float gainMod = 1.0f + state.chaosGainSmoothed * gainModDepth;
 			
 			// Write current sample into delay buffer
 			const int wp = state.chaosDelayWritePos;
 			for (int ch = 0; ch < chCount; ++ch)
 				state.chaosDelayBuffer[ch][wp] = channelData[ch][i];
 			
-			// Read with 4-point Lagrange interpolation for high quality
-			const float readPos = (float) wp - clampedDelay;
-			const int iPos = (int) std::floor (readPos);
-			const float frac = readPos - (float) iPos;
-			
-			const int mask = delayBufLen - 1; // 1024 is power-of-2
+			// Read with per-channel delay using Lagrange interpolation
 			for (int ch = 0; ch < chCount; ++ch)
 			{
+				const float delaySamp = juce::jlimit (0.0f, (float) (delayBufLen - 2),
+				                                      maxDelaySamples + state.chaosDOut[ch] * maxDelaySamples);
+				const float readPos = (float) wp - delaySamp;
+				const int iPos = (int) std::floor (readPos);
+				const float frac = readPos - (float) iPos;
+				
 				const float p0 = state.chaosDelayBuffer[ch][(iPos - 1) & mask];
 				const float p1 = state.chaosDelayBuffer[ch][(iPos    ) & mask];
 				const float p2 = state.chaosDelayBuffer[ch][(iPos + 1) & mask];
@@ -3474,11 +3476,15 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 				const float c3 = (1.0f / 6.0f) * (p3 - p0) + 0.5f * (p1 - p2);
 				channelData[ch][i] = ((c3 * frac + c2) * frac + c1) * frac + c0;
 				
-				// Apply gain modulation
-				channelData[ch][i] *= gainMod;
+				// Per-channel gain modulation (±1dB, fast dB→linear)
+				const float gainDb  = state.chaosGOut[ch] * chaosGainMaxDb;
+				const float ex = gainDb * 0.16609640474f;
+				const float exln2 = ex * 0.6931472f;
+				const float gainLin = 1.0f + exln2 * (1.0f + exln2 * 0.5f);
+				channelData[ch][i] *= gainLin;
 			}
 			
-			state.chaosDelayWritePos = (wp + 1) % delayBufLen;
+			state.chaosDelayWritePos = (wp + 1) & mask;
 		}
 	}
 
@@ -3487,9 +3493,6 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		constexpr float kDnr = 1e-20f;
 		if (std::abs (state.tiltState[0])       < kDnr) state.tiltState[0]       = 0.0f;
 		if (std::abs (state.tiltState[1])       < kDnr) state.tiltState[1]       = 0.0f;
-		if (std::abs (state.chaosFilterSmoothed) < kDnr) state.chaosFilterSmoothed = 0.0f;
-		if (std::abs (state.chaosSmoothedValue)  < kDnr) state.chaosSmoothedValue  = 0.0f;
-		if (std::abs (state.chaosGainSmoothed)   < kDnr) state.chaosGainSmoothed   = 0.0f;
 	}
 }
 

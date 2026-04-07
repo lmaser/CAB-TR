@@ -47,9 +47,12 @@ private:
 	void openChaosPrompt (int loaderIndex, bool isFilter);
 	void openFilterPrompt (int loaderIndex);
 	void openExportPrompt();
+	void openMixSendPrompt();
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
 	void layoutIRSection (juce::Rectangle<int> area, int loaderIndex);
 	void updateLoaderEnabledState (int loaderIndex);
+	juce::String getMixText() const;
+	juce::String getMixTextShort() const;
 
 	// TR-style label/value display system
 	bool legendDirty = true;
@@ -141,6 +144,49 @@ private:
 		float getMarkerScreenX (float freq) const;
 		DragTarget hitTestMarker (juce::Point<float> p) const;
 		void  setFreqFromMouseX (float mouseX, DragTarget target);
+	};
+
+	// ══════════════════════════════════════════════════════════════
+	//  Dual dry/wet level bar (SEND mix mode)
+	// ══════════════════════════════════════════════════════════════
+	class DualMixBarComponent : public juce::Component,
+	                            public juce::SettableTooltipClient
+	{
+	public:
+		DualMixBarComponent() = default;
+		void setOwner (CABTRAudioProcessorEditor* o) { owner = o; }
+		void setScheme (const TR::TRScheme& s) { scheme = s; repaint(); }
+
+		void paint (juce::Graphics& g) override;
+		void mouseDown (const juce::MouseEvent& e) override;
+		void mouseDrag (const juce::MouseEvent& e) override;
+		void mouseUp (const juce::MouseEvent& e) override;
+		void mouseMove (const juce::MouseEvent& e) override;
+
+		void updateFromProcessor();
+
+		float getDryLevel() const { return dryLevel_; }
+		float getWetLevel() const { return wetLevel_; }
+
+		enum DragTarget { None, DRY, WET };
+		DragTarget getLastTouched() const { return lastTouched_; }
+
+	private:
+		CABTRAudioProcessorEditor* owner = nullptr;
+		TR::TRScheme scheme {};
+
+		float dryLevel_ = 0.0f;
+		float wetLevel_ = 1.0f;
+
+		DragTarget currentDrag_ = None;
+		DragTarget lastTouched_ = WET;
+
+		static constexpr float kPad = 7.0f;
+		static constexpr int   kMarkerHitPx = 14;
+
+		juce::Rectangle<float> getInnerArea() const;
+		DragTarget hitTestMarker (juce::Point<float> p) const;
+		void  setLevelFromMouseX (float mouseX, DragTarget target);
 	};
 
 	// ══════════════════════════════════════════════════════════════
@@ -502,6 +548,7 @@ private:
 	juce::ToggleButton alignButton;
 	juce::ComboBox matchCombo;
 	juce::ComboBox trimCombo;
+	juce::ComboBox mixModeCombo;
 	juce::ComboBox limModeCombo;
 	juce::ComboBox invPolCombo;
 	juce::ComboBox invStrCombo;
@@ -509,11 +556,13 @@ private:
 	BarSlider globalMixSlider;   // Global dry/wet MIX (kParamMix)
 	BarSlider globalOutputSlider; // Global output gain (kParamOutput)
 	BarSlider limThresholdSlider; // Limiter threshold (kParamLimThreshold)
+	DualMixBarComponent dualMixBar_;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> routeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> alignAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> matchAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> trimAttach;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> mixModeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> limModeAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> invPolAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> invStrAttach;
@@ -576,9 +625,11 @@ private:
 		applyComboScheme (routeCombo);
 		applyComboScheme (matchCombo);
 		applyComboScheme (trimCombo);
+		applyComboScheme (mixModeCombo);
 		applyComboScheme (limModeCombo);
 		applyComboScheme (invPolCombo);
 		applyComboScheme (invStrCombo);
+		dualMixBar_.setScheme (activeScheme);
 	}
 
 	// ══════════════════════════════════════════════════════════════
@@ -594,6 +645,11 @@ private:
 	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, SIZE=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
 	static constexpr int kNumCachedParams = 14;
 	CachedParamText cachedTexts[3][kNumCachedParams];  // [loader][param]
+
+	// Global mix legend cache (for SEND mode dB display)
+	juce::String cachedMixTextFull;
+	juce::String cachedMixTextShort;
+	juce::String cachedMixIntOnly;
 
 	// Column right edges (set in resized(), used by getValueAreaFor())
 	int columnRight_[3] = {};
