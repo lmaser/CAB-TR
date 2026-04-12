@@ -67,9 +67,9 @@ private:
 
 	CABTRAudioProcessor& audioProcessor;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Custom Slider with right-click popup
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	class BarSlider : public juce::Slider
 	{
 	public:
@@ -101,9 +101,9 @@ private:
 		bool allowNumericPopup = true;
 	};
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Filter bar (dual HP/LP marker component, replaces separate sliders)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	class FilterBarComponent : public juce::Component,
 	                           public juce::SettableTooltipClient
 	{
@@ -146,9 +146,9 @@ private:
 		void  setFreqFromMouseX (float mouseX, DragTarget target);
 	};
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Dual dry/wet level bar (SEND mix mode)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	class DualMixBarComponent : public juce::Component,
 	                            public juce::SettableTooltipClient
 	{
@@ -189,9 +189,9 @@ private:
 		void  setLevelFromMouseX (float mouseX, DragTarget target);
 	};
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Look and Feel
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	class MinimalLNF : public juce::LookAndFeel_V4
 	{
 	public:
@@ -269,9 +269,9 @@ private:
 
 	MinimalLNF lnf;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Browse Button with drag-and-drop support
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	class BrowseButton : public juce::TextButton,
 	                    public juce::FileDragAndDropTarget
 	{
@@ -307,9 +307,9 @@ private:
 		int loaderIndex = 0;
 	};
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  DRY helpers for tripled loader A/B/C setup
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	struct LoaderRefs
 	{
 		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
@@ -345,9 +345,9 @@ private:
 	};
 	static const LoaderParamIds kLoaderParams[3];
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  File Explorer State
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	juce::File currentFolderA;
 	juce::File currentFolderB;
 	juce::File currentFolderC;
@@ -355,9 +355,9 @@ private:
 	juce::String currentFileB;
 	juce::String currentFileC;
 
-	// ══════════════════════════════════════════════════════════════
-	//  UI Components — IR Loader A
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  UI Components - IR Loader A
+	// ============================================================================
 	juce::ToggleButton enableButtonA;
 	BrowseButton browseButtonA;
 	juce::Label fileDisplayA;
@@ -409,9 +409,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachA;
 
-	// ══════════════════════════════════════════════════════════════
-	//  UI Components — IR Loader B
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  UI Components - IR Loader B
+	// ============================================================================
 	juce::ToggleButton enableButtonB;
 	BrowseButton browseButtonB;
 	juce::Label fileDisplayB;
@@ -463,9 +463,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachB;
 
-	// ══════════════════════════════════════════════════════════════
-	//  UI Components — IR Loader C
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  UI Components - IR Loader C
+	// ============================================================================
 	juce::ToggleButton enableButtonC;
 	BrowseButton browseButtonC;
 	juce::Label fileDisplayC;
@@ -517,9 +517,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeOutAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sumBusAttachC;
 
-	// ══════════════════════════════════════════════════════════════
-	//  UI Components — Filter Bars & per-loader MIX
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  UI Components - Filter Bars & per-loader MIX
+	// ============================================================================
 	FilterBarComponent filterBarA_;
 	FilterBarComponent filterBarB_;
 	FilterBarComponent filterBarC_;
@@ -531,9 +531,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachC;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Collapse/Expand state  (per-loader independent)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	bool ioExpandedA_ = false;
 	bool ioExpandedB_ = false;
 	bool ioExpandedC_ = false;
@@ -541,9 +541,9 @@ private:
 	juce::Rectangle<int> cachedToggleBarAreaB_;
 	juce::Rectangle<int> cachedToggleBarAreaC_;
 
-	// ══════════════════════════════════════════════════════════════
-	//  UI Components — Global
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  UI Components - Global
+	// ============================================================================
 	juce::ComboBox routeCombo;
 	juce::ToggleButton alignButton;
 	juce::ComboBox matchCombo;
@@ -570,9 +570,9 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> globalOutputAttach;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> limThresholdAttach;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  CRT Effect
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	CrtEffect crtEffect;
 	float crtTime = 0.0f;
 	bool crtEnabled = false;
@@ -584,9 +584,9 @@ private:
 		crtTime = 0.0f;
 	}
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Palette & Colour Scheme
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	bool useCustomPalette = false;
 	std::array<juce::Colour, 2> defaultPalette { juce::Colours::white, juce::Colours::black };
 	std::array<juce::Colour, 2> customPalette  { juce::Colours::white, juce::Colours::black };
@@ -632,15 +632,15 @@ private:
 		dualMixBar_.setScheme (activeScheme);
 	}
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Misc UI State
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	bool isDraggingWindow = false;
 	juce::Point<int> dragStartPos;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  TR-style legend text cache (for value display)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	struct CachedParamText { juce::String full, short_, intOnly; };
 	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, SIZE=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
 	static constexpr int kNumCachedParams = 14;
@@ -655,7 +655,7 @@ private:
 	int columnRight_[3] = {};
 
 	// Value display areas (calculated in paint(), used for click detection)
-	std::array<juce::Rectangle<int>, 42> cachedValueAreas_;  // 14 per loader × 3
+	std::array<juce::Rectangle<int>, 42> cachedValueAreas_;  // 14 per loader x 3
 
 	// Gear icon for info button
 	juce::Path cachedInfoGearPath;

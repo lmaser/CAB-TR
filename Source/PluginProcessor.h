@@ -13,9 +13,9 @@ public:
 	CABTRAudioProcessor();
 	~CABTRAudioProcessor() override;
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter IDs — IR Loader A
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter IDs - IR Loader A
+	// ============================================================================
 	static constexpr const char* kParamEnableA      = "enable_a";
 	static constexpr const char* kParamFilePathA    = "file_path_a";
 	static constexpr const char* kParamHpFreqA      = "hp_freq_a";
@@ -46,12 +46,12 @@ public:
 	static constexpr const char* kParamChaosSpdFilterA = "chaos_spd_filter_a";
 	static constexpr const char* kParamModeInA      = "mode_in_a";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutA     = "mode_out_a"; // 0=L+R, 1=MID, 2=SIDE
-	static constexpr const char* kParamSumBusA      = "sum_bus_a"; // 0=ST, 1=→M, 2=→S
+	static constexpr const char* kParamSumBusA      = "sum_bus_a"; // 0=ST, 1=->M, 2=->S
 	static constexpr const char* kParamMixA         = "mix_a";     // Per-loader dry/wet
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter IDs — IR Loader B
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter IDs - IR Loader B
+	// ============================================================================
 	static constexpr const char* kParamEnableB      = "enable_b";
 	static constexpr const char* kParamFilePathB    = "file_path_b";
 	static constexpr const char* kParamHpFreqB      = "hp_freq_b";
@@ -82,12 +82,12 @@ public:
 	static constexpr const char* kParamChaosSpdFilterB = "chaos_spd_filter_b";
 	static constexpr const char* kParamModeInB      = "mode_in_b";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutB     = "mode_out_b"; // 0=L+R, 1=MID, 2=SIDE
-	static constexpr const char* kParamSumBusB      = "sum_bus_b"; // 0=ST, 1=→M, 2=→S
+	static constexpr const char* kParamSumBusB      = "sum_bus_b"; // 0=ST, 1=->M, 2=->S
 	static constexpr const char* kParamMixB         = "mix_b";     // Per-loader dry/wet
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter IDs — IR Loader C
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter IDs - IR Loader C
+	// ============================================================================
 	static constexpr const char* kParamEnableC      = "enable_c";
 	static constexpr const char* kParamFilePathC    = "file_path_c";
 	static constexpr const char* kParamHpFreqC      = "hp_freq_c";
@@ -118,12 +118,12 @@ public:
 	static constexpr const char* kParamChaosSpdFilterC = "chaos_spd_filter_c";
 	static constexpr const char* kParamModeInC      = "mode_in_c";
 	static constexpr const char* kParamModeOutC     = "mode_out_c";
-	static constexpr const char* kParamSumBusC      = "sum_bus_c"; // 0=ST, 1=→M, 2=→S
+	static constexpr const char* kParamSumBusC      = "sum_bus_c"; // 0=ST, 1=->M, 2=->S
 	static constexpr const char* kParamMixC         = "mix_c";
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Global Parameters
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	static constexpr const char* kParamInput        = "input";
 	static constexpr const char* kParamOutput       = "output";
 	static constexpr const char* kParamRoute        = "route";     // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
@@ -143,9 +143,9 @@ public:
 	static constexpr const char* kParamInvPol       = "inv_pol";
 	static constexpr const char* kParamInvStr       = "inv_str";
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  UI State Parameters (hidden from DAW automation)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	static constexpr const char* kParamUiWidth      = "ui_width";
 	static constexpr const char* kParamUiHeight     = "ui_height";
 	static constexpr const char* kParamUiPalette    = "ui_palette";
@@ -153,9 +153,9 @@ public:
 	static constexpr const char* kParamUiColor0     = "ui_color0";
 	static constexpr const char* kParamUiColor1     = "ui_color1";
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  UI State Keys (non-automatable, stored in APVTS tree)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	struct UiStateKeys
 	{
 		static constexpr const char* ioExpandedA = "uiIoExpandedA";
@@ -166,9 +166,9 @@ public:
 	void  setUiIoExpanded (int loaderIndex, bool expanded);
 	bool  getUiIoExpanded (int loaderIndex) const noexcept;
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter Ranges & Defaults — Filters
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter Ranges & Defaults - Filters
+	// ============================================================================
 	static constexpr float kFilterFreqMin           = 20.0f;
 	static constexpr float kFilterFreqMax           = 20000.0f;
 	static constexpr float kFilterHpFreqDefault     = 80.0f;
@@ -178,13 +178,13 @@ public:
 	static constexpr int   kFilterSlopeDefault      = 1;       // 12 dB/oct
 
 	// Butterworth Q constants for 24 dB/oct (4th-order cascaded pair)
-	static constexpr float kBW4_Q1 = 0.54119610f;   // 1/(2cos(3π/8))
-	static constexpr float kBW4_Q2 = 1.30656296f;   // 1/(2cos(π/8))
+	static constexpr float kBW4_Q1 = 0.54119610f;   // 1/(2cos(3pi/8))
+	static constexpr float kBW4_Q2 = 1.30656296f;   // 1/(2cos(pi/8))
 
 	// Shared DSP constants
-	static constexpr float kSqrt2Over2   = 0.707106781f;  // √2/2  — Butterworth Q, M/S scaling, -3 dB
-	static constexpr float kSqrt2        = 1.41421356f;   // √2    — MID impulse compensation
-	static constexpr float kTwoPi        = 6.2831853f;     // 2π
+	static constexpr float kSqrt2Over2   = 0.707106781f;  // sqrt(2)/2  - Butterworth Q, M/S scaling, -3 dB
+	static constexpr float kSqrt2        = 1.41421356f;   // sqrt(2)    - MID impulse compensation
+	static constexpr float kTwoPi        = 6.2831853f;     // 2pi
 	static constexpr float kDistDecay    = 2.0794f;        // DIST exponential rolloff rate
 
 	// Limiter ranges
@@ -206,9 +206,9 @@ public:
 	static constexpr int   kNumNormTargets = 6;
 	static constexpr float kMaxNormBoost   = 7.94328f; // +18 dB
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter Ranges & Defaults — IR Controls
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter Ranges & Defaults - IR Controls
+	// ============================================================================
 	static constexpr float kInMin                   = -100.0f;
 	static constexpr float kInMax                   = 0.0f;
 	static constexpr float kInDefault               = 0.0f;
@@ -269,9 +269,9 @@ public:
 	static constexpr float kResoMax                  = 2.0f;       // 200%
 	static constexpr float kResoDefault              = 1.0f;       // 100% = original IR
 
-	// ══════════════════════════════════════════════════════════════
-	//  Parameter Ranges & Defaults — Global
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Parameter Ranges & Defaults - Global
+	// ============================================================================
 	static constexpr float kInputMin                = -100.0f;
 	static constexpr float kInputMax                = 0.0f;
 	static constexpr float kInputDefault            = 0.0f;
@@ -284,7 +284,7 @@ public:
 	static constexpr int   kModeMax                 = 2;          // L+R, MID, SIDE
 	static constexpr int   kModeDefault             = 0;          // L+R
 
-	static constexpr int   kSumBusMax               = 2;          // 0=ST, 1=→M, 2=→S
+	static constexpr int   kSumBusMax               = 2;          // 0=ST, 1=->M, 2=->S
 	static constexpr int   kSumBusDefault           = 0;          // ST (unchanged)
 
 	static constexpr int   kRouteMin                = 0;
@@ -293,9 +293,9 @@ public:
 	static constexpr int   kMatchDefault            = 0;
 	static constexpr int   kTrimDefault             = 0;          // None (no tilt)
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  AudioProcessor overrides
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	void prepareToPlay (double sampleRate, int samplesPerBlock) override;
 	void releaseResources() override;
 
@@ -324,14 +324,14 @@ public:
 	void getStateInformation (juce::MemoryBlock& destData) override;
 	void setStateInformation (const void* data, int sizeInBytes) override;
 
-	// ══════════════════════════════════════════════════════════════
-	//  Public API — Parameter access
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  Public API - Parameter access
+	// ============================================================================
 	juce::AudioProcessorValueTreeState& getValueTreeState() { return parameters; }
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  UI State Accessors
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	int getUiEditorWidth() const
 	{
 		if (auto* p = parameters.getRawParameterValue (kParamUiWidth))
@@ -408,9 +408,9 @@ public:
 		}
 	}
 
-	// ══════════════════════════════════════════════════════════════
-	//  DSP State — IR Convolution (public for editor access)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  DSP State - IR Convolution (public for editor access)
+	// ============================================================================
 	struct IRLoaderState
 	{
 		juce::AudioBuffer<float> impulseResponse;
@@ -432,8 +432,8 @@ public:
 		                                juce::dsp::IIR::Coefficients<float>> posFilter;
 		
 		// Delay line for phase alignment (max 1 second)
-		juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 };
-		juce::SmoothedValue<float> smoothedDelay { 0.0f }; // Suavizado para delay
+		juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delayLine { 192000 };
+		juce::SmoothedValue<float> smoothedDelay { 0.0f }; // Delay smoothing for click-free glide
 		
 		// Cache last parameter values to detect changes and reload IR
 		std::atomic<float> lastSize { 1.0f };
@@ -463,8 +463,8 @@ public:
 		float lastPanRight = 1.0f;
 		
 		// FRED (Fredman miking) state: circular delay buffer for off-axis simulation
-		// 7 samples = ~0.15ms @ 48kHz ≈ 5cm path difference (realistic Fredman setup)
-		// First comb null at ~6.8kHz — musically useful tonal shaping
+		// 7 samples = ~0.15ms @ 48kHz ~= 5cm path difference (realistic Fredman setup)
+		// First comb null at ~6.8kHz - musically useful tonal shaping
 		static constexpr int kFredDelaySamples = 7;
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
@@ -525,9 +525,9 @@ public:
 	IRLoaderState stateB;
 	IRLoaderState stateC;
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Helper methods (public for editor to trigger IR loading)
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	void loadImpulseResponse (IRLoaderState& state, const juce::String& filePath);
 	bool exportCombinedIR (double targetSampleRate, int formatType,
 	                       double maxLengthSec, bool trimSilence,
@@ -537,9 +537,9 @@ public:
 private:
 	// Timer callback to monitor parameter changes
 	void timerCallback() override;
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Parameter State
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	juce::AudioProcessorValueTreeState parameters;
 	juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -640,12 +640,12 @@ private:
 	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;        // current (smoothed)
 	float tiltTargetB0_ = 1.0f, tiltTargetB1_ = 0.0f, tiltTargetA1_ = 0.0f; // target
 
-	// Wet NORM AGC state (peak follower + gain smoothing) — kept for TRIM
+	// Wet NORM AGC state (peak follower + gain smoothing) - kept for TRIM
 	float normPeakFollower_  = 0.0f;
 	float normSmoothedGain_  = 1.0f;
 	int   normWarmupSamples_ = 0;    // samples since peak follower activated
 
-	// ── Dual-stage transparent peak limiter ──
+	// Dual-stage transparent peak limiter
 	static constexpr float kLimFloor = 1.0e-12f;
 	float limEnv1_[2] = { kLimFloor, kLimFloor };
 	float limEnv2_[2] = { kLimFloor, kLimFloor };
@@ -661,7 +661,7 @@ private:
 			const float peakL = std::abs (leftData[i]);
 			const float peakR = std::abs (rightData[i]);
 
-			// Stage 1 — leveler (2 ms attack, 10 ms release)
+			// Stage 1 - leveler (2 ms attack, 10 ms release)
 			for (int ch = 0; ch < 2; ++ch)
 			{
 				const float p = (ch == 0) ? peakL : peakR;
@@ -672,7 +672,7 @@ private:
 				if (limEnv1_[ch] < kLimFloor) limEnv1_[ch] = kLimFloor;
 			}
 
-			// Stage 2 — brickwall (instant attack, 100 ms release)
+			// Stage 2 - brickwall (instant attack, 100 ms release)
 			for (int ch = 0; ch < 2; ++ch)
 			{
 				const float p = (ch == 0) ? peakL : peakR;
@@ -704,9 +704,9 @@ private:
 	// Reusable format manager (avoid re-creating on every IR load)
 	juce::AudioFormatManager formatManager;
 
-	// ══════════════════════════════════════════════════════════════
-	//  DSP Helpers — Reusable buffers to avoid allocations
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
+	//  DSP Helpers - Reusable buffers to avoid allocations
+	// ============================================================================
 	juce::AudioBuffer<float> tempBufferA;
 	juce::AudioBuffer<float> tempBufferB;
 	juce::AudioBuffer<float> tempBufferC;
@@ -727,9 +727,9 @@ private:
 	float dcBlockY_[2] = { 0.0f, 0.0f };
 
 
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	//  Private Helper methods
-	// ══════════════════════════════════════════════════════════════
+	// ============================================================================
 	// loaderIndex: 0=A, 1=B, 2=C
 	void processLoader (IRLoaderState& state, 
 	                    juce::AudioBuffer<float>& buffer,
