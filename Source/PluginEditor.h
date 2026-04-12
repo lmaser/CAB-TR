@@ -45,6 +45,7 @@ private:
 	void openInfoPopup();
 	void openGraphicsPopup();
 	void openChaosPrompt (int loaderIndex, bool isFilter);
+	void openExpPrompt (int loaderIndex);
 	void openFilterPrompt (int loaderIndex);
 	void openExportPrompt();
 	void openMixSendPrompt();
@@ -314,7 +315,7 @@ private:
 	{
 		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
 		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso;
-		juce::ToggleButton &inv, &norm, &rvs, &chaos, &chaosFilter;  juce::Label &chaosDisp;
+		juce::ToggleButton &inv, &norm, &rvs, &exp, &chaos, &chaosFilter;  juce::Label &chaosDisp, &expDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus;
 		FilterBarComponent &filterBar;  BarSlider &mix;
 	};
@@ -322,7 +323,7 @@ private:
 	{
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &inAtt, &outAtt, &tiltAtt, &startAtt, &endAtt, &sizeAtt, &delayAtt, &panAtt, &fredAtt, &posAtt, &resoAtt;
-		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &chaosAtt, &chaosFilterAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &expAtt, &chaosAtt, &chaosFilterAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt, &sumBusAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
 	};
@@ -338,7 +339,7 @@ private:
 		const char* hpFreq;  const char* lpFreq;  const char* in;  const char* out;  const char* tilt;
 		const char* start;   const char* end;     const char* size;
 		const char* delay;   const char* pan;     const char* fred;   const char* pos;   const char* reso;
-		const char* inv;     const char* norm;    const char* rvs;    const char* chaos;  const char* chaosFilter;
+		const char* inv;     const char* norm;    const char* rvs;    const char* exp;    const char* chaos;  const char* chaosFilter;
 		const char* chaosAmt; const char* chaosSpd;
 		const char* chaosAmtFilter; const char* chaosSpdFilter;
 		const char* modeIn;  const char* modeOut; const char* sumBus; const char* mix;
@@ -379,9 +380,11 @@ private:
 	juce::ToggleButton invButtonA;
 	juce::ToggleButton normButtonA;
 	juce::ToggleButton rvsButtonA;
+	juce::ToggleButton expButtonA;
 	juce::ToggleButton chaosButtonA;
 	juce::ToggleButton chaosFilterButtonA;
 	juce::Label chaosDisplayA;
+	juce::Label expDisplayA;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachA;
@@ -400,6 +403,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> expAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachA;
 	juce::ComboBox modeInComboA;
@@ -433,9 +437,11 @@ private:
 	juce::ToggleButton invButtonB;
 	juce::ToggleButton normButtonB;
 	juce::ToggleButton rvsButtonB;
+	juce::ToggleButton expButtonB;
 	juce::ToggleButton chaosButtonB;
 	juce::ToggleButton chaosFilterButtonB;
 	juce::Label chaosDisplayB;
+	juce::Label expDisplayB;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachB;
@@ -454,6 +460,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> expAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachB;
 	juce::ComboBox modeInComboB;
@@ -487,9 +494,11 @@ private:
 	juce::ToggleButton invButtonC;
 	juce::ToggleButton normButtonC;
 	juce::ToggleButton rvsButtonC;
+	juce::ToggleButton expButtonC;
 	juce::ToggleButton chaosButtonC;
 	juce::ToggleButton chaosFilterButtonC;
 	juce::Label chaosDisplayC;
+	juce::Label expDisplayC;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpFreqAttachC;
@@ -508,6 +517,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> expAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chaosFilterAttachC;
 	juce::ComboBox modeInComboC;

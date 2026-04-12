@@ -38,6 +38,13 @@ public:
 	static constexpr const char* kParamInvA         = "inv_a";
 	static constexpr const char* kParamNormA        = "norm_a";
 	static constexpr const char* kParamRvsA         = "rvs_a";
+	static constexpr const char* kParamExpA         = "exp_a";
+	static constexpr const char* kParamExpOrderA    = "exp_order_a";   // 0=PRE, 1=POST
+	static constexpr const char* kParamExpRatioA    = "exp_ratio_a";
+	static constexpr const char* kParamExpThreshA   = "exp_thresh_a";
+	static constexpr const char* kParamExpKneeA     = "exp_knee_a";
+	static constexpr const char* kParamExpAtkA      = "exp_atk_a";
+	static constexpr const char* kParamExpRelA      = "exp_rel_a";
 	static constexpr const char* kParamChaosA       = "chaos_a";
 	static constexpr const char* kParamChaosFilterA    = "chaos_filter_a";
 	static constexpr const char* kParamChaosAmtA       = "chaos_amt_a";
@@ -74,6 +81,13 @@ public:
 	static constexpr const char* kParamInvB         = "inv_b";
 	static constexpr const char* kParamNormB        = "norm_b";
 	static constexpr const char* kParamRvsB         = "rvs_b";
+	static constexpr const char* kParamExpB         = "exp_b";
+	static constexpr const char* kParamExpOrderB    = "exp_order_b";
+	static constexpr const char* kParamExpRatioB    = "exp_ratio_b";
+	static constexpr const char* kParamExpThreshB   = "exp_thresh_b";
+	static constexpr const char* kParamExpKneeB     = "exp_knee_b";
+	static constexpr const char* kParamExpAtkB      = "exp_atk_b";
+	static constexpr const char* kParamExpRelB      = "exp_rel_b";
 	static constexpr const char* kParamChaosB       = "chaos_b";
 	static constexpr const char* kParamChaosFilterB    = "chaos_filter_b";
 	static constexpr const char* kParamChaosAmtB       = "chaos_amt_b";
@@ -110,6 +124,13 @@ public:
 	static constexpr const char* kParamInvC         = "inv_c";
 	static constexpr const char* kParamNormC        = "norm_c";
 	static constexpr const char* kParamRvsC         = "rvs_c";
+	static constexpr const char* kParamExpC         = "exp_c";
+	static constexpr const char* kParamExpOrderC    = "exp_order_c";
+	static constexpr const char* kParamExpRatioC    = "exp_ratio_c";
+	static constexpr const char* kParamExpThreshC   = "exp_thresh_c";
+	static constexpr const char* kParamExpKneeC     = "exp_knee_c";
+	static constexpr const char* kParamExpAtkC      = "exp_atk_c";
+	static constexpr const char* kParamExpRelC      = "exp_rel_c";
 	static constexpr const char* kParamChaosC       = "chaos_c";
 	static constexpr const char* kParamChaosFilterC    = "chaos_filter_c";
 	static constexpr const char* kParamChaosAmtC       = "chaos_amt_c";
@@ -248,6 +269,23 @@ public:
 	static constexpr float kChaosSpdMax              = 100.0f;     // Hz
 	static constexpr float kChaosSpdDefault          = 5.0f;       // Hz
 	static constexpr float kChaosDriftAmp            = 0.3f;
+
+	// Expander / Noise Gate
+	static constexpr float kExpRatioMin              = 1.0f;   // 1:1 (no expansion)
+	static constexpr float kExpRatioMax              = 10.0f;  // 1:10
+	static constexpr float kExpRatioDefault          = 1.0f;
+	static constexpr float kExpThreshMin             = -60.0f; // dB
+	static constexpr float kExpThreshMax             = 0.0f;   // dB
+	static constexpr float kExpThreshDefault         = 0.0f;   // 0 dB = off
+	static constexpr float kExpKneeMin               = 0.0f;   // dB, 0 = hard knee
+	static constexpr float kExpKneeMax               = 12.0f;  // dB
+	static constexpr float kExpKneeDefault           = 0.0f;
+	static constexpr float kExpAtkMin                = 0.01f;  // ms
+	static constexpr float kExpAtkMax                = 100.0f; // ms
+	static constexpr float kExpAtkDefault            = 0.1f;   // ms
+	static constexpr float kExpRelMin                = 5.0f;   // ms
+	static constexpr float kExpRelMax                = 2000.0f;// ms
+	static constexpr float kExpRelDefault            = 50.0f;  // ms
 
 	static constexpr float kFredMin                 = 0.0f;
 	static constexpr float kFredMax                 = 1.0f;
@@ -512,6 +550,7 @@ public:
 		float tiltTargetB0 = 1.0f, tiltTargetB1 = 0.0f, tiltTargetA1 = 0.0f;
 		float tiltState[2] = { 0.0f, 0.0f };
 		float lastTiltDb = 0.0f;
+		float expLinkedEnv = 0.0f;
 		
 		// Delete copy operations (contains atomic)
 		IRLoaderState() = default;
@@ -560,6 +599,13 @@ private:
 	std::atomic<float>* pLpOnA = nullptr;
 	std::atomic<float>* pHpSlopeA = nullptr;
 	std::atomic<float>* pLpSlopeA = nullptr;
+	std::atomic<float>* pExpA = nullptr;
+	std::atomic<float>* pExpOrderA = nullptr;
+	std::atomic<float>* pExpRatioA = nullptr;
+	std::atomic<float>* pExpThreshA = nullptr;
+	std::atomic<float>* pExpKneeA = nullptr;
+	std::atomic<float>* pExpAtkA = nullptr;
+	std::atomic<float>* pExpRelA = nullptr;
 	std::atomic<float>* pDelayA = nullptr;
 	std::atomic<float>* pPanA = nullptr;
 	std::atomic<float>* pFredA = nullptr;
@@ -573,6 +619,13 @@ private:
 	std::atomic<float>* pLpOnB = nullptr;
 	std::atomic<float>* pHpSlopeB = nullptr;
 	std::atomic<float>* pLpSlopeB = nullptr;
+	std::atomic<float>* pExpB = nullptr;
+	std::atomic<float>* pExpOrderB = nullptr;
+	std::atomic<float>* pExpRatioB = nullptr;
+	std::atomic<float>* pExpThreshB = nullptr;
+	std::atomic<float>* pExpKneeB = nullptr;
+	std::atomic<float>* pExpAtkB = nullptr;
+	std::atomic<float>* pExpRelB = nullptr;
 	std::atomic<float>* pDelayB = nullptr;
 	std::atomic<float>* pPanB = nullptr;
 	std::atomic<float>* pFredB = nullptr;
@@ -606,6 +659,13 @@ private:
 	std::atomic<float>* pLpOnC = nullptr;
 	std::atomic<float>* pHpSlopeC = nullptr;
 	std::atomic<float>* pLpSlopeC = nullptr;
+	std::atomic<float>* pExpC = nullptr;
+	std::atomic<float>* pExpOrderC = nullptr;
+	std::atomic<float>* pExpRatioC = nullptr;
+	std::atomic<float>* pExpThreshC = nullptr;
+	std::atomic<float>* pExpKneeC = nullptr;
+	std::atomic<float>* pExpAtkC = nullptr;
+	std::atomic<float>* pExpRelC = nullptr;
 	std::atomic<float>* pDelayC = nullptr;
 	std::atomic<float>* pPanC = nullptr;
 	std::atomic<float>* pFredC = nullptr;
@@ -734,6 +794,9 @@ private:
 	void processLoader (IRLoaderState& state, 
 	                    juce::AudioBuffer<float>& buffer,
 	                    int loaderIndex);
+	void applyExpanderBuffer (juce::AudioBuffer<float>& buffer, float sampleRate, float& linkedEnv,
+	                         bool expanderEnabled, float expRatio, float expThreshDb,
+	                         float expKneeDb, float expAtkMs, float expRelMs) noexcept;
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer, int loaderIndex, double sampleRate,
