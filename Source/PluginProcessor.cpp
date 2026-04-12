@@ -881,6 +881,36 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		cachedNormSlowCoeff_   = 1.0f - std::exp (-1.0f / (sr * 0.02f)); // 20ms ramp-up
 	}
 
+	lastInputGain_ = fastDecibelsToGain (loadRelaxed (pInput, 0.0f));
+	lastOutputGain_ = fastDecibelsToGain (loadRelaxed (pOutput, 0.0f));
+	if (loadRelaxedInt (pMixMode, 0) == 1)
+	{
+		lastGlobalDryMix_ = loadRelaxed (pDryLevel, 0.0f);
+		lastGlobalWetMix_ = loadRelaxed (pWetLevel, 1.0f);
+	}
+	else
+	{
+		lastGlobalWetMix_ = loadRelaxed (pMix, 1.0f);
+		lastGlobalDryMix_ = 1.0f - lastGlobalWetMix_;
+	}
+	lastLimiterThresholdLin_ = fastDecibelsToGain (loadRelaxed (pLimThreshold, kLimThresholdDefault));
+
+	auto initLoaderSmoothing = [] (IRLoaderState& state, float inDb, float outDb,
+	                               float mixVal, float posVal) noexcept
+	{
+		state.lastInGain = fastDecibelsToGain (inDb);
+		state.lastOutGain = fastDecibelsToGain (outDb);
+		state.lastMix = mixVal;
+		state.lastPosGain = 1.0f - juce::jlimit (0.0f, 1.0f, posVal) * 0.5f;
+	};
+
+	initLoaderSmoothing (stateA, loadRelaxed (pInA, 0.0f), loadRelaxed (pOutA, 0.0f),
+	                     loadRelaxed (pMixA, 1.0f), loadRelaxed (pPosA, 0.0f));
+	initLoaderSmoothing (stateB, loadRelaxed (pInB, 0.0f), loadRelaxed (pOutB, 0.0f),
+	                     loadRelaxed (pMixB, 1.0f), loadRelaxed (pPosB, 0.0f));
+	initLoaderSmoothing (stateC, loadRelaxed (pInC, 0.0f), loadRelaxed (pOutC, 0.0f),
+	                     loadRelaxed (pMixC, 1.0f), loadRelaxed (pPosC, 0.0f));
+
 	// Fade-in to suppress convolver/filter warmup transients (~5ms)
 	fadeInTotalSamples_     = juce::jmax (64, (int) (sampleRate * 0.005));
 	fadeInSamplesRemaining_ = fadeInTotalSamples_;
@@ -1069,7 +1099,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Limiter
 	const int limMode = loadRelaxedInt (pLimMode);
+	const float limThreshLinStart = lastLimiterThresholdLin_;
 	const float limThreshLin = (limMode != 0) ? fastDecibelsToGain (loadRelaxed (pLimThreshold, kLimThresholdDefault)) : 1.0f;
+	lastLimiterThresholdLin_ = limThreshLin;
 
 	const int invPol = loadRelaxedInt (pInvPol);
 	const int invStr = loadRelaxedInt (pInvStr);
@@ -1090,7 +1122,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Apply input gain
 	const float inputGain = fastDecibelsToGain (loadRelaxed (pInput));
-	buffer.applyGain (inputGain);
+	for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+		buffer.applyGainRamp (ch, 0, numSamples, lastInputGain_, inputGain);
+	lastInputGain_ = inputGain;
 
 	// DIAGNOSTIC LOG (throttled ~1s)
 #if CABTR_DSP_DEBUG_LOG
@@ -1144,7 +1178,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
-	const bool needsDry = (mixMode == 1) ? true : (globalMix < 0.999f);
+	const bool needsDry = true;
 	if (needsDry)
 	{
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -1159,23 +1193,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			loaderDryBuffer.copyFrom (ch, 0, src, ch, 0, numSamples);
 	};
 
-	// Per-loader dry/wet blend (loaderDryBuffer must contain the pre-process signal)
-	auto applyLoaderMix = [&] (juce::AudioBuffer<float>& buf, float mixVal)
-	{
-		if (mixVal < 0.999f)
-		{
-			const float wet = mixVal;
-			const float dry = 1.0f - mixVal;
-			for (int ch = 0; ch < buf.getNumChannels(); ++ch)
-			{
-				auto* wetData = buf.getWritePointer (ch);
-				const auto* dryData = loaderDryBuffer.getReadPointer (ch);
-				juce::FloatVectorOperations::multiply (wetData, wet, numSamples);
-				juce::FloatVectorOperations::addWithMultiply (wetData, dryData, dry, numSamples);
-			}
-		}
-	};
-
 	// Process one loader with mode in/out and per-loader mix
 	auto processOne = [&] (IRLoaderState& state, juce::AudioBuffer<float>& buf,
 	                        int loaderIndex, int modeIn, int modeOut, float loaderMix)
@@ -1184,7 +1201,21 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		applyMidSideMode (buf, modeIn, numSamples);
 		processLoader (state, buf, loaderIndex);
 		applyMidSideMode (buf, modeOut, numSamples);
-		applyLoaderMix (buf, loaderMix);
+
+		const float wetStart = state.lastMix;
+		const float wetEnd   = loaderMix;
+		const float dryStart = 1.0f - wetStart;
+		const float dryEnd   = 1.0f - wetEnd;
+		if (std::abs (wetStart - wetEnd) > 1.0e-4f || std::abs (wetEnd - 1.0f) > 1.0e-4f)
+		{
+			for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+			{
+				buf.applyGainRamp (ch, 0, numSamples, wetStart, wetEnd);
+				buf.addFromWithRamp (ch, 0, loaderDryBuffer.getReadPointer (ch), numSamples,
+				                     dryStart, dryEnd);
+			}
+		}
+		state.lastMix = wetEnd;
 	};
 
 	// Count how many loaders are active (for parallel compensation)
@@ -1542,7 +1573,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// User limiter (WET: on processed signal, before global dry/wet mix)
 	if (limMode == 1 && buffer.getNumChannels() >= 2)
-		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
+		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
+		              limThreshLinStart, limThreshLin);
 
 	// Invert Polarity / Stereo (WET mode: after Limiter WET, before mix)
 	{
@@ -1563,24 +1595,25 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
 	if (needsDry)
 	{
-		float wet, dry;
+		float wetEnd, dryEnd;
 		if (mixMode == 0)  // INSERT: classic crossfade
 		{
-			wet = globalMix;
-			dry = 1.0f - globalMix;
+			wetEnd = globalMix;
+			dryEnd = 1.0f - globalMix;
 		}
 		else  // SEND: independent dry + wet levels
 		{
-			dry = dryLevel;
-			wet = wetLevel;
+			dryEnd = dryLevel;
+			wetEnd = wetLevel;
 		}
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		{
-			auto* wetData = buffer.getWritePointer (ch);
-			const auto* dryData = globalDryBuffer.getReadPointer (ch);
-			juce::FloatVectorOperations::multiply (wetData, wet, numSamples);
-			juce::FloatVectorOperations::addWithMultiply (wetData, dryData, dry, numSamples);
+			buffer.applyGainRamp (ch, 0, numSamples, lastGlobalWetMix_, wetEnd);
+			buffer.addFromWithRamp (ch, 0, globalDryBuffer.getReadPointer (ch), numSamples,
+			                        lastGlobalDryMix_, dryEnd);
 		}
+		lastGlobalWetMix_ = wetEnd;
+		lastGlobalDryMix_ = dryEnd;
 	}
 
 	// DC blocking filter (first-order high-pass ~5 Hz)
@@ -1619,7 +1652,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Apply output gain
 	const float outputGain = fastDecibelsToGain (loadRelaxed (pOutput));
-	buffer.applyGain (outputGain);
+	for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+		buffer.applyGainRamp (ch, 0, numSamples, lastOutputGain_, outputGain);
+	lastOutputGain_ = outputGain;
 
 	// Post-prepare fade-in: suppress convolver/filter warmup transients
 	if (fadeInSamplesRemaining_ > 0)
@@ -1640,7 +1675,8 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// User limiter (GLOBAL: after output gain, before safety clip)
 	if (limMode == 2 && buffer.getNumChannels() >= 2)
-		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples, limThreshLin);
+		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
+		              limThreshLinStart, limThreshLin);
 
 	// Invert Polarity / Stereo (GLOBAL mode: after Limiter GLOBAL, before safety clip)
 	{
@@ -3197,8 +3233,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	// 1. INPUT GAIN (IN)
 	{
 		const float inGain = fastDecibelsToGain (inDb);
-		if (inGain < 0.999f)
-			buffer.applyGain (inGain);
+		for (int ch = 0; ch < numChannels; ++ch)
+			buffer.applyGainRamp (ch, 0, numSamples, state.lastInGain, inGain);
+		state.lastInGain = inGain;
 	}
 
 	// PRE-expander: after input conditioning, before the IR/convolution black box.
@@ -3228,10 +3265,11 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		                     expKneeDb, expAtkMs, expRelMs);
 
 	// 3. OUTPUT GAIN (OUT) - applied after PRE/POST IR placement, before tilt/filters
-	if (std::abs (outDb) > 0.01f)
 	{
 		const float outGain = fastDecibelsToGain (outDb);
-		buffer.applyGain (outGain);
+		for (int ch = 0; ch < numChannels; ++ch)
+			buffer.applyGainRamp (ch, 0, numSamples, state.lastOutGain, outGain);
+		state.lastOutGain = outGain;
 	}
 
 #if CABTR_DSP_DEBUG_LOG
@@ -3450,26 +3488,37 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 
 		// Distance gain attenuation: 0dB at pos=0, -6dB at pos=1
 		const float distGain = 1.0f - pos * 0.5f;
-		buffer.applyGain (distGain);
+		for (int ch = 0; ch < numChannels; ++ch)
+			buffer.applyGainRamp (ch, 0, numSamples, state.lastPosGain, distGain);
+		state.lastPosGain = distGain;
 	}
-	else if (state.lastPosFreq > 0.0f)
+	else
 	{
-		state.lastPosFreq = -1.0f; // Mark as inactive
+		if (state.lastPosFreq > 0.0f)
+			state.lastPosFreq = -1.0f; // Mark as inactive
+		if (std::abs (state.lastPosGain - 1.0f) > 1.0e-4f)
+			for (int ch = 0; ch < numChannels; ++ch)
+				buffer.applyGainRamp (ch, 0, numSamples, state.lastPosGain, 1.0f);
+		state.lastPosGain = 1.0f;
 	}
 
-	// 5. PAN (cached gains)
-	if (numChannels >= 2 && std::abs (pan - 0.5f) > 0.001f)
+	// 5. PAN
+	if (numChannels >= 2)
 	{
-		if (std::abs (pan - state.lastPan) > 0.001f)
+		float targetLeft = 1.0f;
+		float targetRight = 1.0f;
+		if (std::abs (pan - 0.5f) > 0.001f)
 		{
 			const float panAngle = pan * 1.5707963f;
-			state.lastPanLeft = std::cos (panAngle);
-			state.lastPanRight = std::sin (panAngle);
-			state.lastPan = pan;
+			targetLeft = std::cos (panAngle);
+			targetRight = std::sin (panAngle);
 		}
-		
-		buffer.applyGain (0, 0, numSamples, state.lastPanLeft);
-		buffer.applyGain (1, 0, numSamples, state.lastPanRight);
+
+		buffer.applyGainRamp (0, 0, numSamples, state.lastPanLeft, targetLeft);
+		buffer.applyGainRamp (1, 0, numSamples, state.lastPanRight, targetRight);
+		state.lastPanLeft = targetLeft;
+		state.lastPanRight = targetRight;
+		state.lastPan = pan;
 	}
 	
 	// 6. DELAY: auto-align compensation
