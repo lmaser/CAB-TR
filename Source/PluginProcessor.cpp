@@ -2040,9 +2040,10 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 }
 
 //==============================================================================
-// EXPORT COMBINED IR - Offline capture through full processing chain
+// EXPORT COMBINED IR - Offline capture through the static loader chain
 // Generates a unit impulse, processes it through both loaders (routing, filters,
-// DIST, PAN, DELAY, ANGLE, mode in/out, mix, gains) except CHAOS.
+// DIST, PAN, DELAY, ANGLE, mode in/out, mix, gains) except dynamic/non-static stages
+// such as CHAOS and EXP.
 // formatType: 0=WAV16, 1=WAV24, 2=WAV32f, 3=AIFF24, 4=FLAC24
 //==============================================================================
 
@@ -2864,7 +2865,9 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 //==============================================================================
 // Offline loader effects: HP -> LP -> DIST -> PAN -> DELAY -> ANGLE -> OUT gain
 // Uses temporary filter instances (no audio-thread state mutation).
-// CHAOS is intentionally skipped (non-deterministic modulation).
+// CHAOS and EXP are intentionally skipped for export:
+// - CHAOS is non-deterministic/time-varying
+// - EXP is signal-dynamic and cannot be represented faithfully in a static IR
 //==============================================================================
 void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
                                                         int loaderIndex, double sampleRate,
@@ -2926,13 +2929,6 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	                                    (int) pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)->load());
 	const int   lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
 	                                    (int) pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)->load());
-	const bool  expanderEnabled = pick (pExpA, pExpB, pExpC)->load() > 0.5f;
-	const bool  expPost = pick (pExpOrderA, pExpOrderB, pExpOrderC)->load() > 0.5f;
-	const float expRatio = pick (pExpRatioA, pExpRatioB, pExpRatioC)->load();
-	const float expThreshDb = pick (pExpThreshA, pExpThreshB, pExpThreshC)->load();
-	const float expKneeDb = pick (pExpKneeA, pExpKneeB, pExpKneeC)->load();
-	const float expAtkMs = pick (pExpAtkA, pExpAtkB, pExpAtkC)->load();
-	const float expRelMs = pick (pExpRelA, pExpRelB, pExpRelC)->load();
 	const float delayMs = pick (pDelayA, pDelayB, pDelayC)->load();
 	const float pan = pick (pPanA, pPanB, pPanC)->load();
 	const float fred = pick (pFredA, pFredB, pFredC)->load();
@@ -2956,15 +2952,9 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	spec.maximumBlockSize = static_cast<juce::uint32> (numSamples);
 	spec.numChannels = static_cast<juce::uint32> (numChannels);
 
-	// OUT gain (before tilt/filters, matching realtime DSP order)
+	// OUT gain
 	if (std::abs (outDb) > 0.01f)
 		buffer.applyGain (juce::Decibels::decibelsToGain (outDb));
-
-	float expLinkedEnv = 0.0f;
-	if (expanderEnabled && !expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (sampleRate), expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
 
 	// Per-loader TILT EQ (1st-order symmetric shelf, pivot 1kHz)
 	if (std::abs (tiltDb) > 0.05f)
@@ -3059,11 +3049,6 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 
 		buffer.applyGain (1.0f - pos * 0.5f);
 	}
-
-	if (expanderEnabled && expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (sampleRate), expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
 
 	// PAN (constant-power)
 	if (numChannels >= 2 && std::abs (pan - 0.5f) > 0.001f)
@@ -3216,6 +3201,12 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			buffer.applyGain (inGain);
 	}
 
+	// PRE-expander: after input conditioning, before the IR/convolution black box.
+	if (expanderEnabled && ! expPost)
+		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		                     expanderEnabled, expRatio, expThreshDb,
+		                     expKneeDb, expAtkMs, expRelMs);
+
 	// 2. CONVOLUTION (TwoStageFFTConvolver - head on audio thread, tail on background)
 	{
 		state.convolution.process (buffer);
@@ -3230,18 +3221,18 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 	}
 
-	// 3. OUTPUT GAIN (OUT) - applied before tilt/filters per requested DSP order
+	// POST-expander: immediately after the IR/convolution black box.
+	if (expanderEnabled && expPost)
+		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		                     expanderEnabled, expRatio, expThreshDb,
+		                     expKneeDb, expAtkMs, expRelMs);
+
+	// 3. OUTPUT GAIN (OUT) - applied after PRE/POST IR placement, before tilt/filters
 	if (std::abs (outDb) > 0.01f)
 	{
 		const float outGain = fastDecibelsToGain (outDb);
 		buffer.applyGain (outGain);
 	}
-
-	// PRE-expander: after CONVOLUTION + OUT, before the loader's tonal block.
-	if (expanderEnabled && !expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
 
 #if CABTR_DSP_DEBUG_LOG
 	// Per-loader post-convolution + post-out diagnostic (throttled)
@@ -3466,12 +3457,6 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.lastPosFreq = -1.0f; // Mark as inactive
 	}
 
-	// POST-expander: after the loader's tonal block, before PAN/DELAY/FRED/CHAOS.
-	if (expanderEnabled && expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
-	
 	// 5. PAN (cached gains)
 	if (numChannels >= 2 && std::abs (pan - 0.5f) > 0.001f)
 	{
