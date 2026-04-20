@@ -171,9 +171,12 @@ Per-loader stereo-linked downward expander. Click `EXP` to enable it; right-clic
 Prompt controls:
 - **ORDER**: `PRE` places the expander before the IR loader. `POST` places it immediately after the IR loader.
 - **THRESH (-60 to 0 dB)**: Expansion threshold.
-- **RATIO (1:1 to 1:10)**: Downward expansion ratio.
+- **RATIO (0.1 to 10.0)**: Ratio control centered at `1.0`.
+  - **1.0**: Neutral.
+  - **> 1.0**: Downward expansion below threshold.
+  - **< 1.0**: Inverted action on material below threshold.
 - **KNEE (0 to 12 dB)**: Soft-knee region around the threshold.
-- **ATK (0.01 to 100 ms)**: Attack time.
+- **ATK (0.00 to 100 ms)**: Attack time.
 - **REL (5 to 2000 ms)**: Release time.
 
 This makes `EXP ORDER` in CAB-TR directly analogous to `SAT-TR`: it decides whether the dynamics stage conditions what feeds the core black box (the IR) or shapes the result after it.

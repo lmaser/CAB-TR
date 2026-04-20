@@ -34,6 +34,40 @@ static constexpr std::array<const char*, 7> kUiMirrorParamIds {
 // ============================================================================
 namespace
 {
+	float expRatioInternalToDisplay (float internalRatio) noexcept
+	{
+		return juce::jlimit (CABTRAudioProcessor::kExpRatioMin,
+		                     CABTRAudioProcessor::kExpRatioMax,
+		                     internalRatio);
+	}
+
+	float expRatioDisplayToInternal (float displayRatio) noexcept
+	{
+		return juce::jlimit (CABTRAudioProcessor::kExpRatioMin,
+		                     CABTRAudioProcessor::kExpRatioMax,
+		                     displayRatio);
+	}
+
+	float expRatioDisplayToNorm (float displayRatio) noexcept
+	{
+		const float clamped = expRatioInternalToDisplay (displayRatio);
+		const float minLog = std::log10 (CABTRAudioProcessor::kExpRatioMin);
+		const float maxLog = std::log10 (CABTRAudioProcessor::kExpRatioMax);
+		return juce::jlimit (0.0f, 1.0f, (std::log10 (clamped) - minLog) / (maxLog - minLog));
+	}
+
+	float expRatioNormToDisplay (float norm) noexcept
+	{
+		const float minLog = std::log10 (CABTRAudioProcessor::kExpRatioMin);
+		const float maxLog = std::log10 (CABTRAudioProcessor::kExpRatioMax);
+		return std::pow (10.0f, minLog + juce::jlimit (0.0f, 1.0f, norm) * (maxLog - minLog));
+	}
+
+	juce::String formatExpRatioDisplay (float internalRatio, int decimals = 1)
+	{
+		return juce::String (expRatioInternalToDisplay (internalRatio), decimals);
+	}
+
 	struct PopupSwatchButton final : public juce::TextButton
 	{
 		std::function<void()> onLeftClick;
@@ -1448,7 +1482,7 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		r.expDisp.setText ("", juce::dontSendNotification);
 		r.expDisp.setInterceptsMouseClicks (true, false);
 		r.expDisp.addMouseListener (this, false);
-		r.expDisp.setTooltip (juce::String (savedOrder ? "POST" : "PRE") + " | 1:" + juce::String (juce::roundToInt (savedRatio))
+		r.expDisp.setTooltip (juce::String (savedOrder ? "POST" : "PRE") + " | 1:" + formatExpRatioDisplay (savedRatio)
 		                      + " | " + juce::String (juce::roundToInt (savedThresh)) + " dB");
 		r.expDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.expDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
@@ -5037,7 +5071,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	bodyContent->addAndMakeVisible (orderLabel);
 
 	aw->addTextEditor ("thresh", juce::String (currentThresh, 1), juce::String());
-	aw->addTextEditor ("ratio", juce::String (currentRatio, 1), juce::String());
+	aw->addTextEditor ("ratio", formatExpRatioDisplay (currentRatio), juce::String());
 	aw->addTextEditor ("knee", juce::String (currentKnee, 1), juce::String());
 	aw->addTextEditor ("atk", juce::String (currentAtk, 2), juce::String());
 	aw->addTextEditor ("rel", juce::String (currentRel, 2), juce::String());
@@ -5092,15 +5126,14 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	};
 
 	setupField ("thresh", "THRESH", "dB", threshSuffix, threshUnit);
-	setupField ("ratio", "RATIO", ":1", ratioSuffix, ratioUnit);
+	setupField ("ratio", "RATIO 1", ":", ratioSuffix, ratioUnit);
 	setupField ("knee", "KNEE", "dB", kneeSuffix, kneeUnit);
 	setupField ("atk", "ATK", "ms", atkSuffix, atkUnit);
 	setupField ("rel", "REL", "ms", relSuffix, relUnit);
 
 	const float threshNorm = (currentThresh - CABTRAudioProcessor::kExpThreshMin)
 	                       / (CABTRAudioProcessor::kExpThreshMax - CABTRAudioProcessor::kExpThreshMin);
-	const float ratioNorm = (currentRatio - CABTRAudioProcessor::kExpRatioMin)
-	                      / (CABTRAudioProcessor::kExpRatioMax - CABTRAudioProcessor::kExpRatioMin);
+	const float ratioNorm = expRatioDisplayToNorm (currentRatio);
 	const float kneeNorm = (currentKnee - CABTRAudioProcessor::kExpKneeMin)
 	                     / (CABTRAudioProcessor::kExpKneeMax - CABTRAudioProcessor::kExpKneeMin);
 
@@ -5110,7 +5143,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	const float relNorm = relNormRange.convertTo0to1 (currentRel);
 
 	auto* threshBar = new PromptBar (scheme, threshNorm, 1.0f);
-	auto* ratioBar = new PromptBar (scheme, ratioNorm, 0.0f);
+	auto* ratioBar = new PromptBar (scheme, ratioNorm, expRatioDisplayToNorm (CABTRAudioProcessor::kExpRatioDefault));
 	auto* kneeBar = new PromptBar (scheme, kneeNorm, 0.0f);
 	auto* atkBar = new PromptBar (scheme, atkNorm, atkNormRange.convertTo0to1 (CABTRAudioProcessor::kExpAtkDefault));
 	auto* relBar = new PromptBar (scheme, relNorm, relNormRange.convertTo0to1 (CABTRAudioProcessor::kExpRelDefault));
@@ -5190,21 +5223,30 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		if (sawDot)
 			out += "." + fraction;
 
-		incompleteOut = (out.isEmpty() || out == "-");
-
-		juce::String parseText = out;
-		if (parseText.endsWithChar ('.'))
-			parseText = parseText.dropLastCharacters (1);
-
-		if (! incompleteOut && parseText.isNotEmpty() && parseText != "-")
-		{
-			const float raw = parseText.getFloatValue();
-			const float clamped = juce::jlimit (spec.minValue, spec.maxValue, raw);
-			if (std::abs (clamped - raw) > 1.0e-6f)
-				return juce::String (clamped, spec.formatDecimals);
-		}
+		incompleteOut = (out.isEmpty() || out == "-" || out.endsWithChar ('.'));
 
 		return out;
+	};
+
+	auto parseEnvPromptValue = [sanitiseEnvPromptText] (juce::TextEditor* te,
+	                                                    const EnvPromptNumericSpec& spec,
+	                                                    float fallback) -> float
+	{
+		if (te == nullptr)
+			return fallback;
+
+		bool incomplete = false;
+		auto sanitised = sanitiseEnvPromptText (te->getText(), spec, incomplete);
+		if (sanitised.isEmpty() || sanitised == "-" || incomplete)
+			return fallback;
+
+		if (sanitised.endsWithChar ('.'))
+			sanitised = sanitised.dropLastCharacters (1);
+
+		if (sanitised.isEmpty() || sanitised == "-")
+			return fallback;
+
+		return juce::jlimit (spec.minValue, spec.maxValue, (float) sanitised.getDoubleValue());
 	};
 
 	auto* threshApvts = audioProcessor.getValueTreeState().getParameter (threshParamId);
@@ -5237,11 +5279,10 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	{
 		if (*syncing) return;
 		*syncing = true;
-		const float ratio = CABTRAudioProcessor::kExpRatioMin
-		                  + v01 * (CABTRAudioProcessor::kExpRatioMax - CABTRAudioProcessor::kExpRatioMin);
+		const float ratio = expRatioNormToDisplay (v01);
 		if (auto* te = aw->getTextEditor ("ratio"))
 		{
-			te->setText (juce::String (ratio, 1), juce::sendNotification);
+			te->setText (formatExpRatioDisplay (ratio), juce::sendNotification);
 			te->selectAll();
 		}
 		if (ratioApvts) ratioApvts->setValueNotifyingHost (ratioApvts->convertTo0to1 (ratio));
@@ -5345,7 +5386,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		const int barW = innerW;
 		const int threshEditorW = juce::jlimit (24, 160, juce::jmax (stringWidth (font, juce::String (CABTRAudioProcessor::kExpThreshMin, 1)),
 		                                                             stringWidth (font, juce::String (CABTRAudioProcessor::kExpThreshMax, 1))) + 16);
-		const int ratioEditorW = juce::jlimit (24, 160, stringWidth (font, juce::String (CABTRAudioProcessor::kExpRatioMax, 1)) + 16);
+		const int ratioEditorW = juce::jlimit (36, 180, juce::jmax (stringWidth (font, formatExpRatioDisplay (CABTRAudioProcessor::kExpRatioMin)),
+		                                                            stringWidth (font, formatExpRatioDisplay (CABTRAudioProcessor::kExpRatioMax))) + 24);
 		const int kneeEditorW = juce::jlimit (24, 160, stringWidth (font, juce::String (CABTRAudioProcessor::kExpKneeMax, 1)) + 16);
 		const int atkEditorW = juce::jlimit (24, 160, juce::jmax (stringWidth (font, juce::String (CABTRAudioProcessor::kExpAtkMin, 2)),
 		                                                          stringWidth (font, juce::String (CABTRAudioProcessor::kExpAtkMax, 2))) + 16);
@@ -5373,15 +5415,45 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 
 			const int labelW = stringWidth (suffix->getFont(), suffix->getText()) + 2;
 			const int unitW = (unitLabel != nullptr) ? stringWidth (font, unitLabel->getText()) + 2 : 0;
-			const int groupW = labelW + labelGap + editorW + (unitLabel != nullptr ? unitGapPx + unitW : 0);
-			const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
+			const bool isRatioRow = (te == ratioTe && unitLabel == ratioUnit);
 
-			suffix->setBounds (blockLeft, rowY, labelW, rowH);
-			const int teX = blockLeft + labelW + labelGap;
-			te->setBounds (teX, rowY, editorW, rowH);
+			if (isRatioRow)
+			{
+				const int ratioSeparatorSpan = juce::jmax (unitW + 2 * juce::jmax (spaceW, 8), labelGap + unitW);
+				const int groupW = labelW + ratioSeparatorSpan + editorW;
+				const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
+				const int suffixRight = blockLeft + labelW;
+				const int teX = blockLeft + labelW + ratioSeparatorSpan;
+				const int ratioTextW = stringWidth (font, te->getText());
+				const int visibleTextLeft = teX + juce::jmax (0, (editorW - ratioTextW) / 2);
+				const int colonCenterX = suffixRight + (visibleTextLeft - suffixRight) / 2;
+				const int colonX = colonCenterX - unitW / 2;
 
-			if (unitLabel != nullptr)
-				unitLabel->setBounds (teX + editorW + unitGapPx, rowY, unitW, rowH);
+				suffix->setBounds (blockLeft, rowY, labelW, rowH);
+
+				if (unitLabel != nullptr)
+				{
+					unitLabel->setJustificationType (juce::Justification::centred);
+					unitLabel->setBounds (colonX, rowY, unitW, rowH);
+				}
+
+				te->setBounds (teX, rowY, editorW, rowH);
+			}
+			else
+			{
+				const int groupW = labelW + labelGap + editorW + (unitLabel != nullptr ? unitGapPx + unitW : 0);
+				const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
+
+				suffix->setBounds (blockLeft, rowY, labelW, rowH);
+				const int teX = blockLeft + labelW + labelGap;
+				te->setBounds (teX, rowY, editorW, rowH);
+
+				if (unitLabel != nullptr)
+				{
+					unitLabel->setJustificationType (juce::Justification::centredLeft);
+					unitLabel->setBounds (teX + editorW + unitGapPx, rowY, unitW, rowH);
+				}
+			}
 
 			bar->setBounds (barX, rowY + rowH + barGap, barW, barH);
 		};
@@ -5403,8 +5475,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	auto textToBarRatio = [syncing, ratioApvts] (float raw, PromptBar* bar)
 	{
 		if (*syncing || ! bar) return;
-		bar->value = (raw - CABTRAudioProcessor::kExpRatioMin) / (CABTRAudioProcessor::kExpRatioMax - CABTRAudioProcessor::kExpRatioMin);
-		if (ratioApvts) ratioApvts->setValueNotifyingHost (ratioApvts->convertTo0to1 (raw));
+		const float internalRatio = expRatioDisplayToInternal (raw);
+		bar->value = expRatioDisplayToNorm (internalRatio);
+		if (ratioApvts) ratioApvts->setValueNotifyingHost (ratioApvts->convertTo0to1 (internalRatio));
 		bar->repaint();
 	};
 
@@ -5458,7 +5531,11 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			parseText = parseText.dropLastCharacters (1);
 
 		if (! incomplete && parseText.isNotEmpty() && parseText != "-")
-			pushValue ((float) parseText.getDoubleValue(), bar);
+		{
+			const float raw = (float) parseText.getDoubleValue();
+			if (raw >= spec.minValue && raw <= spec.maxValue)
+				pushValue (raw, bar);
+		}
 
 		*syncing = false;
 		layoutBody();
@@ -5550,6 +5627,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	aw->enterModalState (true,
 		juce::ModalCallbackFunction::create (
 			[safeThis, aw, orderState, threshBar, ratioBar, kneeBar, atkBar, relBar,
+			 parseEnvPromptValue, threshSpec, ratioSpec, kneeSpec, atkSpec, relSpec,
 			 viewport, orderHandler,
 			 savedOrder = currentOrder, savedThresh = currentThresh, savedRatio = currentRatio, savedKnee = currentKnee,
 			 savedAtk = currentAtk, savedRel = currentRel,
@@ -5586,21 +5664,27 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			}
 			else
 			{
-				const float newThresh = juce::jlimit (CABTRAudioProcessor::kExpThreshMin,
-				                                      CABTRAudioProcessor::kExpThreshMax,
-				                                      CABTRAudioProcessor::kExpThreshMin
-				                                      + threshBar->value * (CABTRAudioProcessor::kExpThreshMax - CABTRAudioProcessor::kExpThreshMin));
-				const float newRatio = juce::jlimit (CABTRAudioProcessor::kExpRatioMin,
-				                                     CABTRAudioProcessor::kExpRatioMax,
-				                                     CABTRAudioProcessor::kExpRatioMin
-				                                     + ratioBar->value * (CABTRAudioProcessor::kExpRatioMax - CABTRAudioProcessor::kExpRatioMin));
-				const float newKnee = juce::jlimit (CABTRAudioProcessor::kExpKneeMin,
-				                                    CABTRAudioProcessor::kExpKneeMax,
-				                                    CABTRAudioProcessor::kExpKneeMin
-				                                    + kneeBar->value * (CABTRAudioProcessor::kExpKneeMax - CABTRAudioProcessor::kExpKneeMin));
+				auto& vts = safeThis->audioProcessor.getValueTreeState();
+				const float newThresh = parseEnvPromptValue (aw->getTextEditor ("thresh"), threshSpec, savedThresh);
+				const float newRatio  = parseEnvPromptValue (aw->getTextEditor ("ratio"),  ratioSpec,  savedRatio);
+				const float newKnee   = parseEnvPromptValue (aw->getTextEditor ("knee"),   kneeSpec,   savedKnee);
+				const float newAtk    = parseEnvPromptValue (aw->getTextEditor ("atk"),    atkSpec,    savedAtk);
+				const float newRel    = parseEnvPromptValue (aw->getTextEditor ("rel"),    relSpec,    savedRel);
+
+				if (auto* p = vts.getParameter (threshParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newThresh));
+				if (auto* p = vts.getParameter (ratioParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newRatio));
+				if (auto* p = vts.getParameter (kneeParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newKnee));
+				if (auto* p = vts.getParameter (atkParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newAtk));
+				if (auto* p = vts.getParameter (relParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newRel));
+
 				auto tip = juce::String (*orderState ? "POST" : "PRE")
 				         + " | " + juce::String (newThresh, 1) + " dB"
-				         + " | 1:" + juce::String (newRatio, 1);
+				         + " | 1:" + formatExpRatioDisplay (newRatio);
 				if (newKnee > 0.05f)
 					tip += " | K " + juce::String (newKnee, 1) + " dB";
 				auto& disp = loaderIndex == 0 ? safeThis->expDisplayA
