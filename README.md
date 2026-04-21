@@ -9,7 +9,7 @@ It combines zero-latency partitioned convolution with per-loader processing chai
 
 CAB-TR treats impulse responses as composable building blocks rather than static snapshots. Three independent loader slots can be routed in series, parallel, or hybrid topologies - each with its own filter chain, Fredman off-axis simulation, size resampling, dynamic expander, and M/S bus assignment.
 
-The Sum Bus system lets each loader contribute to the Stereo, Mid, or Side bus independently at the summing stage, enabling true M/S separation without external routing tools. Combined with four routing modes, this produces configurations that are impossible in conventional dual-loader IR plugins.
+The Sum Bus system lets each loader contribute to the Stereo, Mid, or Side bus independently at the summing stage, enabling true M/S separation without external routing tools. Combined with six routing modes, this produces configurations that are impossible in conventional dual-loader IR plugins.
 
 ## Interface
 
@@ -49,6 +49,13 @@ Routing topology for the three loaders:
 - **A|B|C** (default): All three in parallel. Each processes the input independently; results are summed with `1/sqrt(N)` compensation.
 - **A->B|C**: A feeds into B (series), C runs in parallel. Two-path sum at the output.
 - **A|B->C**: A runs in parallel, B feeds into C (series). Two-path sum at the output.
+- **(A|B)->C**: A and B run in parallel first; their combined result then feeds C.
+- **A->(B|C)**: A runs first as a shared pre-stage; its output then splits to B and C in parallel.
+
+Notes:
+- In **A|B->C**, only the **B** branch feeds **C**. `A` is summed later, after the `B->C` chain.
+- In **(A|B)->C**, `A` and `B` are summed first, and that combined signal is what enters `C`.
+- In **A->(B|C)**, `A` is a shared pre-stage. Both `B` and `C` receive the output of `A`.
 
 #### ALIGN
 
@@ -183,10 +190,15 @@ This makes `EXP ORDER` in CAB-TR directly analogous to `SAT-TR`: it decides whet
 
 #### MODE IN / MODE OUT
 
-Stereo encoding mode applied before (IN) and after (OUT) convolution:
-- **L+R**: Standard stereo (default).
-- **MID**: Mono sum - `(L+R) / 2`.
-- **SIDE**: Stereo difference - `(L-R) / 2`.
+Per-loader Mid/Side routing:
+- **MODE IN**
+  - `L+R`: standard stereo input
+  - `MID`: extracts the Mid component for processing
+  - `SIDE`: extracts the Side component for processing
+- **MODE OUT**
+  - `L+R`: standard stereo output
+  - `MID`: outputs a mono Mid signal on both channels
+  - `SIDE`: outputs a stereo Side signal as `+S / -S`
 
 #### SUM BUS
 
@@ -195,7 +207,12 @@ Per-loader bus assignment for the parallel summing stage:
 - **->M**: Routes to the Mid bus - `(L+R) * 0.5` added to both L and R equally.
 - **->S**: Routes to the Side bus - `(L-R) * 0.5` added with opposite polarity to L and R.
 
-Sum Bus is applied at the summing point in Routes `A|B|C`, `A->B|C`, and `A|B->C`. In the full-series route (`A->B->C`), the signal is never split, so Sum Bus has no effect.
+Practical note:
+- `MODE IN` decides what component a loader processes.
+- `MODE OUT` decides how that processed result is represented when it leaves the loader.
+- `SUM BUS` decides how that loader output is injected at a parallel summing point.
+- `SUM BUS` matters in routes with an actual split/summing stage: `A|B|C`, `A->B|C`, `A|B->C`, `(A|B)->C`, and `A->(B|C)`.
+- In full series `A->B->C`, there is no parallel sum stage, so `SUM BUS` has no practical effect.
 
 The final output combines all three buses:
 - `outL = stL + midBus + sideBus`
@@ -216,9 +233,20 @@ Both chaos prompts expose:
 
 Renders the combined static output of all active loaders to a single IR file on disk.
 
-The export path includes the IR chain, routing, filters, delay, angle/FRED, pan, gains, and other static processing. Dynamic or non-static stages are intentionally excluded:
-- **CHAOS**
+The export path mirrors the static routing and tone-shaping chain as closely as a stereo IR format allows. This includes:
+- loader routing, `MODE IN`, `MODE OUT`, and `SUM BUS`
+- per-loader static processing: gains, tilt, HP/LP, DIST, PAN, DELAY, ANGLE/FRED, and per-loader `MIX`
+- global static processing: input gain, MATCH, NORM, INSERT/SEND mix blend, DC block, output gain, and `INV POL` / `INV STR`
+
+Dynamic or non-static stages are intentionally excluded:
+- **CHAOS D**
+- **CHAOS F**
 - **EXP**
+- **LIMITER**
+
+Practical note:
+- chained/internal `MODE IN MID/SIDE` stages are rendered from the real upstream buffer, so routed exports follow the realtime topology closely
+- a **first** loader using `MODE IN MID/SIDE` is still constrained by the stereo IR format itself: the export starts from a correlated stereo unit impulse, so pre-convolution M/S matrixing at the very first stage is represented as the closest practical stereo approximation rather than a full 2x2 channel matrix
 
 Export options:
 - **Sample Rates**: 44.1k, 48k, 88.2k, 96k, 176.4k, 192k Hz.
@@ -273,4 +301,4 @@ Export options:
 - Added dual-stage transparent peak limiter with LIM THRESHOLD (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.
 - Added per-loader `EXP` with `PRE/POST` order around the IR loader plus THRESH, RATIO, KNEE, ATK, and REL controls.
 - Refined prompt UX and delay readouts for consistent numeric editing and 0.001 ms precision display.
-- Export now excludes dynamic/non-static stages such as `CHAOS` and `EXP`.
+- Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `EXP`, and `LIMITER`.

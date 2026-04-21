@@ -1582,6 +1582,8 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	routeCombo.addItem ("A|B|C", 2);
 	routeCombo.addItem ("A>B|C", 3);
 	routeCombo.addItem ("A|B>C", 4);
+	routeCombo.addItem ("(A|B)>C", 5);
+	routeCombo.addItem ("A>(B|C)", 6);
 	routeCombo.setJustificationType (juce::Justification::centred);
 	routeCombo.setLookAndFeel (&lnf);
 	routeCombo.addListener (this);

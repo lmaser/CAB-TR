@@ -147,7 +147,7 @@ public:
 	// ============================================================================
 	static constexpr const char* kParamInput        = "input";
 	static constexpr const char* kParamOutput       = "output";
-	static constexpr const char* kParamRoute        = "route";     // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
+	static constexpr const char* kParamRoute        = "route";     // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C, 4=(A|B)->C, 5=A->(B|C)
 	static constexpr const char* kParamAlign        = "align";     // Auto phase alignment
 	static constexpr const char* kParamMix          = "mix";       // Global dry/wet mix
 	static constexpr const char* kParamMixMode      = "mix_mode";  // 0=INSERT, 1=SEND
@@ -326,7 +326,7 @@ public:
 	static constexpr int   kSumBusDefault           = 0;          // ST (unchanged)
 
 	static constexpr int   kRouteMin                = 0;
-	static constexpr int   kRouteMax                = 3;          // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C
+	static constexpr int   kRouteMax                = 5;          // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C, 4=(A|B)->C, 5=A->(B|C)
 	static constexpr int   kRouteDefault            = 1;          // Parallel by default
 	static constexpr int   kMatchDefault            = 0;
 	static constexpr int   kTrimDefault             = 0;          // None (no tilt)
@@ -815,11 +815,14 @@ private:
 	                         float expKneeDb, float expAtkMs, float expRelMs) noexcept;
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
 	void calculateAutoAlignment();
-	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer, int loaderIndex, double sampleRate,
-	                                  int modeIn, int modeOut, float loaderMix);
+	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
+	                                  const juce::AudioBuffer<float>& dryBuffer,
+	                                  int loaderIndex, double sampleRate,
+	                                  int modeOut, float loaderMix);
 
 	// Shared M/S encoding helper (used by processBlock + offline export)
-	static void applyMidSideMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
+	static void applyMidSideInputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
+	static void applyMidSideOutputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
 
 	// Generic Hermite + Drift chaos engine (per-sample advance)
 	inline void advanceChaosEngine (
