@@ -107,6 +107,61 @@ namespace
 		}
 	};
 
+	struct BrowserListFrame final : public juce::Component
+	{
+		explicit BrowserListFrame (const TRScheme& colours) : scheme (colours) {}
+
+		void setParentRow (bool shouldShow, int rowHeight)
+		{
+			parentRowVisible = shouldShow;
+			parentRowHeight = rowHeight;
+			repaint();
+		}
+
+		void paint (juce::Graphics& g) override
+		{
+			g.fillAll (scheme.bg);
+			g.setColour (scheme.fg);
+			g.drawRect (getLocalBounds(), outlineThickness);
+
+			if (parentRowVisible)
+			{
+				const int dividerY = outlineThickness + parentRowHeight;
+				g.fillRect (outlineThickness, dividerY - 1,
+				            juce::jmax (0, getWidth() - (outlineThickness * 2)), 2);
+			}
+		}
+
+		static constexpr int outlineThickness = 3;
+
+	private:
+		TRScheme scheme;
+		bool parentRowVisible = false;
+		int parentRowHeight = 0;
+	};
+
+	static juce::String getCanonicalBrowserPath (const juce::File& file)
+	{
+		return file.getFullPathName()
+			.replaceCharacter ('\\', '/')
+			.trimCharactersAtEnd ("/");
+	}
+
+	static juce::File getNavigableParentFolder (const juce::File& folder)
+	{
+		if (! folder.exists() || ! folder.isDirectory())
+			return {};
+
+		auto parent = folder.getParentDirectory();
+		if (! parent.exists() || ! parent.isDirectory())
+			return {};
+
+		if (getCanonicalBrowserPath (parent).equalsIgnoreCase (getCanonicalBrowserPath (folder)))
+			return {};
+
+		return parent;
+	}
+
 	// File browser list model
 	class FileListModel : public juce::ListBoxModel
 	{
@@ -125,11 +180,6 @@ namespace
 
 			if (! currentFolder.exists() || ! currentFolder.isDirectory())
 				return;
-
-			// Add parent directory option if not at root
-			auto parent = currentFolder.getParentDirectory();
-			if (parent.exists() && parent.isDirectory())
-				items.add ({ true, parent, ".." });
 
 			// Add subdirectories - with validation
 			for (const auto& entry : juce::RangedDirectoryIterator (currentFolder, false, "*", juce::File::findDirectories))
@@ -184,7 +234,7 @@ namespace
 			g.setFont (juce::Font (juce::FontOptions (15.0f)));
 
 			juce::String displayText = item.displayName;
-			if (item.isDirectory && item.displayName != "..")
+			if (item.isDirectory)
 				displayText += "/";
 
 			g.drawText (displayText, 8, 0, width - 16, height, juce::Justification::centredLeft, true);
@@ -209,13 +259,7 @@ namespace
 			if (! item.file.exists())
 				return;
 
-			if (item.displayName == "..")
-			{
-				// Go to parent directory
-				if (onNavigateUp)
-					onNavigateUp();
-			}
-			else if (item.isDirectory && item.file.isDirectory())
+			if (item.isDirectory && item.file.isDirectory())
 			{
 				// Navigate into directory - double check it's accessible
 				// CRITICAL: Copy the File BEFORE passing to callback
@@ -242,7 +286,7 @@ namespace
 			if (selectedRow >= 0 && selectedRow < items.size())
 			{
 				auto& item = items.getReference (selectedRow);
-				if (! item.isDirectory || item.displayName == "..")
+				if (! item.isDirectory)
 					return item.file;
 			}
 			return {};
@@ -255,7 +299,6 @@ namespace
 			return false;
 		}
 
-		std::function<void()> onNavigateUp;
 		std::function<void(const juce::File&)> onNavigateInto;
 		std::function<void(const juce::File&)> onFileSelected;
 
@@ -2590,6 +2633,8 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	// Create file list model and ListBox
 	auto* fileModel = new FileListModel (activeScheme);
 	auto* listBox = new juce::ListBox ("", fileModel); // No label
+	auto* parentFolderLabel = new PopupClickableLabel ("parent", "..");
+	auto* fileListFrame = new BrowserListFrame (activeScheme);
 
 	// Add current path label at the top
 	auto& startFolder = loaderIndex == 0 ? currentFolderA : (loaderIndex == 1 ? currentFolderB : currentFolderC);
@@ -2607,6 +2652,50 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	juce::Component::SafePointer<juce::ListBox> safeListBox (listBox);
 	juce::Component::SafePointer<juce::Label> safePathLabel (pathLabel);
 	juce::Component::SafePointer<juce::ComboBox> safeDriveCombo (driveCombo);
+	juce::Component::SafePointer<PopupClickableLabel> safeParentFolderLabel (parentFolderLabel);
+	juce::Component::SafePointer<BrowserListFrame> safeFileListFrame (fileListFrame);
+	auto refreshBrowserLayout = std::make_shared<std::function<void()>>();
+	auto refreshFolderUi = [fileModel, safeListBox, safePathLabel, safeDriveCombo,
+	                        safeParentFolderLabel, safeFileListFrame, refreshBrowserLayout]
+	                       (const juce::File& folder, bool updateDriveSelection) mutable
+	{
+		fileModel->setCurrentFolder (folder);
+		fileModel->selectedRow = -1;
+
+		if (safeListBox != nullptr)
+		{
+			safeListBox->updateContent();
+			safeListBox->deselectAllRows();
+			if (fileModel->getNumRows() > 0)
+				safeListBox->scrollToEnsureRowIsOnscreen (0);
+			safeListBox->repaint();
+		}
+
+		if (safePathLabel != nullptr)
+			safePathLabel->setText (folder.getFullPathName(), juce::dontSendNotification);
+
+		const bool hasParent = getNavigableParentFolder (folder).exists();
+		if (safeParentFolderLabel != nullptr)
+			safeParentFolderLabel->setVisible (hasParent);
+		if (safeFileListFrame != nullptr)
+			safeFileListFrame->setParentRow (hasParent, safeListBox != nullptr ? safeListBox->getRowHeight() : 24);
+
+		if (updateDriveSelection && safeDriveCombo != nullptr)
+		{
+			const auto folderPath = folder.getFullPathName().replaceCharacter ('\\', '/');
+			for (int i = 0; i < safeDriveCombo->getNumItems(); ++i)
+			{
+				if (folderPath.startsWithIgnoreCase (safeDriveCombo->getItemText (i)))
+				{
+					safeDriveCombo->setSelectedItemIndex (i, juce::dontSendNotification);
+					break;
+				}
+			}
+		}
+
+		if (refreshBrowserLayout != nullptr && *refreshBrowserLayout)
+			(*refreshBrowserLayout)();
+	};
 	
 	// Populate with available drives (Windows A: to Z:)
 	int driveIdx = 1;
@@ -2637,10 +2726,10 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	else
 		driveCombo->setTextWhenNothingSelected ("C:/");
 
-	fileModel->setCurrentFolder (currentFolder);
+	refreshFolderUi (currentFolder, false);
 
 	// Drive selection callback
-	driveCombo->onChange = [fileModel, safeListBox, safePathLabel, safeDriveCombo]() mutable
+	driveCombo->onChange = [safeDriveCombo, refreshFolderUi]() mutable
 	{
 		if (safeDriveCombo == nullptr)
 			return;
@@ -2649,70 +2738,23 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 		auto driveFile = juce::File (selectedDrive);
 		
 		if (driveFile.exists() && driveFile.isDirectory())
-		{
-			fileModel->setCurrentFolder (driveFile);
-			
-			// Check UI components are still valid before using them
-			if (safeListBox != nullptr)
-			{
-				safeListBox->updateContent();
-				safeListBox->repaint();
-			}
-			if (safePathLabel != nullptr)
-				safePathLabel->setText (driveFile.getFullPathName(), juce::dontSendNotification);
-		}
+			refreshFolderUi (driveFile, false);
 	};
 
-	// Callbacks for navigation
-	fileModel->onNavigateUp = [fileModel, safeListBox, safePathLabel, safeDriveCombo]() mutable
+	parentFolderLabel->onClick = [fileModel, refreshFolderUi]() mutable
 	{
-		auto parent = fileModel->currentFolder.getParentDirectory();
+		auto parent = getNavigableParentFolder (fileModel->currentFolder);
 		if (parent.exists() && parent.isDirectory())
-		{
-			fileModel->setCurrentFolder (parent);
-			
-			// Check UI components are still valid before using them
-				if (safeListBox != nullptr)
-			{
-				safeListBox->updateContent();
-				safeListBox->selectRow (0);
-				safeListBox->repaint();
-			}
-			if (safePathLabel != nullptr)
-				safePathLabel->setText (parent.getFullPathName(), juce::dontSendNotification);
-			
-			// Update drive combo if we've changed drives
-			if (safeDriveCombo != nullptr)
-			{
-				for (int i = 0; i < safeDriveCombo->getNumItems(); ++i)
-				{
-					if (parent.getFullPathName().startsWith (safeDriveCombo->getItemText (i)))
-					{
-						safeDriveCombo->setSelectedItemIndex (i, juce::dontSendNotification);
-						break;
-					}
-				}
-			}
-		}
+			refreshFolderUi (parent, true);
 	};
 
-fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce::File& folder) mutable
+	fileModel->onNavigateInto = [refreshFolderUi] (const juce::File& folder) mutable
 	{
 		// Safety check: ensure it's a valid directory
 		if (! folder.exists() || ! folder.isDirectory())
 			return;
-			
-		fileModel->setCurrentFolder (folder);
-		
-		// Check UI components are still valid before using them
-		if (safeListBox != nullptr)
-		{
-			safeListBox->updateContent();
-			safeListBox->selectRow (0);
-			safeListBox->repaint();
-		}
-		if (safePathLabel != nullptr)
-			safePathLabel->setText (folder.getFullPathName(), juce::dontSendNotification);
+
+		refreshFolderUi (folder, true);
 	};
 
 	fileModel->onFileSelected = [safeThis, safeAw, loaderIndex] (const juce::File& file) mutable
@@ -2725,12 +2767,20 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 			safeAw->exitModalState (1);
 	};
 
-	// Style the ListBox with green border
+	// Style the ListBox; the fixed parent row and scrolling list share one frame.
 	listBox->setColour (juce::ListBox::backgroundColourId, activeScheme.bg);
 	listBox->setColour (juce::ListBox::outlineColourId, activeScheme.fg);
-	listBox->setOutlineThickness (3);
+	listBox->setOutlineThickness (0);
 	listBox->setRowHeight (24);
 	listBox->setMultipleSelectionEnabled (false);
+	parentFolderLabel->setFont (juce::Font (juce::FontOptions (15.0f)));
+	parentFolderLabel->setColour (juce::Label::backgroundColourId, activeScheme.bg);
+	parentFolderLabel->setColour (juce::Label::textColourId, activeScheme.text);
+	parentFolderLabel->setColour (juce::Label::outlineColourId, activeScheme.bg);
+	parentFolderLabel->setJustificationType (juce::Justification::centredLeft);
+	parentFolderLabel->setBorderSize (juce::BorderSize<int> (0, 8, 0, 8));
+	parentFolderLabel->setVisible (getNavigableParentFolder (fileModel->currentFolder).exists());
+	fileListFrame->setParentRow (parentFolderLabel->isVisible(), listBox->getRowHeight());
 
 	// Build browser panel - same container pattern as export prompt
 	auto* browserPanel = new juce::Component();
@@ -2772,10 +2822,13 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 	browserPanel->addAndMakeVisible (pathLabel);
 	py += pathLabelH + componentGap;
 
-	const int listBoxStartY = py;
-	listBox->setBounds (0, py, panelW, 200);
-	browserPanel->addAndMakeVisible (listBox);
-	browserPanel->setSize (panelW, py + 200);
+	const int fileListStartY = py;
+	constexpr int parentRowH = 24;
+	fileListFrame->setBounds (0, py, panelW, parentRowH + 200);
+	fileListFrame->addAndMakeVisible (parentFolderLabel);
+	fileListFrame->addAndMakeVisible (listBox);
+	browserPanel->addAndMakeVisible (fileListFrame);
+	browserPanel->setSize (panelW, py + parentRowH + 200);
 
 	aw->addCustomComponent (browserPanel);
 
@@ -2791,13 +2844,35 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		const int buttonsTop = TR::getAlertButtonsTop (*aw);
 		const int bodyTop    = TR::kPromptBodyTopPad;
 		const int bodyBottom = buttonsTop - TR::kPromptBodyBottomPad;
-		const int headerH    = listBoxStartY;  // everything above the listBox
-		const int listBoxH   = juce::jmax (60, bodyBottom - bodyTop - headerH);
+		const int headerH    = fileListStartY;  // everything above the fixed parent row / list
+		const int listAreaH  = juce::jmax (60, bodyBottom - bodyTop - headerH);
 		const int panelX     = (TR::kPromptWidth - panelW) / 2;
 
-		listBox->setBounds (0, listBoxStartY, panelW, listBoxH);
-		browserPanel->setSize (panelW, headerH + listBoxH);
-		browserPanel->setBounds (panelX, bodyTop, panelW, headerH + listBoxH);
+		*refreshBrowserLayout = [safeParentFolderLabel, safeListBox, safeFileListFrame,
+		                         fileListStartY, panelW, listAreaH, parentRowH]() mutable
+		{
+			const bool showParent = safeParentFolderLabel != nullptr && safeParentFolderLabel->isVisible();
+			const int fixedParentH = showParent ? parentRowH : 0;
+			constexpr int frameInset = BrowserListFrame::outlineThickness;
+			const int innerW = juce::jmax (0, panelW - (frameInset * 2));
+
+			if (safeFileListFrame != nullptr)
+			{
+				safeFileListFrame->setBounds (0, fileListStartY, panelW, listAreaH);
+				safeFileListFrame->setParentRow (showParent, parentRowH);
+			}
+			if (safeParentFolderLabel != nullptr)
+				safeParentFolderLabel->setBounds (frameInset, frameInset, innerW, fixedParentH);
+			if (safeListBox != nullptr)
+				safeListBox->setBounds (frameInset, frameInset + fixedParentH,
+				                        innerW, juce::jmax (24, listAreaH - fixedParentH - (frameInset * 2)));
+		};
+
+		if (*refreshBrowserLayout)
+			(*refreshBrowserLayout)();
+
+		browserPanel->setSize (panelW, headerH + listAreaH);
+		browserPanel->setBounds (panelX, bodyTop, panelW, headerH + listAreaH);
 	}
 
 	// Embed in overlay instead of modal
@@ -2807,12 +2882,37 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		embedAlertWindowInOverlay (safeThis.getComponent(), aw);
 	}
 
-	aw->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, aw, fileModel, listBox, pathLabel, driveCombo, browserPanel, safeListBox, safePathLabel, safeDriveCombo, loaderIndex] (int result) mutable
+	aw->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, aw, fileModel, listBox, pathLabel, driveCombo, drivesLabel, pathTitleLabel, parentFolderLabel, fileListFrame, browserPanel, safeListBox, safePathLabel, safeDriveCombo, loaderIndex] (int result) mutable
 	{
 		std::unique_ptr<juce::AlertWindow> killer (aw);
-		
+
+		auto cleanupBrowser = [&]()
+		{
+			// CRITICAL: Clear all callbacks BEFORE deleting objects to prevent use-after-free
+			fileModel->onNavigateInto = nullptr;
+			fileModel->onFileSelected = nullptr;
+			parentFolderLabel->onClick = nullptr;
+			driveCombo->onChange = nullptr;
+
+			browserPanel->removeAllChildren();
+			fileListFrame->removeAllChildren();
+
+			delete driveCombo;
+			delete drivesLabel;
+			delete pathTitleLabel;
+			delete pathLabel;
+			delete parentFolderLabel;
+			delete listBox;
+			delete fileModel;
+			delete fileListFrame;
+			delete browserPanel;
+		};
+
 		if (safeThis == nullptr)
+		{
+			cleanupBrowser();
 			return;
+		}
 		
 		const bool shouldSelect = (result == 1);
 
@@ -2821,7 +2921,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 			auto& item = fileModel->items.getReference (fileModel->selectedRow);
 			
 			// Only load valid files, not directories or empty files
-			if (! item.isDirectory && item.file.existsAsFile() && item.file.getSize() > 0 && item.displayName != "..")
+			if (! item.isDirectory && item.file.existsAsFile() && item.file.getSize() > 0)
 			{
 				safeThis->loadIRFile (item.file.getFullPathName(), loaderIndex);
 			}
@@ -2835,20 +2935,7 @@ fileModel->onNavigateInto = [fileModel, safeListBox, safePathLabel] (const juce:
 		else
 			safeThis->currentFolderC = fileModel->currentFolder;
 
-		// CRITICAL: Clear all callbacks BEFORE deleting objects to prevent use-after-free
-		fileModel->onNavigateUp = nullptr;
-		fileModel->onNavigateInto = nullptr;
-		fileModel->onFileSelected = nullptr;
-		driveCombo->onChange = nullptr;
-
-		// Clean up - remove children from panel before deleting individually
-		browserPanel->removeAllChildren();
-		delete driveCombo;
-		delete pathLabel;
-		delete listBox;
-		delete fileModel;
-		delete browserPanel;
-
+		cleanupBrowser();
 		safeThis->setPromptOverlayActive (false);
 	}), true);
 }

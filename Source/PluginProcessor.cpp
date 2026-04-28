@@ -359,7 +359,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutA, "Mode Out A", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
-		kParamSumBusA, "Sum Bus A", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
+		kParamSumBusA, "Sum Bus A", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixA, "Mix A", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -469,7 +469,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutB, "Mode Out B", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
-		kParamSumBusB, "Sum Bus B", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
+		kParamSumBusB, "Sum Bus B", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixB, "Mix B", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -579,7 +579,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamModeOutC, "Mode Out C", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
-		kParamSumBusC, "Sum Bus C", juce::StringArray { "ST", u8"\u2192M", u8"\u2192S" }, kSumBusDefault));
+		kParamSumBusC, "Sum Bus C", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixC, "Mix C", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
