@@ -207,6 +207,10 @@ public:
 	static constexpr float kSqrt2        = 1.41421356f;   // sqrt(2)    - MID impulse compensation
 	static constexpr float kTwoPi        = 6.2831853f;     // 2pi
 	static constexpr float kDistDecay    = 2.0794f;        // DIST exponential rolloff rate
+	static constexpr float kGainFloorDb  = -144.0f;        // Fader floor displayed as -INF
+	static constexpr float kGainMaxDb    =   24.0f;
+	static constexpr float kGainDefaultDb =   0.0f;
+	static constexpr float kGainSkew     = 4.4965561056f;  // Places 0 dB exactly at the centre of -144..+24
 
 	// Limiter ranges
 	static constexpr float kLimThresholdMin     = -36.0f;
@@ -230,13 +234,13 @@ public:
 	// ============================================================================
 	//  Parameter Ranges & Defaults - IR Controls
 	// ============================================================================
-	static constexpr float kInMin                   = -100.0f;
-	static constexpr float kInMax                   = 0.0f;
-	static constexpr float kInDefault               = 0.0f;
+	static constexpr float kInMin                   = kGainFloorDb;
+	static constexpr float kInMax                   = kGainMaxDb;
+	static constexpr float kInDefault               = kGainDefaultDb;
 
-	static constexpr float kOutMin                  = -100.0f;
-	static constexpr float kOutMax                  = 24.0f;
-	static constexpr float kOutDefault              = 0.0f;
+	static constexpr float kOutMin                  = kGainFloorDb;
+	static constexpr float kOutMax                  = kGainMaxDb;
+	static constexpr float kOutDefault              = kGainDefaultDb;
 
 	static constexpr float kTiltMin                 = -6.0f;
 	static constexpr float kTiltMax                 = 6.0f;
@@ -310,13 +314,13 @@ public:
 	// ============================================================================
 	//  Parameter Ranges & Defaults - Global
 	// ============================================================================
-	static constexpr float kInputMin                = -100.0f;
-	static constexpr float kInputMax                = 0.0f;
-	static constexpr float kInputDefault            = 0.0f;
+	static constexpr float kInputMin                = kGainFloorDb;
+	static constexpr float kInputMax                = kGainMaxDb;
+	static constexpr float kInputDefault            = kGainDefaultDb;
 
-	static constexpr float kOutputMin               = -100.0f;
-	static constexpr float kOutputMax               = 24.0f;
-	static constexpr float kOutputDefault           = 0.0f;
+	static constexpr float kOutputMin               = kGainFloorDb;
+	static constexpr float kOutputMax               = kGainMaxDb;
+	static constexpr float kOutputDefault           = kGainDefaultDb;
 
 	static constexpr int   kModeMin                 = 0;
 	static constexpr int   kModeMax                 = 2;          // L+R, MID, SIDE
@@ -511,12 +515,20 @@ public:
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
 
-		// CHAOS micro-delay line (reused by Hermite+Drift engine)
+		// CHAOS micro-delay line (reused by smooth S&H + Drift engine)
 		static constexpr int kChaosDelayMaxSamples = 1024;
 		float chaosDelayBuffer[2][kChaosDelayMaxSamples] = {};
 		int chaosDelayWritePos = 0;
+		float chaosDelaySmoothedSamples[2] = {};
+		bool chaosDelaySmoothReady[2] = {};
+		float chaosDriveAmtSmoothed = 0.0f;
+		float chaosDriveSpdSmoothed = 0.0f;
+		bool chaosDriveParamSmoothReady = false;
+		float chaosFilterAmtSmoothed = 0.0f;
+		float chaosFilterSpdSmoothed = 0.0f;
+		bool chaosFilterParamSmoothReady = false;
 
-		// CHS D Hermite+Drift: delay (per-channel for stereo)
+		// CHS D smooth S&H + Drift: delay (per-channel for stereo)
 		float chaosDPrev[2]         = {};
 		float chaosDCurr[2]         = {};
 		float chaosDNext[2]         = {};
@@ -526,7 +538,7 @@ public:
 		float chaosDOut[2]          = {};
 		juce::Random chaosDRng[2];
 
-		// CHS D Hermite+Drift: gain (per-channel, decorrelated)
+		// CHS D smooth S&H + Drift: gain (per-channel, decorrelated)
 		float chaosGPrev[2]         = {};
 		float chaosGCurr[2]         = {};
 		float chaosGNext[2]         = {};
@@ -536,7 +548,7 @@ public:
 		float chaosGOut[2]          = {};
 		juce::Random chaosGRng[2];
 
-		// CHS F Hermite+Drift: filter (mono S&H + quadrature drift)
+		// CHS F smooth S&H + Drift: filter (mono S&H + quadrature drift)
 		float chaosFPrev            = 0.0f;
 		float chaosFCurr            = 0.0f;
 		float chaosFNext            = 0.0f;
@@ -768,6 +780,51 @@ private:
 		}
 	}
 
+	inline void applyLimiterMono (float* data, int numSamples,
+	                              float thresholdGainStart, float thresholdGainEnd) noexcept
+	{
+		if (numSamples <= 0)
+			return;
+
+		float thresholdGain = thresholdGainStart;
+		const float thresholdStep = (thresholdGainEnd - thresholdGainStart) / static_cast<float> (numSamples);
+
+		for (int i = 0; i < numSamples; ++i)
+		{
+			const float peak = std::abs (data[i]);
+
+			// Keep both internal detector lanes coherent with dual-mono use.
+			for (int ch = 0; ch < 2; ++ch)
+			{
+				if (peak > limEnv1_[ch])
+					limEnv1_[ch] = limAtt1_ * limEnv1_[ch] + (1.0f - limAtt1_) * peak;
+				else
+					limEnv1_[ch] = limRel1_ * limEnv1_[ch] + (1.0f - limRel1_) * peak;
+				if (limEnv1_[ch] < kLimFloor) limEnv1_[ch] = kLimFloor;
+			}
+
+			for (int ch = 0; ch < 2; ++ch)
+			{
+				if (peak > limEnv2_[ch])
+					limEnv2_[ch] = peak;
+				else
+					limEnv2_[ch] = limRel2_ * limEnv2_[ch] + (1.0f - limRel2_) * peak;
+				if (limEnv2_[ch] < kLimFloor) limEnv2_[ch] = kLimFloor;
+			}
+
+			float gr = 1.0f;
+			const float maxEnv1 = juce::jmax (limEnv1_[0], limEnv1_[1]);
+			const float maxEnv2 = juce::jmax (limEnv2_[0], limEnv2_[1]);
+			if (maxEnv1 > thresholdGain)
+				gr = juce::jmin (gr, thresholdGain / maxEnv1);
+			if (maxEnv2 > thresholdGain)
+				gr = juce::jmin (gr, thresholdGain / maxEnv2);
+
+			data[i] *= gr;
+			thresholdGain += thresholdStep;
+		}
+	}
+
 	// Post-prepare fade-in to suppress convolver/filter warmup transients
 	int fadeInSamplesRemaining_ = 0;
 	int fadeInTotalSamples_     = 0;
@@ -813,6 +870,9 @@ private:
 	void applyExpanderBuffer (juce::AudioBuffer<float>& buffer, float sampleRate, float& linkedEnv,
 	                         bool expanderEnabled, float expRatio, float expThreshDb,
 	                         float expKneeDb, float expAtkMs, float expRelMs) noexcept;
+	void applyChaosDriveBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
+	                            bool chaosEnabled, float chaosAmt, float chaosSpd,
+	                            float chaosParamSmoothCoeff) noexcept;
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
@@ -824,32 +884,28 @@ private:
 	static void applyMidSideInputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
 	static void applyMidSideOutputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);
 
-	// Generic Hermite + Drift chaos engine (per-sample advance)
+	// Generic smooth S&H + Drift chaos engine (per-sample advance)
 	inline void advanceChaosEngine (
 		float& prev, float& curr, float& next, float& phase,
 		float& driftPhase, float& driftFreqHz, float& output,
 		juce::Random& rng, float period, float amtNorm, float sr) noexcept
 	{
-		phase += 1.0f;
-		if (phase >= period)
+		const float safePeriod = juce::jmax (1.0f, period);
+		phase += 1.0f / safePeriod;
+		if (phase >= 1.0f)
 		{
-			phase -= period;
+			phase -= std::floor (phase);
 			prev = curr;
 			curr = next;
 			next = rng.nextFloat() * 2.0f - 1.0f;
-			const float driftBase = sr / juce::jmax (1.0f, period) * 0.37f;
+			const float driftBase = sr / safePeriod * 0.37f;
 			driftFreqHz = driftBase * (0.88f + rng.nextFloat() * 0.24f);
 		}
-		const float t  = phase / period;
+		const float t = juce::jlimit (0.0f, 1.0f, phase);
 		const float t2 = t * t;
 		const float t3 = t2 * t;
-		const float h00 =  2.0f * t3 - 3.0f * t2 + 1.0f;
-		const float h10 =         t3 - 2.0f * t2 + t;
-		const float h01 = -2.0f * t3 + 3.0f * t2;
-		const float h11 =         t3 -        t2;
-		const float tangCurr = (next - prev) * 0.5f;
-		const float tangNext = -curr * 0.5f;
-		const float shValue  = h00 * curr + h10 * tangCurr + h01 * next + h11 * tangNext;
+		const float u = t3 * (t * (t * 6.0f - 15.0f) + 10.0f);
+		const float shValue = curr + (next - curr) * u;
 
 		driftPhase += driftFreqHz / sr;
 		if (driftPhase > 1e6f) driftPhase -= 1e6f;

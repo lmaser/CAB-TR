@@ -1,209 +1,132 @@
-# CAB-TR — Resumen de Implementación
+# CAB-TR v1.4
 
-## ¡Plugin CAB-TR Implementado! ✅
+CAB-TR es un cargador/convolucionador de respuestas a impulso con tres slots, pensado para simulacion de pantallas, mezcla paralela de IRs, rutas serie/hibridas y trabajo Mid/Side.
 
-He creado la estructura completa del plugin CAB-TR siguiendo el diseño que adjuntaste y reutilizando los estilos y componentes de los otros plugins TR (DISP-TR, ECHO-TR, FREQ-TR).
+## Concepto
 
-### 📦 Archivos Creados/Modificados
+Cada slot A/B/C puede cargar una IR y procesarla con su propia cadena: ganancia de entrada/salida, trim START/END, SIZE, filtros HP/LP, TILT, RESO, DIST, DELAY, PAN, FRED/Angle, MIX, EXP, CHAOS D/F, inversion, normalizacion y routing Mid/Side.
 
-**Archivos Copiados:**
-- `Source/TRSharedUI.h` — Utilidades compartidas de UI (estilo TR)
-- `Source/CrtEffect.h` — Efecto CRT retro opcional
+El sistema de rutas permite:
+- `A->B->C`
+- `A|B|C`
+- `A->B|C`
+- `A|B->C`
+- `(A|B)->C`
+- `A->(B|C)`
 
-**Archivos Principales:**
-- `Source/PluginProcessor.h` — Definición completa con todos los parámetros
-- `Source/PluginProcessor.cpp` — Lógica base de procesamiento
-- `Source/PluginEditor.h` — Interfaz gráfica con todos los controles
-- `Source/PluginEditor.cpp` — Implementación de la GUI
+El sistema `SUM BUS` permite enviar cada loader a Stereo, Mid o Side en los puntos de suma paralela.
 
-**Documentación:**
-- `IMPLEMENTATION.md` — Guía técnica detallada (en inglés)
+## Interfaz
 
----
+- **Barras**: arrastre horizontal. Click derecho para entrada numerica.
+- **ENABLE A/B/C**: activa o desactiva cada loader.
+- **Browse `...`**: abre el explorador integrado de archivos.
+- **Seccion I/O desplegable**: muestra controles avanzados por loader.
+- **Filtro**: abre el prompt HP/LP con frecuencia, pendiente y on/off.
+- **EXP**: click izquierdo activa/desactiva; click derecho abre el prompt.
+- **CHSD / CHSF**: chaos de delay/ganancia y chaos de filtros.
+- **ALIGN**: alinea tiempo/fase entre loaders activos.
+- **Export**: renderiza la cadena estatica combinada a una IR.
 
-## ✅ Funcionalidades Implementadas
+## Controles globales
 
-### 🎛️ Secciones IR Loader (A y B)
+### INPUT / OUTPUT (-INF a +24 dB)
 
-Cada sección tiene:
+Ganancia global de entrada y salida. El suelo interno es -144 dB y se muestra como `-INF`; 0 dB queda centrado en el control.
 
-1. **ENABLE** — Checkbox para habilitar/deshabilitar
-2. **File Browser** — Botón "..." para abrir explorador de archivos
-   - Drag & drop de archivos .wav, .aif, .aiff soportado
-   - Muestra nombre del archivo cargado
-3. **Filtros:**
-   - **LP** (Low-Pass) — 20Hz a 20kHz, 12dB/octava
-   - **HP** (High-Pass) — 20Hz a 20kHz, 12dB/octava
-4. **Controles de IR:**
-   - **OUT** — Ganancia de salida (-100dB a +24dB)
-   - **START** — Inicio del IR (0-10000ms)
-   - **END** — Final del IR (0-10000ms)
-   - **PITCH** — Cambio de pitch (25% a 400%)
-   - **DELAY** — Retraso con 3 decimales (0-1000ms)
-   - **PAN** — Paneo L/R (50% = centrado)
-   - **MIX** — Mezcla wet/dry (0-100%)
-   - **POS** — Posición de micrófono, efecto Friedman (0-100%)
-5. **Checkboxes:**
-   - **INV** — Invertir polaridad
-   - **NORM** — Normalizar ganancia del IR
+### MIX
 
-### 🎚️ Controles Globales (Footer)
+Mezcla global dry/wet. En modo `INSERT` actua como crossfade. En modo `SEND`, `DRY LEVEL` y `WET LEVEL` son independientes.
 
-- **MODE** — Modo de salida:
-  - L+R (estéreo normal)
-  - MID (mono suma)
-  - SIDE (diferencia estéreo)
-- **ROUTE** — Routing de IR loaders:
-  - A->B (serie, primero A luego B)
-  - A|B (paralelo, ambos a la vez)
-- **ALIGN** — Alineación automática de fase
+### ROUTE
 
----
+Selecciona la topologia de los tres loaders: serie, paralelo o hibrida.
 
-## ⚙️ Estado de Implementación
+### ALIGN
 
-### ✅ Completado (Estructura Base)
+Analiza las IRs activas, calcula compensacion temporal y aplica delay/polaridad donde proceda para reducir comb filtering.
 
-- [x] Arquitectura completa del plugin
-- [x] Todos los parámetros definidos y conectados
-- [x] GUI con layout de dos secciones
-- [x] Integración con estilos TR (TRSharedUI)
-- [x] File browser básico (FileChooser de JUCE)
-- [x] Drag & drop de archivos
-- [x] CRT effect opcional
-- [x] Sliders con tooltips y formato personalizado
-- [x] Parameter attachments (todo sincronizado)
+### MATCH
 
-### 🔨 Pendiente de Implementación (Funcionalidades DSP)
+Tilt EQ global adaptativo basado en el analisis espectral de las IRs cargadas.
 
-Las siguientes funcionalidades están **definidas** pero requieren implementación completa:
+### LIMITER
 
-1. **File Explorer Estilo Melda**
-   - Actualmente usa FileChooser estándar de JUCE
-   - Falta: Lista de archivos personalizada con ".." para subir nivel
+Limitador dual con modos `NONE`, `WET` y `GLOBAL`.
 
-2. **Procesamiento de IR Completo**
-   - Carga básica: ✅ Implementada
-   - Recorte START/END: ⏳ Pendiente
-   - Normalización (NORM): ⏳ Pendiente
-   - Inversión de polaridad (INV): ⏳ Pendiente (trivial, aplicar gain de -1)
+## Controles por loader
 
-3. **Pitch Shift Continuo (25%-400%)**
-   - Parámetro definido: ✅
-   - Algoritmo de resampling suave: ⏳ Pendiente
-   - Nota: Requiere interpolación de alta calidad para evitar artifacts
+### IN / OUT (-INF a +24 dB)
 
-4. **Efecto de Posición Friedman (POS)**
-   - Parámetro definido: ✅
-   - Implementación del efecto: ⏳ Pendiente
-   - Necesita documentar cómo funciona exactamente (simulación de distancia de micrófono)
+Ganancia de entrada y salida por loader. Mismo rango y curva que INPUT/OUTPUT global.
 
-5. **Auto-Alignment (ALIGN)**
-   - Parámetro definido: ✅
-   - Algoritmo de detección de onset: ⏳ Pendiente
-   - Cálculo automático de delay: ⏳ Pendiente
+### HP / LP
 
-6. **Routing Serie/Paralelo**
-   - UI implementada: ✅
-   - Lógica de procesamiento: ⏳ Pendiente
+Filtros high-pass y low-pass con pendientes de 6, 12 o 24 dB/oct.
 
-7. **MODE (L+R, MID, SIDE)**
-   - UI implementada: ✅
-   - Procesamiento M/S: ⏳ Pendiente (código de ejemplo en IMPLEMENTATION.md)
+### START / END
 
----
+Recorte temporal de la IR antes de convolucion.
 
-## 📝 Notas Importantes
+### SIZE
 
-### Sobre el Efecto de Posición (POS)
+Reescalado de la IR entre 0.25x y 4.0x.
 
-El parámetro **POS** simula el efecto que tienen plugins como **Cabinetron** o las cabinets de **Friedman**. Este efecto simula el movimiento del micrófono acercándose o alejándose del altavoz:
+### DELAY
 
-- **0%** = Sin efecto (micrófono en posición original del IR)
-- **100%** = Máximo efecto de alejamiento/acercamiento
+Delay post-loader de 0 a 1000 ms con precision de 0.001 ms. Tambien lo usa `ALIGN`.
 
-**¿Cómo se implementa?** (Ver IMPLEMENTATION.md para código)
-1. Roll-off de altas frecuencias (más distancia = menos agudos)
-2. Cambio en el proximity effect (menos graves al alejarse)
-3. Opcionalmente: reflexiones tempranas simuladas
-4. Fase: All-pass filters para simular cambio de ángulo
+### FRED / Angle
 
-Si necesitas más detalles sobre cómo debe comportarse exactamente, puedo investigar más.
+Simulacion de microfono off-axis tipo Fredman mediante retardo corto y mezcla.
 
-### Sobre PITCH con Efecto de Rebobinado
+### MIX
 
-Mencionaste que el PITCH debe permitir:
-> "un efecto de rebobinado, para que sea una transición continua y no abrupta como en otros IR loaders"
+Mezcla dry/wet independiente por loader.
 
-Esto requiere:
-- Resampling de alta calidad (interpolación Lagrange o windowed-sinc)
-- Crossfading al cambiar el parámetro en tiempo real
-- Posiblemente usar librerías especializadas como **RubberBand** o **SoundTouch**
+### EXP
 
-He dejado comentarios TODO en el código para esta implementación.
+Expander/gate por loader con orden `PRE` o `POST`, threshold, ratio, knee, attack y release.
 
----
+### CHAOS
 
-## 🚀 Próximos Pasos Recomendados
+- **CHSD**: modulacion de micro-delay y ganancia.
+- **CHSF**: modulacion de filtros HP/LP.
 
-Te sugiero implementar en este orden:
+## Export
 
-1. **Probar compilación** del proyecto en Visual Studio 2022
-2. **Implementar funcionalidades básicas:**
-   - Recorte START/END
-   - Normalización (NORM)
-   - Inversión (INV)
-   - Filtros HP/LP conectados
-3. **Implementar routing:** Serie vs Paralelo
-4. **Implementar MODE:** L+R, MID, SIDE
-5. **Investigar e implementar:**
-   - Pitch shift suave
-   - Efecto de posición Friedman
-   - Auto-alignment
+Exporta una IR combinada con las partes estaticas de la cadena: routing, MODE IN/OUT, SUM BUS, ganancias, filtros, TILT, DIST, PAN, DELAY, FRED, MIX, MATCH, DC block, output e inversion.
 
----
+Quedan fuera por naturaleza dinamica:
+- `CHAOS D`
+- `CHAOS F`
+- `EXP`
+- `LIMITER`
 
-## ❓ Preguntas / Dudas
+## Detalles tecnicos
 
-### Si tienes dudas sobre:
+- Convolucion por FFTConvolver con cola en background thread.
+- Sin latencia anadida por la convolucion principal.
+- Crossfade de IR de 50 ms para evitar clicks al reconstruir.
+- Recargas de IR rate-limited para evitar picos de CPU.
+- Filtros HP/LP con coeficientes actualizados cada 32 samples.
+- Delay fraccional suavizado para ALIGN y offset manual.
+- Mix global y mix por loader optimizados para evitar copias dry innecesarias cuando el camino esta 100% wet y estable.
+- El delay estable evita recalcular `setDelay()` por sample, pero mantiene la linea alimentada para reentrada sin clicks.
+- El audio thread evita asignaciones dinamicas en la ruta normal.
 
-1. **Efecto de Posición (POS):**
-   - ¿Tienes un plugin de referencia que uses como modelo?
-   - ¿Cabinetron es la referencia principal?
-   - ¿Necesitas documentación más específica de cómo debe comportarse?
+## Build
 
-2. **Pitch Shift:**
-   - ¿Qué tipo de transición prefieres? (¿suave como tape, o digital?)
-   - ¿Está bien usar librerías externas como RubberBand?
+- JUCE, C++17, VST3.
+- Visual Studio 2022, Windows x64.
+- FFTW opcional; fallback a JUCE FFT cuando no esta disponible.
 
-3. **File Explorer:**
-   - ¿Qué tan importante es el estilo Melda vs usar el FileChooser estándar?
-   - ¿Necesitas scroll de archivos dentro de la GUI?
+## Changelog v1.4
 
-4. **Filtros:**
-   - Los filtros están en 12dB/oct como especificaste
-   - ¿Son solo post-procesamiento del IR o también se aplican en tiempo real?
-
----
-
-## ✅ Resumen Final
-
-**Lo que funciona ahora:**
-- Plugin compila sin errores ✅
-- GUI completa con todos los controles ✅
-- File loading básico (drag & drop + file chooser) ✅
-- Parámetros todos conectados ✅
-- Arquitectura lista para implementar DSP ✅
-
-**Lo que falta:**
-- Implementar funciones de procesamiento DSP específicas
-- Afinar comportamiento de pitch shift y efecto de posición
-- Opcional: File browser personalizado estilo Melda
-
-**Documentación:**
-- `IMPLEMENTATION.md` tiene ejemplos de código para todo lo pendiente
-- Puedes usarlo como guía para implementar cada funcionalidad
-
----
-
-¿Hay algo específico que quieras que implemente o aclare? ¿Tienes preguntas sobre alguna funcionalidad en particular?
+- Tres loaders A/B/C con routing serie, paralelo e hibrido.
+- Sistema `SUM BUS` para Stereo/Mid/Side.
+- Export de IR combinada.
+- Limitador dual `WET/GLOBAL`.
+- Expander por loader con orden `PRE/POST`.
+- Ganancias INPUT/OUTPUT e IN/OUT unificadas en -INF a +24 dB.
+- Optimizaciones de mix dry/wet y delay estable sin cambiar la funcionalidad sonora esperada.

@@ -114,6 +114,19 @@ namespace
 		return (dB <= -100.0f) ? 0.0f : std::exp2 (dB * 0.16609640474f);
 	}
 
+	inline float gainFaderDecibelsToGain (float dB) noexcept
+	{
+		return (dB <= CABTRAudioProcessor::kGainFloorDb) ? 0.0f : std::exp2 (dB * 0.16609640474f);
+	}
+
+	inline juce::NormalisableRange<float> makeGainFaderRange() noexcept
+	{
+		return juce::NormalisableRange<float> (CABTRAudioProcessor::kGainFloorDb,
+		                                       CABTRAudioProcessor::kGainMaxDb,
+		                                       0.0f,
+		                                       CABTRAudioProcessor::kGainSkew);
+	}
+
 	// Relaxed atomic load helpers - safe for audio thread (single-writer GUI, single-reader audio).
 	// Avoids unnecessary memory fences from default seq_cst ordering.
 	inline float loadRelaxed (std::atomic<float>* p, float def = 0.0f) noexcept
@@ -280,10 +293,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamInA, "In A",
-		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		makeGainFaderRange(),
 		kInDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamOutA, "Out A", kOutMin, kOutMax, kOutDefault));
+		kParamOutA, "Out A", makeGainFaderRange(), kOutDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamTiltA, "Tilt A",
 		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
@@ -390,10 +403,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamInB, "In B",
-		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		makeGainFaderRange(),
 		kInDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamOutB, "Out B", kOutMin, kOutMax, kOutDefault));
+		kParamOutB, "Out B", makeGainFaderRange(), kOutDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamTiltB, "Tilt B",
 		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
@@ -500,10 +513,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		(float) kFilterSlopeDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamInC, "In C",
-		juce::NormalisableRange<float> (kInMin, kInMax, 0.0f, 2.5f),
+		makeGainFaderRange(),
 		kInDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamOutC, "Out C", kOutMin, kOutMax, kOutDefault));
+		kParamOutC, "Out C", makeGainFaderRange(), kOutDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamTiltC, "Tilt C",
 		juce::NormalisableRange<float> (kTiltMin, kTiltMax, 0.01f),
@@ -587,9 +600,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	//  Global Parameters
 	// ============================================================================
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamInput, "Input", kInputMin, kInputMax, kInputDefault));
+		kParamInput, "Input", makeGainFaderRange(), kInputDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
-		kParamOutput, "Output", kOutputMin, kOutputMax, kOutputDefault));
+		kParamOutput, "Output", makeGainFaderRange(), kOutputDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamRoute, "Route", juce::StringArray { "A>B>C", "A|B|C", "A>B|C", "A|B>C", "(A|B)>C", "A>(B|C)" }, kRouteDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -881,8 +894,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		cachedNormSlowCoeff_   = 1.0f - std::exp (-1.0f / (sr * 0.02f)); // 20ms ramp-up
 	}
 
-	lastInputGain_ = fastDecibelsToGain (loadRelaxed (pInput, 0.0f));
-	lastOutputGain_ = fastDecibelsToGain (loadRelaxed (pOutput, 0.0f));
+	lastInputGain_ = gainFaderDecibelsToGain (loadRelaxed (pInput, 0.0f));
+	lastOutputGain_ = gainFaderDecibelsToGain (loadRelaxed (pOutput, 0.0f));
 	if (loadRelaxedInt (pMixMode, 0) == 1)
 	{
 		lastGlobalDryMix_ = loadRelaxed (pDryLevel, 0.0f);
@@ -898,8 +911,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	auto initLoaderSmoothing = [] (IRLoaderState& state, float inDb, float outDb,
 	                               float mixVal, float posVal) noexcept
 	{
-		state.lastInGain = fastDecibelsToGain (inDb);
-		state.lastOutGain = fastDecibelsToGain (outDb);
+		state.lastInGain = gainFaderDecibelsToGain (inDb);
+		state.lastOutGain = gainFaderDecibelsToGain (outDb);
 		state.lastMix = mixVal;
 		state.lastPosGain = 1.0f - juce::jlimit (0.0f, 1.0f, posVal) * 0.5f;
 	};
@@ -922,8 +935,12 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		state->fredDelayIndex = 0;
 		std::memset (state->chaosDelayBuffer, 0, sizeof (state->chaosDelayBuffer));
 		state->chaosDelayWritePos = 0;
+		state->chaosDriveParamSmoothReady = false;
+		state->chaosFilterParamSmoothReady = false;
 		for (int c = 0; c < 2; ++c)
 		{
+			state->chaosDelaySmoothedSamples[c] = 0.0f;
+			state->chaosDelaySmoothReady[c] = false;
 			state->chaosDPrev[c] = state->chaosDCurr[c] = state->chaosDNext[c] = 0.0f;
 			state->chaosDPhase[c] = state->chaosDDriftPhase[c] = state->chaosDDriftFreqHz[c] = 0.0f;
 			state->chaosDOut[c] = 0.0f;
@@ -942,11 +959,19 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	// Initialize EMA-smoothed filter frequencies to current parameter values
 	std::atomic<float>* hpPtrs[] = { pHpFreqA, pHpFreqB, pHpFreqC };
 	std::atomic<float>* lpPtrs[] = { pLpFreqA, pLpFreqB, pLpFreqC };
+	std::atomic<float>* chaosDriveAmtPtrs[] = { pChaosAmtA, pChaosAmtB, pChaosAmtC };
+	std::atomic<float>* chaosDriveSpdPtrs[] = { pChaosSpdA, pChaosSpdB, pChaosSpdC };
+	std::atomic<float>* chaosFilterAmtPtrs[] = { pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC };
+	std::atomic<float>* chaosFilterSpdPtrs[] = { pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC };
 	IRLoaderState* states[] = { &stateA, &stateB, &stateC };
 	for (int i = 0; i < 3; ++i)
 	{
 		states[i]->smoothedHpFreq = hpPtrs[i]->load();
 		states[i]->smoothedLpFreq = lpPtrs[i]->load();
+		states[i]->chaosDriveAmtSmoothed = chaosDriveAmtPtrs[i]->load();
+		states[i]->chaosDriveSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosDriveSpdPtrs[i]->load());
+		states[i]->chaosFilterAmtSmoothed = chaosFilterAmtPtrs[i]->load();
+		states[i]->chaosFilterSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosFilterSpdPtrs[i]->load());
 	}
 }
 
@@ -1096,6 +1121,13 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const int   mixMode   = loadRelaxedInt (pMixMode);
 	const float dryLevel  = (mixMode == 1) ? loadRelaxed (pDryLevel) : 0.0f;
 	const float wetLevel  = (mixMode == 1) ? loadRelaxed (pWetLevel) : 0.0f;
+	const float globalWetEnd = (mixMode == 0) ? globalMix : wetLevel;
+	const float globalDryEnd = (mixMode == 0) ? (1.0f - globalMix) : dryLevel;
+	constexpr float kMixBypassEps = 1.0e-4f;
+	const bool needsGlobalDry = std::abs (globalDryEnd) > kMixBypassEps
+	                         || std::abs (lastGlobalDryMix_) > kMixBypassEps;
+	const bool needsGlobalWetGain = std::abs (globalWetEnd - 1.0f) > kMixBypassEps
+	                             || std::abs (lastGlobalWetMix_ - globalWetEnd) > kMixBypassEps;
 
 	// Limiter
 	const int limMode = loadRelaxedInt (pLimMode);
@@ -1119,9 +1151,15 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const float mixA = loadRelaxed (pMixA);
 	const float mixB = loadRelaxed (pMixB);
 	const float mixC = loadRelaxed (pMixC);
+	const bool wetPathAudible = std::abs (globalWetEnd) > kMixBypassEps
+	                         || std::abs (lastGlobalWetMix_) > kMixBypassEps;
+	const bool wetHasActiveLoader =
+		(activeA && (std::abs (mixA) > kMixBypassEps || std::abs (stateA.lastMix) > kMixBypassEps)) ||
+		(activeB && (std::abs (mixB) > kMixBypassEps || std::abs (stateB.lastMix) > kMixBypassEps)) ||
+		(activeC && (std::abs (mixC) > kMixBypassEps || std::abs (stateC.lastMix) > kMixBypassEps));
 
 	// Apply input gain
-	const float inputGain = fastDecibelsToGain (loadRelaxed (pInput));
+	const float inputGain = gainFaderDecibelsToGain (loadRelaxed (pInput));
 	for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		buffer.applyGainRamp (ch, 0, numSamples, lastInputGain_, inputGain);
 	lastInputGain_ = inputGain;
@@ -1178,15 +1216,14 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
-	const bool needsDry = true;
-	if (needsDry)
+	if (needsGlobalDry)
 	{
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 			globalDryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 	}
 
 	// Helper lambdas
-	// Save dry copy before processing a loader (for per-loader mix)
+	// Save dry copy before processing a loader only when per-loader mix needs it.
 	auto saveDry = [&] (const juce::AudioBuffer<float>& src)
 	{
 		for (int ch = 0; ch < src.getNumChannels(); ++ch)
@@ -1197,16 +1234,21 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	auto processOne = [&] (IRLoaderState& state, juce::AudioBuffer<float>& buf,
 	                        int loaderIndex, int modeIn, int modeOut, float loaderMix)
 	{
-		saveDry (buf);
-		applyMidSideInputMode (buf, modeIn, numSamples);
-		processLoader (state, buf, loaderIndex);
-		applyMidSideOutputMode (buf, modeOut, numSamples);
-
 		const float wetStart = state.lastMix;
 		const float wetEnd   = loaderMix;
 		const float dryStart = 1.0f - wetStart;
 		const float dryEnd   = 1.0f - wetEnd;
-		if (std::abs (wetStart - wetEnd) > 1.0e-4f || std::abs (wetEnd - 1.0f) > 1.0e-4f)
+		const bool needsLoaderMix = std::abs (wetStart - wetEnd) > kMixBypassEps
+		                         || std::abs (wetEnd - 1.0f) > kMixBypassEps;
+
+		if (needsLoaderMix)
+			saveDry (buf);
+
+		applyMidSideInputMode (buf, modeIn, numSamples);
+		processLoader (state, buf, loaderIndex);
+		applyMidSideOutputMode (buf, modeOut, numSamples);
+
+		if (needsLoaderMix)
 		{
 			for (int ch = 0; ch < buf.getNumChannels(); ++ch)
 			{
@@ -1717,12 +1759,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 	}
 
-	// User limiter (WET: on processed signal, before global dry/wet mix)
-	if (limMode == 1 && buffer.getNumChannels() >= 2)
-		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
-		              limThreshLinStart, limThreshLin);
-
-	// Invert Polarity / Stereo (WET mode: after Limiter WET, before mix)
+	// Invert Polarity / Stereo (WET path: before wet DC/limiter and mix)
 	{
 		const int nc = buffer.getNumChannels();
 		if (invPol == 1)
@@ -1737,34 +1774,10 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 	}
 
-	// Global MIX: blend unprocessed dry with fully processed wet
-	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
-	if (needsDry)
-	{
-		float wetEnd, dryEnd;
-		if (mixMode == 0)  // INSERT: classic crossfade
-		{
-			wetEnd = globalMix;
-			dryEnd = 1.0f - globalMix;
-		}
-		else  // SEND: independent dry + wet levels
-		{
-			dryEnd = dryLevel;
-			wetEnd = wetLevel;
-		}
-		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-		{
-			buffer.applyGainRamp (ch, 0, numSamples, lastGlobalWetMix_, wetEnd);
-			buffer.addFromWithRamp (ch, 0, globalDryBuffer.getReadPointer (ch), numSamples,
-			                        lastGlobalDryMix_, dryEnd);
-		}
-		lastGlobalWetMix_ = wetEnd;
-		lastGlobalDryMix_ = dryEnd;
-	}
-
-	// DC blocking filter (first-order high-pass ~5 Hz)
-	// Removes DC offset introduced by convolution, resampled IRs, or filter artefacts.
-	// y[n] = x[n] - x[n-1] + R * y[n-1],  R = 1 - 2*pi*fc/sr
+	// Wet-only DC blocking filter (first-order high-pass ~5 Hz)
+	// Removes DC offset introduced by convolution, resampled IRs, or filter artefacts
+	// before WET limiting and before the global dry/wet mix.
+	if (wetPathAudible && wetHasActiveLoader)
 	{
 		const float R = cachedDcBlockR_;
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -1784,6 +1797,38 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			dcBlockY_[ch] = yPrev;
 		}
 	}
+	else
+	{
+		dcBlockX_[0] = dcBlockX_[1] = 0.0f;
+		dcBlockY_[0] = dcBlockY_[1] = 0.0f;
+	}
+
+	// User limiter (WET: after wet-only post processing, before global dry/wet mix)
+	if (limMode == 1)
+	{
+		if (buffer.getNumChannels() >= 2)
+			applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
+			              limThreshLinStart, limThreshLin);
+		else if (buffer.getNumChannels() == 1)
+			applyLimiterMono (buffer.getWritePointer (0), numSamples,
+			                  limThreshLinStart, limThreshLin);
+	}
+
+	// Global MIX: blend unprocessed dry with fully processed wet
+	// dry = input after gain, wet = after all loader processing (mode + convolution + effects)
+	if (needsGlobalDry || needsGlobalWetGain)
+	{
+		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+		{
+			if (needsGlobalWetGain)
+				buffer.applyGainRamp (ch, 0, numSamples, lastGlobalWetMix_, globalWetEnd);
+			if (needsGlobalDry)
+				buffer.addFromWithRamp (ch, 0, globalDryBuffer.getReadPointer (ch), numSamples,
+				                        lastGlobalDryMix_, globalDryEnd);
+		}
+	}
+	lastGlobalWetMix_ = globalWetEnd;
+	lastGlobalDryMix_ = globalDryEnd;
 
 	// Flush denormals in global filter states (per-block, near-zero cost)
 	{
@@ -1797,7 +1842,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	}
 
 	// Apply output gain
-	const float outputGain = fastDecibelsToGain (loadRelaxed (pOutput));
+	const float outputGain = gainFaderDecibelsToGain (loadRelaxed (pOutput));
 	for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 		buffer.applyGainRamp (ch, 0, numSamples, lastOutputGain_, outputGain);
 	lastOutputGain_ = outputGain;
@@ -1820,9 +1865,15 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	}
 
 	// User limiter (GLOBAL: after output gain, before safety clip)
-	if (limMode == 2 && buffer.getNumChannels() >= 2)
-		applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
-		              limThreshLinStart, limThreshLin);
+	if (limMode == 2)
+	{
+		if (buffer.getNumChannels() >= 2)
+			applyLimiter (buffer.getWritePointer (0), buffer.getWritePointer (1), numSamples,
+			              limThreshLinStart, limThreshLin);
+		else if (buffer.getNumChannels() == 1)
+			applyLimiterMono (buffer.getWritePointer (0), numSamples,
+			                  limThreshLinStart, limThreshLin);
+	}
 
 	// Invert Polarity / Stereo (GLOBAL mode: after Limiter GLOBAL, before safety clip)
 	{
@@ -2497,7 +2548,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		applyMidSideInputMode (wetPath, modeIn, wetPath.getNumSamples());
 
 		const float inDb = getLoaderInputDb (loaderIndex);
-		const float inGain = (inDb <= -100.0f) ? 0.0f : juce::Decibels::decibelsToGain (inDb);
+		const float inGain = gainFaderDecibelsToGain (inDb);
 		if (std::abs (inGain - 1.0f) > 1.0e-6f)
 			wetPath.applyGain (inGain);
 
@@ -2869,7 +2920,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	// Input gain
 	if (std::abs (inputGainDb) > 0.01f)
 	{
-		const float inputGain = juce::Decibels::decibelsToGain (inputGainDb);
+		const float inputGain = gainFaderDecibelsToGain (inputGainDb);
 		result.applyGain (inputGain);
 		globalDryIrBuffer.applyGain (inputGain);
 	}
@@ -3021,25 +3072,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		}
 	}
 
-	// Global MIX: mirror the static part of realtime INSERT / SEND behaviour.
-	{
-		float wetGain = globalMix;
-		float dryGain = 1.0f - globalMix;
-		if (mixMode == 1)
-		{
-			dryGain = dryLevel;
-			wetGain = wetLevel;
-		}
-
-		result.applyGain (wetGain);
-		if (std::abs (dryGain) > 1.0e-6f)
-		{
-			for (int ch = 0; ch < result.getNumChannels(); ++ch)
-				result.addFrom (ch, 0, globalDryIrBuffer, ch, 0, numSamples, dryGain);
-		}
-	}
-
-	// DC blocking filter (same static stage as realtime, with fresh offline state)
+	// Wet-only DC blocking filter (same static stage as realtime, fresh offline state)
 	{
 		const float R = cachedDcBlockR_;
 		for (int ch = 0; ch < result.getNumChannels(); ++ch)
@@ -3058,9 +3091,27 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		}
 	}
 
+	// Global MIX: mirror the static part of realtime INSERT / SEND behaviour.
+	{
+		float wetGain = globalMix;
+		float dryGain = 1.0f - globalMix;
+		if (mixMode == 1)
+		{
+			dryGain = dryLevel;
+			wetGain = wetLevel;
+		}
+
+		result.applyGain (wetGain);
+		if (std::abs (dryGain) > 1.0e-6f)
+		{
+			for (int ch = 0; ch < result.getNumChannels(); ++ch)
+				result.addFrom (ch, 0, globalDryIrBuffer, ch, 0, numSamples, dryGain);
+		}
+	}
+
 	// Global output gain
 	if (std::abs (outputGainDb) > 0.01f)
-		result.applyGain (juce::Decibels::decibelsToGain (outputGainDb));
+		result.applyGain (gainFaderDecibelsToGain (outputGainDb));
 
 	// Invert Polarity / Stereo (GLOBAL mode: after output gain)
 	{
@@ -3359,7 +3410,7 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 
 	// OUT gain
 	if (std::abs (outDb) > 0.01f)
-		buffer.applyGain (juce::Decibels::decibelsToGain (outDb));
+		buffer.applyGain (gainFaderDecibelsToGain (outDb));
 
 	// Per-loader TILT EQ (1st-order symmetric shelf, pivot 1kHz)
 	if (std::abs (tiltDb) > 0.05f)
@@ -3535,8 +3586,9 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 }
 
 //==============================================================================
-// PROCESSING CHAIN OPTIMIZADA: 
-// convolution -> INV -> HP/LP -> DIST -> PAN -> DELAY -> ANGLE -> OUT
+// PROCESSING CHAIN OPTIMIZADA:
+// IN -> EXP PRE -> CHAOS D -> CONVOLUTION -> EXP POST -> OUT -> TILT/HP/LP
+// -> DIST -> PAN -> DELAY -> ANGLE
 //
 // CPU OPTIMIZATIONS:
 // - Zero allocations en audio thread
@@ -3596,12 +3648,14 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float chaosSpd = loadRelaxed (pick (pChaosSpdA, pChaosSpdB, pChaosSpdC));
 	const float chaosAmtFilter = loadRelaxed (pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC));
 	const float chaosSpdFilter = loadRelaxed (pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC));
+	const float chaosParamSr = juce::jmax (1.0f, static_cast<float> (currentSampleRate));
+	const float chaosParamSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.010f));
 	
 	// (FRED processing happens after convolution + filters)
 	
 	// 1. INPUT GAIN (IN)
 	{
-		const float inGain = fastDecibelsToGain (inDb);
+		const float inGain = gainFaderDecibelsToGain (inDb);
 		for (int ch = 0; ch < numChannels; ++ch)
 			buffer.applyGainRamp (ch, 0, numSamples, state.lastInGain, inGain);
 		state.lastInGain = inGain;
@@ -3612,6 +3666,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
 		                     expanderEnabled, expRatio, expThreshDb,
 		                     expKneeDb, expAtkMs, expRelMs);
+
+	// 1.5. CHAOS D: input decorrelation before the IR/convolution black box.
+	applyChaosDriveBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
 
 	// 2. CONVOLUTION (TwoStageFFTConvolver - head on audio thread, tail on background)
 	{
@@ -3635,7 +3692,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 
 	// 3. OUTPUT GAIN (OUT) - applied after PRE/POST IR placement, before tilt/filters
 	{
-		const float outGain = fastDecibelsToGain (outDb);
+		const float outGain = gainFaderDecibelsToGain (outDb);
 		for (int ch = 0; ch < numChannels; ++ch)
 			buffer.applyGainRamp (ch, 0, numSamples, state.lastOutGain, outGain);
 		state.lastOutGain = outGain;
@@ -3679,29 +3736,37 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 
 		const float smoothCoeff = cachedTiltSmoothCoeff_;
+		float b0 = state.tiltB0, b1 = state.tiltB1, a1 = state.tiltA1;
+		const float tb0 = state.tiltTargetB0, tb1 = state.tiltTargetB1, ta1 = state.tiltTargetA1;
 
-		for (int ch = 0; ch < numChannels; ++ch)
+		auto* leftData = buffer.getWritePointer (0);
+		auto* rightData = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
+		float leftState = state.tiltState[0];
+		float rightState = state.tiltState[1];
+
+		for (int i = 0; i < numSamples; ++i)
 		{
-			auto* data = buffer.getWritePointer (ch);
-			float s = state.tiltState[ch];
-			float b0 = state.tiltB0, b1 = state.tiltB1, a1 = state.tiltA1;
-			const float tb0 = state.tiltTargetB0, tb1 = state.tiltTargetB1, ta1 = state.tiltTargetA1;
+			b0 += (tb0 - b0) * smoothCoeff;
+			b1 += (tb1 - b1) * smoothCoeff;
+			a1 += (ta1 - a1) * smoothCoeff;
 
-			for (int i = 0; i < numSamples; ++i)
+			const float leftX = leftData[i];
+			const float leftY = b0 * leftX + leftState;
+			leftState = b1 * leftX - a1 * leftY;
+			leftData[i] = leftY;
+
+			if (rightData != nullptr)
 			{
-				b0 += (tb0 - b0) * smoothCoeff;
-				b1 += (tb1 - b1) * smoothCoeff;
-				a1 += (ta1 - a1) * smoothCoeff;
-
-				const float x = data[i];
-				const float y = b0 * x + s;
-				s = b1 * x - a1 * y;
-				data[i] = y;
+				const float rightX = rightData[i];
+				const float rightY = b0 * rightX + rightState;
+				rightState = b1 * rightX - a1 * rightY;
+				rightData[i] = rightY;
 			}
-
-			state.tiltState[ch] = s;
-			state.tiltB0 = b0; state.tiltB1 = b1; state.tiltA1 = a1;
 		}
+
+		state.tiltState[0] = leftState;
+		state.tiltState[1] = rightState;
+		state.tiltB0 = b0; state.tiltB1 = b1; state.tiltA1 = a1;
 	}
 	else if (std::abs (state.lastTiltDb) > 0.05f)
 	{
@@ -3714,122 +3779,182 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// 5-6. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
 	// Per-sample EMA frequency smoothing + coefficient update every 32 samples
-	const bool chaosFilterActive = chaosFilterEnabled && chaosAmtFilter > 0.01f;
+	const bool chaosFilterActive = chaosFilterEnabled
+		&& (chaosAmtFilter > 0.01f || (state.chaosFilterParamSmoothReady && state.chaosFilterAmtSmoothed > 0.01f));
+	if (! chaosFilterActive)
 	{
-
-		// CHAOS FILTER Hermite+Drift: advance per-block, modulate HP/LP target frequencies (+/-2 oct)
-		float hpTarget = hpFreq;
-		float lpTarget = lpFreq;
-		if (chaosFilterActive)
-		{
-			const float amountNorm = chaosAmtFilter * 0.01f;
-			const float chaosFilterMaxOct = amountNorm * 2.0f;  // +/-2 octaves at 100%
-			const float shPeriodSamples = (float) currentSampleRate / chaosSpdFilter;
-			const float sr = (float) currentSampleRate;
-
-			// Advance Hermite+Drift F engine per-sample (mono S&H)
-			for (int i = 0; i < numSamples; ++i)
-			{
-				advanceChaosEngine (state.chaosFPrev, state.chaosFCurr, state.chaosFNext,
-				                    state.chaosFPhase, state.chaosFDriftPhase, state.chaosFDriftFreqHz,
-				                    state.chaosFOut[0], state.chaosFRng, shPeriodSamples, amountNorm, sr);
-			}
-
-			const float octaveShift = state.chaosFOut[0] * chaosFilterMaxOct;
-			const float freqMult = std::exp2 (octaveShift);
-			// When HP/LP knobs are off, chaos sweeps the full 20-20k range (ECHO-TR match)
-			const float hpBase = hpOn ? hpFreq : kFilterFreqMin;
-			const float lpBase = lpOn ? lpFreq : kFilterFreqMax;
-			hpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, hpBase * freqMult);
-			lpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, lpBase * freqMult);
-		}
-
+		state.chaosFilterAmtSmoothed = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter);
+		state.chaosFilterSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpdFilter);
+		state.chaosFilterParamSmoothReady = false;
+	}
+	{
 		constexpr float kSmoothCoeff = 0.9955f; // ~5ms @ 44.1kHz
 		const float oneMinusCoeff = 1.0f - kSmoothCoeff;
+		const float maxFreq = static_cast<float> (currentSampleRate) * 0.49f;
+		const bool processHp = hpOn || chaosFilterActive;
+		const bool processLp = lpOn || chaosFilterActive;
 
-		// EMA smooth toward target frequencies (chaos-modulated or raw)
-		state.smoothedHpFreq += (hpTarget - state.smoothedHpFreq) * oneMinusCoeff;
-		state.smoothedLpFreq += (lpTarget - state.smoothedLpFreq) * oneMinusCoeff;
-
-		// Recalculate coefficients every 32 samples (not every block)
-		if (--state.filterCoeffCountdown <= 0)
+		if (! processHp && ! processLp)
 		{
-			state.filterCoeffCountdown = IRLoaderState::kFilterCoeffUpdateInterval;
-
-			const float maxFreq = static_cast<float> (currentSampleRate) * 0.49f;
-
-			// HP: recalc if smoothed frequency or slope changed
-			const float clampedHp = juce::jlimit (20.0f, maxFreq, state.smoothedHpFreq);
-			if (std::abs (clampedHp - state.lastHpFreq) > 0.01f || hpSlope != state.lastHpSlope)
-			{
-				if (hpSlope == 0) // 6 dB/oct - first-order
-				{
-					*state.hpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (
-						currentSampleRate, clampedHp);
-				}
-				else if (hpSlope == 1) // 12 dB/oct - Butterworth biquad
-				{
-					*state.hpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
-						currentSampleRate, clampedHp, kSqrt2Over2);
-				}
-				else // 24 dB/oct - cascaded biquad pair
-				{
-					*state.hpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
-						currentSampleRate, clampedHp, kBW4_Q1);
-					*state.hpFilter2.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
-						currentSampleRate, clampedHp, kBW4_Q2);
-				}
-				state.lastHpFreq = clampedHp;
-				state.lastHpSlope = hpSlope;
-			}
-
-			// LP: recalc if smoothed frequency or slope changed
-			const float clampedLp = juce::jlimit (20.0f, maxFreq, state.smoothedLpFreq);
-			if (std::abs (clampedLp - state.lastLpFreq) > 0.01f || lpSlope != state.lastLpSlope)
-			{
-				if (lpSlope == 0) // 6 dB/oct - first-order
-				{
-					*state.lpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (
-						currentSampleRate, clampedLp);
-				}
-				else if (lpSlope == 1) // 12 dB/oct - Butterworth biquad
-				{
-					*state.lpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-						currentSampleRate, clampedLp, kSqrt2Over2);
-				}
-				else // 24 dB/oct - cascaded biquad pair
-				{
-					*state.lpFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-						currentSampleRate, clampedLp, kBW4_Q1);
-					*state.lpFilter2.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
-						currentSampleRate, clampedLp, kBW4_Q2);
-				}
-				state.lastLpFreq = clampedLp;
-				state.lastLpSlope = lpSlope;
-			}
+			const float smoothPower = std::pow (kSmoothCoeff, (float) numSamples);
+			state.smoothedHpFreq = hpFreq + (state.smoothedHpFreq - hpFreq) * smoothPower;
+			state.smoothedLpFreq = lpFreq + (state.smoothedLpFreq - lpFreq) * smoothPower;
+			state.filterCoeffCountdown = 0;
 		}
-	}
+		else
+		{
+			const float sr = (float) currentSampleRate;
+			const float hpBase = hpOn ? hpFreq : kFilterFreqMin;
+			const float lpBase = lpOn ? lpFreq : kFilterFreqMax;
+			if (chaosFilterActive && ! state.chaosFilterParamSmoothReady)
+			{
+				if (! hpOn)
+					state.smoothedHpFreq = kFilterFreqMin;
+				if (! lpOn)
+					state.smoothedLpFreq = kFilterFreqMax;
+				state.filterCoeffCountdown = 0;
+			}
 
-	// Apply HP filter (1 or 2 stages depending on slope)
-	// Also apply when chaos filter is active, even if HP knob is off (full-range sweep)
-	if ((hpOn || chaosFilterActive) && state.smoothedHpFreq >= 21.0f)
-	{
-		juce::dsp::AudioBlock<float> block (buffer);
-		juce::dsp::ProcessContextReplacing<float> context (block);
-		state.hpFilter.process (context);
-		if (hpSlope == 2) // 24 dB/oct: second stage
-			state.hpFilter2.process (context);
-	}
+			auto updateFilterCoefficients = [&]()
+			{
+				// HP: recalc if smoothed frequency or slope changed
+				const float clampedHp = juce::jlimit (20.0f, maxFreq, state.smoothedHpFreq);
+				if (std::abs (clampedHp - state.lastHpFreq) > 0.01f || hpSlope != state.lastHpSlope)
+				{
+					if (hpSlope == 0) // 6 dB/oct - first-order
+					{
+						*state.hpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeFirstOrderHighPass (
+							currentSampleRate, clampedHp);
+					}
+					else if (hpSlope == 1) // 12 dB/oct - Butterworth biquad
+					{
+						*state.hpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (
+							currentSampleRate, clampedHp, kSqrt2Over2);
+					}
+					else // 24 dB/oct - cascaded biquad pair
+					{
+						*state.hpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (
+							currentSampleRate, clampedHp, kBW4_Q1);
+						*state.hpFilter2.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (
+							currentSampleRate, clampedHp, kBW4_Q2);
+					}
+					state.lastHpFreq = clampedHp;
+					state.lastHpSlope = hpSlope;
+				}
 
-	// Apply LP filter (1 or 2 stages depending on slope)
-	// Also apply when chaos filter is active, even if LP knob is off (full-range sweep)
-	if ((lpOn || chaosFilterActive) && state.smoothedLpFreq <= 19900.0f)
-	{
-		juce::dsp::AudioBlock<float> block (buffer);
-		juce::dsp::ProcessContextReplacing<float> context (block);
-		state.lpFilter.process (context);
-		if (lpSlope == 2) // 24 dB/oct: second stage
-			state.lpFilter2.process (context);
+				// LP: recalc if smoothed frequency or slope changed
+				const float clampedLp = juce::jlimit (20.0f, maxFreq, state.smoothedLpFreq);
+				if (std::abs (clampedLp - state.lastLpFreq) > 0.01f || lpSlope != state.lastLpSlope)
+				{
+					if (lpSlope == 0) // 6 dB/oct - first-order
+					{
+						*state.lpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeFirstOrderLowPass (
+							currentSampleRate, clampedLp);
+					}
+					else if (lpSlope == 1) // 12 dB/oct - Butterworth biquad
+					{
+						*state.lpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (
+							currentSampleRate, clampedLp, kSqrt2Over2);
+					}
+					else // 24 dB/oct - cascaded biquad pair
+					{
+						*state.lpFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (
+							currentSampleRate, clampedLp, kBW4_Q1);
+						*state.lpFilter2.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (
+							currentSampleRate, clampedLp, kBW4_Q2);
+					}
+					state.lastLpFreq = clampedLp;
+					state.lastLpSlope = lpSlope;
+				}
+			};
+
+			juce::dsp::AudioBlock<float> block (buffer);
+			int segmentStart = 0;
+
+			auto processSegment = [&] (int segmentEnd)
+			{
+				const int segmentLength = segmentEnd - segmentStart;
+				if (segmentLength <= 0)
+					return;
+
+				auto subBlock = block.getSubBlock ((size_t) segmentStart, (size_t) segmentLength);
+				juce::dsp::ProcessContextReplacing<float> context (subBlock);
+
+				// Apply HP filter (1 or 2 stages depending on slope).
+				// Also apply when chaos filter is active, even if HP knob is off (full-range sweep).
+				if (processHp && (chaosFilterActive || state.smoothedHpFreq >= 21.0f))
+				{
+					state.hpFilter.process (context);
+					if (hpSlope == 2) // 24 dB/oct: second stage
+						state.hpFilter2.process (context);
+				}
+
+				// Apply LP filter (1 or 2 stages depending on slope).
+				// Also apply when chaos filter is active, even if LP knob is off (full-range sweep).
+				if (processLp && (chaosFilterActive || state.smoothedLpFreq <= 19900.0f))
+				{
+					state.lpFilter.process (context);
+					if (lpSlope == 2) // 24 dB/oct: second stage
+						state.lpFilter2.process (context);
+				}
+
+				segmentStart = segmentEnd;
+			};
+
+			auto advanceFilterTargets = [&]()
+			{
+				float hpTarget = hpFreq;
+				float lpTarget = lpFreq;
+
+				if (chaosFilterActive)
+				{
+					const float targetAmt = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter);
+					const float targetSpd = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpdFilter);
+					if (! state.chaosFilterParamSmoothReady)
+					{
+						state.chaosFilterParamSmoothReady = true;
+						if (state.chaosFilterSpdSmoothed <= 0.0f)
+							state.chaosFilterSpdSmoothed = targetSpd;
+					}
+
+					state.chaosFilterAmtSmoothed += (targetAmt - state.chaosFilterAmtSmoothed) * chaosParamSmoothCoeff;
+					const float filterSpdLog = std::log (juce::jmax (kChaosSpdMin, state.chaosFilterSpdSmoothed));
+					const float filterTargetSpdLog = std::log (targetSpd);
+					state.chaosFilterSpdSmoothed = std::exp (filterSpdLog + (filterTargetSpdLog - filterSpdLog) * chaosParamSmoothCoeff);
+
+					const float amountNorm = state.chaosFilterAmtSmoothed * 0.01f;
+					const float chaosFilterMaxOct = amountNorm * 2.0f;  // +/-2 octaves at 100%
+					const float shPeriodSamples = sr / juce::jmax (kChaosSpdMin, state.chaosFilterSpdSmoothed);
+
+					advanceChaosEngine (state.chaosFPrev, state.chaosFCurr, state.chaosFNext,
+					                    state.chaosFPhase, state.chaosFDriftPhase, state.chaosFDriftFreqHz,
+					                    state.chaosFOut[0], state.chaosFRng, shPeriodSamples, amountNorm, sr);
+
+					const float octaveShift = state.chaosFOut[0] * chaosFilterMaxOct;
+					const float freqMult = std::exp2 (octaveShift);
+					hpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, hpBase * freqMult);
+					lpTarget = juce::jlimit (kFilterFreqMin, kFilterFreqMax, lpBase * freqMult);
+				}
+
+				state.smoothedHpFreq += (hpTarget - state.smoothedHpFreq) * oneMinusCoeff;
+				state.smoothedLpFreq += (lpTarget - state.smoothedLpFreq) * oneMinusCoeff;
+			};
+
+			for (int i = 0; i < numSamples; ++i)
+			{
+				advanceFilterTargets();
+
+				// Countdown is sample-based: samples before this boundary use the previous coefficients.
+				if (--state.filterCoeffCountdown <= 0)
+				{
+					processSegment (i);
+					state.filterCoeffCountdown = IRLoaderState::kFilterCoeffUpdateInterval;
+					updateFilterCoefficients();
+				}
+			}
+
+			processSegment (numSamples);
+		}
 	}
 	
 	// 4. DISTANCE EFFECT (exponential LPF + gain attenuation)
@@ -3924,84 +4049,118 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		}
 	}
 	
-	// 8. CHAOS (Hermite+Drift micro-delay + per-channel gain modulation)
-	if (chaosEnabled && chaosAmt > 0.01f)
-	{
-		const float maxDelaySec = 0.005f; // +/-5ms max
-		const float amountNorm = chaosAmt * 0.01f; // 0..1
-		const float maxDelaySamples = amountNorm * maxDelaySec * (float) currentSampleRate;
-		const float shPeriodSamples = (float) currentSampleRate / chaosSpd;
-		const float chaosGainMaxDb = amountNorm * 1.0f; // +/-1dB at 100%
-		const float sr = (float) currentSampleRate;
-		
-		const int chCount = juce::jmin (numChannels, 2);
-		const int delayBufLen = IRLoaderState::kChaosDelayMaxSamples;
-		const int mask = delayBufLen - 1;
-		
-		float* channelData[2] = { nullptr, nullptr };
-		for (int ch = 0; ch < chCount; ++ch)
-			channelData[ch] = buffer.getWritePointer (ch);
-		
-		for (int i = 0; i < numSamples; ++i)
-		{
-			// Advance Hermite+Drift D+G engines (per-channel)
-			for (int c = 0; c < chCount; ++c)
-			{
-				advanceChaosEngine (state.chaosDPrev[c], state.chaosDCurr[c], state.chaosDNext[c],
-				                    state.chaosDPhase[c], state.chaosDDriftPhase[c], state.chaosDDriftFreqHz[c],
-				                    state.chaosDOut[c], state.chaosDRng[c], shPeriodSamples, amountNorm, sr);
-				advanceChaosEngine (state.chaosGPrev[c], state.chaosGCurr[c], state.chaosGNext[c],
-				                    state.chaosGPhase[c], state.chaosGDriftPhase[c], state.chaosGDriftFreqHz[c],
-				                    state.chaosGOut[c], state.chaosGRng[c], shPeriodSamples, amountNorm, sr);
-			}
-			if (chCount < 2)
-			{
-				state.chaosDOut[1] = state.chaosDOut[0];
-				state.chaosGOut[1] = state.chaosGOut[0];
-			}
-			
-			// Write current sample into delay buffer
-			const int wp = state.chaosDelayWritePos;
-			for (int ch = 0; ch < chCount; ++ch)
-				state.chaosDelayBuffer[ch][wp] = channelData[ch][i];
-			
-			// Read with per-channel delay using Lagrange interpolation
-			for (int ch = 0; ch < chCount; ++ch)
-			{
-				const float delaySamp = juce::jlimit (0.0f, (float) (delayBufLen - 2),
-				                                      maxDelaySamples + state.chaosDOut[ch] * maxDelaySamples);
-				const float readPos = (float) wp - delaySamp;
-				const int iPos = (int) std::floor (readPos);
-				const float frac = readPos - (float) iPos;
-				
-				const float p0 = state.chaosDelayBuffer[ch][(iPos - 1) & mask];
-				const float p1 = state.chaosDelayBuffer[ch][(iPos    ) & mask];
-				const float p2 = state.chaosDelayBuffer[ch][(iPos + 1) & mask];
-				const float p3 = state.chaosDelayBuffer[ch][(iPos + 2) & mask];
-				
-				const float c0 = p1;
-				const float c1 = p2 - (1.0f / 3.0f) * p0 - 0.5f * p1 - (1.0f / 6.0f) * p3;
-				const float c2 = 0.5f * (p0 + p2) - p1;
-				const float c3 = (1.0f / 6.0f) * (p3 - p0) + 0.5f * (p1 - p2);
-				channelData[ch][i] = ((c3 * frac + c2) * frac + c1) * frac + c0;
-				
-				// Per-channel gain modulation (+/-1dB, fast dB->linear)
-				const float gainDb  = state.chaosGOut[ch] * chaosGainMaxDb;
-				const float ex = gainDb * 0.16609640474f;
-				const float exln2 = ex * 0.6931472f;
-				const float gainLin = 1.0f + exln2 * (1.0f + exln2 * 0.5f);
-				channelData[ch][i] *= gainLin;
-			}
-			
-			state.chaosDelayWritePos = (wp + 1) & mask;
-		}
-	}
-
 	// Flush denormals in filter/tilt states (per-block, near-zero cost)
 	{
 		constexpr float kDnr = 1e-20f;
 		if (std::abs (state.tiltState[0])       < kDnr) state.tiltState[0]       = 0.0f;
 		if (std::abs (state.tiltState[1])       < kDnr) state.tiltState[1]       = 0.0f;
+	}
+}
+
+void CABTRAudioProcessor::applyChaosDriveBuffer (IRLoaderState& state,
+                                                 juce::AudioBuffer<float>& buffer,
+                                                 bool chaosEnabled, float chaosAmt, float chaosSpd,
+                                                 float chaosParamSmoothCoeff) noexcept
+{
+	const int numSamples = buffer.getNumSamples();
+	const int numChannels = buffer.getNumChannels();
+	const int chCount = juce::jmin (numChannels, 2);
+	const bool chaosDriveActive = chaosEnabled
+		&& (chaosAmt > 0.01f || (state.chaosDriveParamSmoothReady && state.chaosDriveAmtSmoothed > 0.01f));
+
+	if (! chaosDriveActive || numSamples <= 0 || chCount <= 0)
+	{
+		state.chaosDelaySmoothedSamples[0] = state.chaosDelaySmoothedSamples[1] = 0.0f;
+		state.chaosDelaySmoothReady[0] = state.chaosDelaySmoothReady[1] = false;
+		state.chaosDriveAmtSmoothed = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmt);
+		state.chaosDriveSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpd);
+		state.chaosDriveParamSmoothReady = false;
+		return;
+	}
+
+	const float maxDelaySec = 0.005f; // +/-5ms max
+	const float sr = static_cast<float> (currentSampleRate);
+	const float chaosDelaySmoothCoeff = 1.0f - std::exp (-1.0f / (sr * 0.002f));
+	const int delayBufLen = IRLoaderState::kChaosDelayMaxSamples;
+	const int mask = delayBufLen - 1;
+
+	float* channelData[2] = { nullptr, nullptr };
+	for (int ch = 0; ch < chCount; ++ch)
+		channelData[ch] = buffer.getWritePointer (ch);
+
+	for (int i = 0; i < numSamples; ++i)
+	{
+		const float targetAmt = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmt);
+		const float targetSpd = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpd);
+		if (! state.chaosDriveParamSmoothReady)
+		{
+			state.chaosDriveParamSmoothReady = true;
+			if (state.chaosDriveSpdSmoothed <= 0.0f)
+				state.chaosDriveSpdSmoothed = targetSpd;
+		}
+
+		state.chaosDriveAmtSmoothed += (targetAmt - state.chaosDriveAmtSmoothed) * chaosParamSmoothCoeff;
+		const float driveSpdLog = std::log (juce::jmax (kChaosSpdMin, state.chaosDriveSpdSmoothed));
+		const float driveTargetSpdLog = std::log (targetSpd);
+		state.chaosDriveSpdSmoothed = std::exp (driveSpdLog + (driveTargetSpdLog - driveSpdLog) * chaosParamSmoothCoeff);
+
+		const float amountNorm = state.chaosDriveAmtSmoothed * 0.01f; // 0..1
+		const float maxDelaySamples = amountNorm * maxDelaySec * sr;
+		const float shPeriodSamples = sr / juce::jmax (kChaosSpdMin, state.chaosDriveSpdSmoothed);
+		const float chaosGainMaxDb = amountNorm * 1.0f; // +/-1dB at 100%
+
+		// L/R-linked micro-delay and gain: decorrelate the loader, not the stereo image.
+		advanceChaosEngine (state.chaosDPrev[0], state.chaosDCurr[0], state.chaosDNext[0],
+		                    state.chaosDPhase[0], state.chaosDDriftPhase[0], state.chaosDDriftFreqHz[0],
+		                    state.chaosDOut[0], state.chaosDRng[0], shPeriodSamples, amountNorm, sr);
+		advanceChaosEngine (state.chaosGPrev[0], state.chaosGCurr[0], state.chaosGNext[0],
+		                    state.chaosGPhase[0], state.chaosGDriftPhase[0], state.chaosGDriftFreqHz[0],
+		                    state.chaosGOut[0], state.chaosGRng[0], shPeriodSamples, amountNorm, sr);
+		state.chaosDOut[1] = state.chaosDOut[0];
+		state.chaosGOut[1] = state.chaosGOut[0];
+
+		const int wp = state.chaosDelayWritePos;
+		for (int ch = 0; ch < chCount; ++ch)
+			state.chaosDelayBuffer[ch][wp] = channelData[ch][i];
+
+		const float targetDelaySamp = juce::jlimit (0.0f, static_cast<float> (delayBufLen - 2),
+		                                            maxDelaySamples + state.chaosDOut[0] * maxDelaySamples);
+		float& smoothedDelaySamp = state.chaosDelaySmoothedSamples[0];
+		if (! state.chaosDelaySmoothReady[0])
+		{
+			smoothedDelaySamp = targetDelaySamp;
+			state.chaosDelaySmoothReady[0] = true;
+		}
+		else
+		{
+			smoothedDelaySamp += (targetDelaySamp - smoothedDelaySamp) * chaosDelaySmoothCoeff;
+		}
+		state.chaosDelaySmoothedSamples[1] = smoothedDelaySamp;
+		state.chaosDelaySmoothReady[1] = state.chaosDelaySmoothReady[0];
+
+		const float readPos = static_cast<float> (wp) - smoothedDelaySamp;
+		const int iPos = static_cast<int> (std::floor (readPos));
+		const float frac = readPos - static_cast<float> (iPos);
+		const float gainDb  = state.chaosGOut[0] * chaosGainMaxDb;
+		const float ex = gainDb * 0.16609640474f;
+		const float exln2 = ex * 0.6931472f;
+		const float gainLin = 1.0f + exln2 * (1.0f + exln2 * 0.5f);
+
+		for (int ch = 0; ch < chCount; ++ch)
+		{
+			const float p0 = state.chaosDelayBuffer[ch][(iPos - 1) & mask];
+			const float p1 = state.chaosDelayBuffer[ch][(iPos    ) & mask];
+			const float p2 = state.chaosDelayBuffer[ch][(iPos + 1) & mask];
+			const float p3 = state.chaosDelayBuffer[ch][(iPos + 2) & mask];
+
+			const float c0 = p1;
+			const float c1 = p2 - (1.0f / 3.0f) * p0 - 0.5f * p1 - (1.0f / 6.0f) * p3;
+			const float c2 = 0.5f * (p0 + p2) - p1;
+			const float c3 = (1.0f / 6.0f) * (p3 - p0) + 0.5f * (p1 - p2);
+			channelData[ch][i] = (((c3 * frac + c2) * frac + c1) * frac + c0) * gainLin;
+		}
+
+		state.chaosDelayWritePos = (wp + 1) & mask;
 	}
 }
 
@@ -4115,6 +4274,7 @@ void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float de
 	// Select delay line and smoother for this loader
 	auto& delayLine = loaderIndex == 0 ? stateA.delayLine : (loaderIndex == 1 ? stateB.delayLine : stateC.delayLine);
 	auto& smoother  = loaderIndex == 0 ? stateA.smoothedDelay : (loaderIndex == 1 ? stateB.smoothedDelay : stateC.smoothedDelay);
+	auto* const* writeChannels = buffer.getArrayOfWritePointers();
 	
 	// Set target delay with smoothing (prevents clicks when changing delay)
 	smoother.setTargetValue (targetDelaySamples);
@@ -4125,7 +4285,44 @@ void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float de
 	// most likely to click.
 	constexpr float kMinInterpDelaySamples = 2.0f;
 
-	// Apply smoothed delay sample-by-sample
+	if (! smoother.isSmoothing())
+	{
+		const float currentDelay = smoother.getCurrentValue();
+		const float interpDelay = juce::jmax (currentDelay, kMinInterpDelaySamples);
+		const float wet = juce::jlimit (0.0f, 1.0f, currentDelay / kMinInterpDelaySamples);
+		delayLine.setDelay (interpDelay);
+
+		if (wet <= 0.0f)
+		{
+			for (int i = 0; i < numSamples; ++i)
+			{
+				for (int ch = 0; ch < numChannels; ++ch)
+				{
+					auto* channelData = writeChannels[ch];
+					delayLine.pushSample (ch, channelData[i]);
+					delayLine.popSample (ch);
+				}
+			}
+
+			return;
+		}
+
+		for (int i = 0; i < numSamples; ++i)
+		{
+			for (int ch = 0; ch < numChannels; ++ch)
+			{
+				auto* channelData = writeChannels[ch];
+				const float input = channelData[i];
+				delayLine.pushSample (ch, input);
+				const float delayed = delayLine.popSample (ch);
+				channelData[i] = input + (delayed - input) * wet;
+			}
+		}
+
+		return;
+	}
+
+	// Apply smoothed delay sample-by-sample while the target is moving.
 	for (int i = 0; i < numSamples; ++i)
 	{
 		const float currentDelay = smoother.getNextValue();
@@ -4136,7 +4333,7 @@ void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float de
 		// Process each channel
 		for (int ch = 0; ch < numChannels; ++ch)
 		{
-			auto* channelData = buffer.getWritePointer (ch);
+			auto* channelData = writeChannels[ch];
 			const float input = channelData[i];
 			
 			// Push input and pop delayed output

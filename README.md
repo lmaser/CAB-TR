@@ -30,11 +30,12 @@ CAB-TR uses a text-based UI with horizontal bar sliders. All controls are access
 
 ### Global
 
-#### INPUT (-100 to 0 dB)
+#### INPUT (-INF to +24 dB)
 
 Pre-processing gain. Applied before the IR loaders.
+The fader floor is -144 dB, displayed as -INF; 0 dB is centered on the control.
 
-#### OUTPUT (-100 to +24 dB)
+#### OUTPUT (-INF to +24 dB)
 
 Post-processing gain. Applied after routing and summing.
 
@@ -115,11 +116,12 @@ Slope modes:
 - **12 dB/oct**: Second-order Butterworth.
 - **24 dB/oct**: Two cascaded second-order Butterworth stages.
 
-#### IN (-100 to 0 dB)
+#### IN (-INF to +24 dB)
 
 Per-loader input gain. Applied before convolution and the rest of the realtime loader chain. Useful for level-matching IRs with different native gains before they enter the IR stage.
+The fader floor is -144 dB, displayed as -INF; 0 dB is centered on the control.
 
-#### OUT (-100 to +24 dB)
+#### OUT (-INF to +24 dB)
 
 Per-loader output gain.
 
@@ -285,6 +287,8 @@ Export options:
 - Lock-free atomic parameter reads.
 - Background-threaded convolution tail.
 - Disabled loaders cost zero CPU.
+- Global and per-loader dry buffers are skipped when the corresponding mix path is fully wet and stable, while preserving dry fade-out ramps during transitions.
+- Stable per-loader delay blocks avoid redundant per-sample delay setup and keep delay lines continuously fed for click-free re-entry.
 - CRT effect uses cached rendering with timer-driven animation.
 
 ### Build
@@ -302,3 +306,5 @@ Export options:
 - Added per-loader `EXP` with `PRE/POST` order around the IR loader plus THRESH, RATIO, KNEE, ATK, and REL controls.
 - Refined prompt UX and delay readouts for consistent numeric editing and 0.001 ms precision display.
 - Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `EXP`, and `LIMITER`.
+- Updated global and per-loader gain faders to a consistent -INF to +24 dB range with 0 dB centered.
+- Optimized global/per-loader dry-wet mix paths and stable delay processing without changing the intended audio behavior.

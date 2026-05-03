@@ -34,6 +34,18 @@ static constexpr std::array<const char*, 7> kUiMirrorParamIds {
 // ============================================================================
 namespace
 {
+	bool isGainFaderFloor (float dB) noexcept
+	{
+		return dB <= CABTRAudioProcessor::kGainFloorDb + 0.001f;
+	}
+
+	juce::String formatGainFaderDb (float dB)
+	{
+		if (isGainFaderFloor (dB))
+			return "-INF dB";
+		return juce::String (dB, 1) + " dB";
+	}
+
 	float expRatioInternalToDisplay (float internalRatio) noexcept
 	{
 		return juce::jlimit (CABTRAudioProcessor::kExpRatioMin,
@@ -643,11 +655,10 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 			return juce::String (v, 1) + " Hz";
 
 		case Type::Input:
-			if (v <= -80.0) return "-INF";
-			return juce::String (v, 1) + " dB";
-
 		case Type::Output:
 		case Type::GlobalOutput:
+			return formatGainFaderDb ((float) v);
+
 		case Type::LimThreshold:
 			return juce::String (v, 1) + " dB";
 
@@ -763,6 +774,24 @@ void CABTRAudioProcessorEditor::FilterBarComponent::setFreqFromMouseX (float mou
 		param->setValueNotifyingHost (param->convertTo0to1 (freq));
 }
 
+void CABTRAudioProcessorEditor::FilterBarComponent::updateTooltipForTarget (DragTarget target)
+{
+	if (target == HP)
+	{
+		const int hz = juce::roundToInt (hpFreq_);
+		setTooltip ("HP: " + juce::String (hz) + " Hz");
+	}
+	else if (target == LP)
+	{
+		const int hz = juce::roundToInt (lpFreq_);
+		setTooltip ("LP: " + juce::String (hz) + " Hz");
+	}
+	else
+	{
+		setTooltip ({});
+	}
+}
+
 void CABTRAudioProcessorEditor::FilterBarComponent::updateFromProcessor()
 {
 	if (owner == nullptr) return;
@@ -858,6 +887,7 @@ void CABTRAudioProcessorEditor::FilterBarComponent::mouseDown (const juce::Mouse
 	{
 		setFreqFromMouseX (e.position.x, currentDrag_);
 		updateFromProcessor();
+		updateTooltipForTarget (currentDrag_);
 	}
 }
 
@@ -867,6 +897,7 @@ void CABTRAudioProcessorEditor::FilterBarComponent::mouseDrag (const juce::Mouse
 	{
 		setFreqFromMouseX (e.position.x, currentDrag_);
 		updateFromProcessor();
+		updateTooltipForTarget (currentDrag_);
 	}
 }
 
@@ -877,21 +908,7 @@ void CABTRAudioProcessorEditor::FilterBarComponent::mouseUp (const juce::MouseEv
 
 void CABTRAudioProcessorEditor::FilterBarComponent::mouseMove (const juce::MouseEvent& e)
 {
-	const auto target = hitTestMarker (e.position);
-	if (target == HP)
-	{
-		const int hz = juce::roundToInt (hpFreq_);
-		setTooltip ("HP: " + juce::String (hz) + " Hz");
-	}
-	else if (target == LP)
-	{
-		const int hz = juce::roundToInt (lpFreq_);
-		setTooltip ("LP: " + juce::String (hz) + " Hz");
-	}
-	else
-	{
-		setTooltip ({});
-	}
+	updateTooltipForTarget (hitTestMarker (e.position));
 }
 
 void CABTRAudioProcessorEditor::FilterBarComponent::mouseDoubleClick (const juce::MouseEvent& e)
@@ -959,6 +976,23 @@ void CABTRAudioProcessorEditor::DualMixBarComponent::setLevelFromMouseX (float m
 	auto& proc = owner->audioProcessor;
 	if (auto* param = proc.getValueTreeState().getParameter (paramId))
 		param->setValueNotifyingHost (level);
+}
+
+void CABTRAudioProcessorEditor::DualMixBarComponent::updateTooltipForTarget (DragTarget target)
+{
+	if (target == None)
+	{
+		setTooltip ({});
+		return;
+	}
+
+	const float level = (target == DRY) ? dryLevel_ : wetLevel_;
+	const float dB = (level <= 0.0001f) ? -100.0f : 20.0f * std::log10 (level);
+	const juce::String label = (target == DRY) ? "DRY" : "WET";
+	if (dB <= -100.0f)
+		setTooltip (label + ": -INF dB");
+	else
+		setTooltip (label + ": " + juce::String (dB, 1) + " dB");
 }
 
 void CABTRAudioProcessorEditor::DualMixBarComponent::updateFromProcessor()
@@ -1038,6 +1072,7 @@ void CABTRAudioProcessorEditor::DualMixBarComponent::mouseDown (const juce::Mous
 		lastTouched_ = currentDrag_;
 		setLevelFromMouseX (e.position.x, currentDrag_);
 		updateFromProcessor();
+		updateTooltipForTarget (currentDrag_);
 		if (owner != nullptr)
 		{
 			owner->legendDirty = true;
@@ -1052,6 +1087,7 @@ void CABTRAudioProcessorEditor::DualMixBarComponent::mouseDrag (const juce::Mous
 	{
 		setLevelFromMouseX (e.position.x, currentDrag_);
 		updateFromProcessor();
+		updateTooltipForTarget (currentDrag_);
 		if (owner != nullptr)
 		{
 			owner->legendDirty = true;
@@ -1067,14 +1103,7 @@ void CABTRAudioProcessorEditor::DualMixBarComponent::mouseUp (const juce::MouseE
 
 void CABTRAudioProcessorEditor::DualMixBarComponent::mouseMove (const juce::MouseEvent& e)
 {
-	const auto target = hitTestMarker (e.position);
-	const float level = (target == DRY) ? dryLevel_ : wetLevel_;
-	const float dB = (level <= 0.0001f) ? -100.0f : 20.0f * std::log10 (level);
-	const juce::String label = (target == DRY) ? "DRY" : "WET";
-	if (dB <= -100.0f)
-		setTooltip (label + ": -INF dB");
-	else
-		setTooltip (label + ": " + juce::String (dB, 1) + " dB");
+	updateTooltipForTarget (hitTestMarker (e.position));
 }
 
 //==============================================================================
@@ -1599,7 +1628,8 @@ void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorVal
 	// UI-only skew: changes slider feel without altering VST3 parameter normalization
 	ui.hp.setSkewFactor (0.35);
 	ui.lp.setSkewFactor (0.35);
-	ui.out.setSkewFactor (3.23);
+	ui.in.setSkewFactor (CABTRAudioProcessor::kGainSkew);
+	ui.out.setSkewFactor (CABTRAudioProcessor::kGainSkew);
 }
 
 //==============================================================================
@@ -1679,6 +1709,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	globalOutputSlider.setOwner (this);
 	globalOutputSlider.setType (BarSlider::Type::GlobalOutput);
 	setupBar (globalOutputSlider);
+	globalOutputSlider.setSkewFactor (CABTRAudioProcessor::kGainSkew);
 	globalOutputSlider.addListener (this);
 
 	// Limiter threshold bar slider (footer)
@@ -1934,7 +1965,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText ("OUTPUT", outArea, juce::Justification::centred);
 
 			const float gOutDb = (float) globalOutputSlider.getValue();
-			juce::String outTxt = (gOutDb <= -80.0f) ? "-INF" : juce::String (gOutDb, 1) + " dB";
+			juce::String outTxt = formatGainFaderDb (gOutDb);
 			const auto valArea = juce::Rectangle<int> (outBounds.getRight() + 4, outBounds.getY(), 66, outBounds.getHeight());
 			g.drawText (outTxt, valArea, juce::Justification::centredLeft);
 		}
@@ -3147,9 +3178,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	};
 
 	auto formatDb = [] (float db) -> juce::String {
-		if (db <= -80.0f)
-			return "-INF";
-		return juce::String (db, 1) + " dB";
+		return formatGainFaderDb (db);
 	};
 
 	auto formatPan = [] (float pan01) -> juce::String {
@@ -3585,8 +3614,8 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		// Worst-case widths for layout stability
 		juce::String worstCaseText;
 		if (isHpLp)              worstCaseText = "20000.000";
-		else if (isIn)           worstCaseText = "-100.0";
-		else if (isOut)          worstCaseText = "-100.0";
+		else if (isIn)           worstCaseText = "-144.0";
+		else if (isOut)          worstCaseText = "-144.0";
 		else if (isLimThresh)    worstCaseText = "-36.0";
 		else if (isTilt)         worstCaseText = "-6.00";
 		else if (isStart||isEnd) worstCaseText = "10000.000";
@@ -3671,13 +3700,15 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		}
 		else if (isIn)
 		{
-			minVal = -100.0; maxVal = 0.0;
-			maxDecs = 1;     maxLen = 6;     // "-100.0"
+			minVal = CABTRAudioProcessor::kGainFloorDb;
+			maxVal = CABTRAudioProcessor::kGainMaxDb;
+			maxDecs = 1;     maxLen = 6;     // "-144.0"
 		}
 		else if (isOut)
 		{
-			minVal = -100.0; maxVal = 24.0;
-			maxDecs = 1;     maxLen = 6;     // "-100.0"
+			minVal = CABTRAudioProcessor::kGainFloorDb;
+			maxVal = CABTRAudioProcessor::kGainMaxDb;
+			maxDecs = 1;     maxLen = 6;     // "-144.0"
 		}
 		else if (isLimThresh)
 		{
@@ -3824,11 +3855,17 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 			while (t.startsWithChar ('+'))
 				t = t.substring (1).trimStart();
 			const juce::String numericToken = t.initialSectionContainingOnly ("0123456789.,-");
-			double v = numericToken.getDoubleValue();
 
-			// Percent-based sliders: user typed 0-100/200, slider stores 0-1/2
 			auto* barPtr = dynamic_cast<BarSlider*> (sliderPtr);
 			const auto st = barPtr ? barPtr->getType() : BarSlider::Type::Unknown;
+			const bool isGainFader = (st == BarSlider::Type::Input ||
+			                          st == BarSlider::Type::Output ||
+			                          st == BarSlider::Type::GlobalOutput);
+			double v = (isGainFader && t.containsIgnoreCase ("inf"))
+				? (double) CABTRAudioProcessor::kGainFloorDb
+				: numericToken.getDoubleValue();
+
+			// Percent-based sliders: user typed 0-100/200, slider stores 0-1/2
 			const bool needsPercentConvert = (st == BarSlider::Type::Size || st == BarSlider::Type::Pan ||
 			                                  st == BarSlider::Type::Fred  || st == BarSlider::Type::Pos  ||
 			                                  st == BarSlider::Type::Reso  || st == BarSlider::Type::Mix  ||
@@ -4871,7 +4908,10 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 
 			constexpr int kEditorTextPadPx = 12;
 			constexpr int kMinEditorWidthPx = 24;
-			const int editorW = juce::jlimit (kMinEditorWidthPx, 80,
+			const int maxEditorWidthPx = (unitLabel != nullptr && unitLabel->getText() == "Hz")
+				? juce::jmax (80, stringWidth (font, "100.00") + kEditorTextPadPx * 2)
+				: 80;
+			const int editorW = juce::jlimit (kMinEditorWidthPx, maxEditorWidthPx,
 			                                  textW + kEditorTextPadPx * 2);
 
 			const int visualW = labelW + spaceW + textW + unitW;

@@ -145,6 +145,7 @@ private:
 		float getMarkerScreenX (float freq) const;
 		DragTarget hitTestMarker (juce::Point<float> p) const;
 		void  setFreqFromMouseX (float mouseX, DragTarget target);
+		void  updateTooltipForTarget (DragTarget target);
 	};
 
 	// ============================================================================
@@ -188,6 +189,7 @@ private:
 		juce::Rectangle<float> getInnerArea() const;
 		DragTarget hitTestMarker (juce::Point<float> p) const;
 		void  setLevelFromMouseX (float mouseX, DragTarget target);
+		void  updateTooltipForTarget (DragTarget target);
 	};
 
 	// ============================================================================
