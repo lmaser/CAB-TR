@@ -34,6 +34,7 @@ public:
 	static constexpr const char* kParamPanA         = "pan_a";
 	static constexpr const char* kParamFredA        = "fred_a";
 	static constexpr const char* kParamPosA         = "pos_a";
+	static constexpr const char* kParamVariationA   = "variation_a";
 	static constexpr const char* kParamResoA        = "reso_a";
 	static constexpr const char* kParamInvA         = "inv_a";
 	static constexpr const char* kParamNormA        = "norm_a";
@@ -77,6 +78,7 @@ public:
 	static constexpr const char* kParamPanB         = "pan_b";
 	static constexpr const char* kParamFredB        = "fred_b";
 	static constexpr const char* kParamPosB         = "pos_b";
+	static constexpr const char* kParamVariationB   = "variation_b";
 	static constexpr const char* kParamResoB        = "reso_b";
 	static constexpr const char* kParamInvB         = "inv_b";
 	static constexpr const char* kParamNormB        = "norm_b";
@@ -120,6 +122,7 @@ public:
 	static constexpr const char* kParamPanC         = "pan_c";
 	static constexpr const char* kParamFredC        = "fred_c";
 	static constexpr const char* kParamPosC         = "pos_c";
+	static constexpr const char* kParamVariationC   = "variation_c";
 	static constexpr const char* kParamResoC        = "reso_c";
 	static constexpr const char* kParamInvC         = "inv_c";
 	static constexpr const char* kParamNormC        = "norm_c";
@@ -306,6 +309,10 @@ public:
 	static constexpr float kPosMin                  = 0.0f;       // 0% = no effect
 	static constexpr float kPosMax                  = 1.0f;       // 100% = full Friedman simulation
 	static constexpr float kPosDefault              = 0.0f;
+
+	static constexpr float kVariationMin            = 0.0f;
+	static constexpr float kVariationMax            = 1.0f;
+	static constexpr float kVariationDefault        = 0.0f;
 
 	static constexpr float kResoMin                  = 0.0f;       // 0%
 	static constexpr float kResoMax                  = 2.0f;       // 200%
@@ -561,6 +568,28 @@ public:
 		float chaosFOut[2]          = {};
 		juce::Random chaosFRng;
 
+		struct VariationLaneState
+		{
+			float prev = 0.0f;
+			float curr = 0.0f;
+			float next = 0.0f;
+			float phase = 0.0f;
+			float driftPhase = 0.0f;
+			float driftFreqHz = 0.0f;
+			float out = 0.0f;
+			juce::Random rng;
+		};
+
+		float variationAmtSmoothed = 0.0f;
+		bool variationParamSmoothReady = false;
+		VariationLaneState variationSize;
+		VariationLaneState variationAngle;
+		VariationLaneState variationDistance;
+		VariationLaneState variationSizeFast;
+		VariationLaneState variationAngleFast;
+		VariationLaneState variationDistanceFast;
+		float variationSizeAllpassState[2] = {};
+
 		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
 		std::atomic<float> irSlopeDbPerOct { 0.0f };
 
@@ -603,6 +632,7 @@ private:
 
 	double currentSampleRate = 44100.0;
 	int currentBlockSize = 512;
+	juce::int64 variationInstanceSeed_ = 0;
 
 	// Cached raw parameter pointers (resolved once in prepareToPlay, avoids hash lookup per block)
 	std::atomic<float>* pEnableA = nullptr;
@@ -629,6 +659,7 @@ private:
 	std::atomic<float>* pPanA = nullptr;
 	std::atomic<float>* pFredA = nullptr;
 	std::atomic<float>* pPosA = nullptr;
+	std::atomic<float>* pVariationA = nullptr;
 	std::atomic<float>* pInA = nullptr;
 	std::atomic<float>* pOutA = nullptr;
 	std::atomic<float>* pTiltA = nullptr;
@@ -649,6 +680,7 @@ private:
 	std::atomic<float>* pPanB = nullptr;
 	std::atomic<float>* pFredB = nullptr;
 	std::atomic<float>* pPosB = nullptr;
+	std::atomic<float>* pVariationB = nullptr;
 	std::atomic<float>* pInB = nullptr;
 	std::atomic<float>* pOutB = nullptr;
 	std::atomic<float>* pTiltB = nullptr;
@@ -689,6 +721,7 @@ private:
 	std::atomic<float>* pPanC = nullptr;
 	std::atomic<float>* pFredC = nullptr;
 	std::atomic<float>* pPosC = nullptr;
+	std::atomic<float>* pVariationC = nullptr;
 	std::atomic<float>* pInC = nullptr;
 	std::atomic<float>* pOutC = nullptr;
 	std::atomic<float>* pTiltC = nullptr;
@@ -876,6 +909,13 @@ private:
 	void applyChaosDriveBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
 	                            bool chaosEnabled, float chaosAmt, float chaosSpd,
 	                            float chaosParamSmoothCoeff) noexcept;
+	void advanceVariationState (IRLoaderState& state, float variationTarget, float variationSmoothCoeff,
+	                            int numSamples, float& sizeOffset, float& angleOffset,
+	                            float& distanceOffset) noexcept;
+	void applyVariationSizeProxy (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
+	                              float sizeOffset) noexcept;
+	void resetVariationStateForLoader (IRLoaderState& state, int loaderSeedIndex) noexcept;
+	void resetAllVariationStates() noexcept;
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,

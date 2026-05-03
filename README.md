@@ -7,7 +7,7 @@ It combines zero-latency partitioned convolution with per-loader processing chai
 
 ## Concept
 
-CAB-TR treats impulse responses as composable building blocks rather than static snapshots. Three independent loader slots can be routed in series, parallel, or hybrid topologies - each with its own filter chain, Fredman off-axis simulation, size resampling, dynamic expander, and M/S bus assignment.
+CAB-TR treats impulse responses as composable building blocks rather than static snapshots. Three independent loader slots can be routed in series, parallel, or hybrid topologies - each with its own filter chain, Fredman off-axis simulation, size resampling, dynamic expander, realtime Variation drift, and M/S bus assignment.
 
 The Sum Bus system lets each loader contribute to the Stereo, Mid, or Side bus independently at the summing stage, enabling true M/S separation without external routing tools. Combined with six routing modes, this produces configurations that are impossible in conventional dual-loader IR plugins.
 
@@ -17,6 +17,7 @@ CAB-TR uses a text-based UI with horizontal bar sliders. All controls are access
 
 - **Bar sliders**: Click and drag horizontally. Right-click for numeric entry.
 - **Toggle buttons**: The collapsed loader row uses `INV`, `NRM`, `RVS`, and `EXP`. The expanded I/O section adds `CHSF` and `CHSD`.
+- **VAR**: Per-loader realtime variation in the collapsed control set. Adds subtle cab/mic drift without reloading the IR.
 - **Combo boxes**: MODE IN, MODE OUT, SUM BUS per loader. Click to cycle options.
 - **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
@@ -153,6 +154,10 @@ Per-loader spectral tilt. A first-order symmetric shelf filter pivoted at 1 kHz.
 
 Per-loader resonance intensity. Scales the IR's resonant character by blending between a smoothed (resonance-free) version and the original. `100%` = original IR, `0%` = fully smoothed, `200%` = exaggerated resonances.
 
+#### VAR / Variation (0-100%)
+
+Subtle realtime cab/mic drift for decorrelation and organic movement. At 100%, VAR applies small independent modulation to the loader's perceived SIZE (a realtime phase proxy that does not reload or rebuild the IR), ANGLE/FRED (up to +/-4%), and POS/Distance (up to +/-2%). The upper range adds an instance-persistent micro-wander layer for denser movement in deep decorrelation/null-test use, contributing up to roughly 40% of the final modulation weight. The instance seed is saved with the project state, so a reopened session keeps the same decorrelated drift.
+
 #### POS / Distance (0-100%)
 
 Position filter. Simulates the acoustic effect of moving the microphone further from the speaker. Higher values apply frequency-dependent filtering that models increased distance.
@@ -243,6 +248,7 @@ The export path mirrors the static routing and tone-shaping chain as closely as 
 Dynamic or non-static stages are intentionally excluded:
 - **CHAOS D**
 - **CHAOS F**
+- **VAR**
 - **EXP**
 - **LIMITER**
 
@@ -267,6 +273,7 @@ Export options:
 - **Rate-limited reloads**: Minimum 300 ms between IR rebuilds to prevent CPU spikes during slider automation.
 - **Filters**: Butterworth IIR (HP/LP), transposed Direct Form II. Coefficients updated every 32 samples for efficient automation.
 - **Fredman comb**: 7-tap circular delay buffer with wet/dry blend.
+- **Variation**: Deterministic per-loader smooth modulation for subtle cab/mic drift. SIZE variation is a realtime all-pass proxy and never triggers an IR reload; high VAR values add a faster instance-seeded layer without increasing the maximum modulation range. The instance seed is persisted in plugin state.
 - **Variable delay**: Per-loader delay stage uses smoothed fractional delay for fine alignment and manual offset control.
 - **M/S summing**: Per-sample bus accumulation with fast path (no M/S overhead) when all loaders are set to ST.
 - **Parallel compensation**: `1/sqrt(N)` gain correction per routing mode (`N` = number of parallel paths).
@@ -305,6 +312,7 @@ Export options:
 - Added dual-stage transparent peak limiter with LIM THRESHOLD (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.
 - Added per-loader `EXP` with `PRE/POST` order around the IR loader plus THRESH, RATIO, KNEE, ATK, and REL controls.
 - Refined prompt UX and delay readouts for consistent numeric editing and 0.001 ms precision display.
-- Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `EXP`, and `LIMITER`.
+- Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `VAR`, `EXP`, and `LIMITER`.
+- Added per-loader `VAR` for subtle realtime cab/mic drift without triggering IR rebuilds.
 - Updated global and per-loader gain faders to a consistent -INF to +24 dB range with 0 dB centered.
 - Optimized global/per-loader dry-wet mix paths and stable delay processing without changing the intended audio behavior.

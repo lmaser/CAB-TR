@@ -107,6 +107,18 @@
 // ---------------------------------------------------------------------------
 namespace
 {
+	constexpr const char* kVariationInstanceSeedProperty = "variationInstanceSeed";
+
+	inline juce::int64 createVariationInstanceSeed() noexcept
+	{
+		auto& rng = juce::Random::getSystemRandom();
+		const auto hi = static_cast<juce::int64> (static_cast<juce::uint32> (rng.nextInt()));
+		const auto lo = static_cast<juce::int64> (static_cast<juce::uint32> (rng.nextInt()));
+		const auto time = static_cast<juce::int64> (juce::Time::getMillisecondCounterHiRes() * 1000.0);
+		const auto seed = (hi << 32) ^ lo ^ time ^ 0x5A7CABD15EEDLL;
+		return seed != 0 ? seed : 0x5A7CABD15EEDLL;
+	}
+
 	// Fast dB->linear conversion using exp2 instead of pow(10, dB/20).
 	// Mathematically equivalent: 10^(dB/20) = 2^(dB * log2(10)/20) = 2^(dB * 0.16609640474)
 	inline float fastDecibelsToGain (float dB) noexcept
@@ -183,6 +195,7 @@ CABTRAudioProcessor::CABTRAudioProcessor()
       parameters (*this, nullptr, juce::Identifier ("CABTRState"), createParameterLayout())
 {
 	// Convolution engines (StereoThreadedConvolver) - prepared in prepareToPlay()
+	variationInstanceSeed_ = createVariationInstanceSeed();
 	
 	// Register audio formats once
 	formatManager.registerBasicFormats();
@@ -324,6 +337,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosA, "Distance A", kPosMin, kPosMax, kPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamVariationA, "Variation A",
+		juce::NormalisableRange<float> (kVariationMin, kVariationMax, 0.001f),
+		kVariationDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamResoA, "Reso A",
 		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -434,6 +451,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosB, "Distance B", kPosMin, kPosMax, kPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamVariationB, "Variation B",
+		juce::NormalisableRange<float> (kVariationMin, kVariationMax, 0.001f),
+		kVariationDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamResoB, "Reso B",
 		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -543,6 +564,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamFredC, "Angle C", kFredMin, kFredMax, kFredDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamPosC, "Distance C", kPosMin, kPosMax, kPosDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamVariationC, "Variation C",
+		juce::NormalisableRange<float> (kVariationMin, kVariationMax, 0.001f),
+		kVariationDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamResoC, "Reso C",
 		juce::NormalisableRange<float> (kResoMin, kResoMax, 0.01f), kResoDefault));
@@ -786,6 +811,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pPanA    = parameters.getRawParameterValue (kParamPanA);
 	pFredA   = parameters.getRawParameterValue (kParamFredA);
 	pPosA    = parameters.getRawParameterValue (kParamPosA);
+	pVariationA = parameters.getRawParameterValue (kParamVariationA);
 	pOutA    = parameters.getRawParameterValue (kParamOutA);
 	pInA     = parameters.getRawParameterValue (kParamInA);
 	pTiltA   = parameters.getRawParameterValue (kParamTiltA);
@@ -806,6 +832,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pPanB    = parameters.getRawParameterValue (kParamPanB);
 	pFredB   = parameters.getRawParameterValue (kParamFredB);
 	pPosB    = parameters.getRawParameterValue (kParamPosB);
+	pVariationB = parameters.getRawParameterValue (kParamVariationB);
 	pOutB    = parameters.getRawParameterValue (kParamOutB);
 	pInB     = parameters.getRawParameterValue (kParamInB);
 	pTiltB   = parameters.getRawParameterValue (kParamTiltB);
@@ -847,6 +874,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pPanC      = parameters.getRawParameterValue (kParamPanC);
 	pFredC     = parameters.getRawParameterValue (kParamFredC);
 	pPosC      = parameters.getRawParameterValue (kParamPosC);
+	pVariationC = parameters.getRawParameterValue (kParamVariationC);
 	pOutC      = parameters.getRawParameterValue (kParamOutC);
 	pInC       = parameters.getRawParameterValue (kParamInC);
 	pTiltC     = parameters.getRawParameterValue (kParamTiltC);
@@ -932,7 +960,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	fadeInTotalSamples_     = juce::jmax (64, (int) (sampleRate * 0.005));
 	fadeInSamplesRemaining_ = fadeInTotalSamples_;
 
-	// Reset FRED and CHAOS state for all loaders
+	// Reset FRED, CHAOS and VAR state for all loaders
+	int loaderSeedIndex = 0;
 	for (auto* state : { &stateA, &stateB, &stateC })
 	{
 		std::memset (state->fredDelayBuffer, 0, sizeof (state->fredDelayBuffer));
@@ -956,9 +985,11 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		state->chaosFPrev = state->chaosFCurr = state->chaosFNext = 0.0f;
 		state->chaosFPhase = state->chaosFDriftPhase = state->chaosFDriftFreqHz = 0.0f;
 		state->chaosFOut[0] = state->chaosFOut[1] = 0.0f;
+		resetVariationStateForLoader (*state, loaderSeedIndex);
 		state->smoothedPosFreq = 12000.0f;
 		state->filterCoeffCountdown = 0;
 		state->expLinkedEnv = 0.0f;
+		++loaderSeedIndex;
 	}
 
 	// Initialize EMA-smoothed filter frequencies to current parameter values
@@ -3357,8 +3388,8 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 //
 // This function applies the static post-convolution loader stages:
 // OUT -> TILT -> HP/LP -> DIST -> PAN -> DELAY -> ANGLE -> MODE OUT -> MIX
-// CHAOS and EXP are intentionally skipped for export:
-// - CHAOS is non-deterministic/time-varying
+// CHAOS, VAR and EXP are intentionally skipped for export:
+// - CHAOS/VAR are realtime time-varying modulation stages
 // - EXP is signal-dynamic and cannot be represented faithfully in a static IR
 //==============================================================================
 void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
@@ -3647,6 +3678,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float pan = loadRelaxed (pick (pPanA, pPanB, pPanC));
 	const float fred = loadRelaxed (pick (pFredA, pFredB, pFredC));
 	const float pos = loadRelaxed (pick (pPosA, pPosB, pPosC));
+	const float variation = loadRelaxed (pick (pVariationA, pVariationB, pVariationC));
 	const float outDb = loadRelaxed (pick (pOutA, pOutB, pOutC));
 	const float inDb  = loadRelaxed (pick (pInA,  pInB,  pInC));
 	const float tiltDb = loadRelaxed (pick (pTiltA, pTiltB, pTiltC));
@@ -3658,6 +3690,12 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float chaosSpdFilter = loadRelaxed (pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC));
 	const float chaosParamSr = juce::jmax (1.0f, static_cast<float> (currentSampleRate));
 	const float chaosParamSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.010f));
+	const float variationSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.030f));
+	float variationSizeOffset = 0.0f;
+	float variationAngleOffset = 0.0f;
+	float variationDistanceOffset = 0.0f;
+	advanceVariationState (state, variation, variationSmoothCoeff, numSamples,
+	                       variationSizeOffset, variationAngleOffset, variationDistanceOffset);
 	
 	// (FRED processing happens after convolution + filters)
 	
@@ -3697,6 +3735,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
 		                     expanderEnabled, expRatio, expThreshDb,
 		                     expKneeDb, expAtkMs, expRelMs);
+
+	// VAR size lane: tiny realtime cab-size proxy. It never touches the IR SIZE parameter,
+	// so it cannot trigger an impulse reload or convolver swap.
+	applyVariationSizeProxy (state, buffer, variationSizeOffset);
 
 	// 3. OUTPUT GAIN (OUT) - applied after PRE/POST IR placement, before tilt/filters
 	{
@@ -3970,7 +4012,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// 4. DISTANCE EFFECT (exponential LPF + gain attenuation)
 	// 0% = close/bright (no change), 100% = far/dark (HF reduction + volume drop)
-	const float posAmount = juce::jlimit (0.0f, 1.0f, pos);
+	const float posAmount = juce::jlimit (0.0f, 1.0f, pos + variationDistanceOffset);
 	const float distanceWetStart = state.distanceWet;
 	const float distanceWetEnd = posAmount > 0.01f ? 1.0f : 0.0f;
 	const bool distanceActive = distanceWetEnd > 0.0f || distanceWetStart > 1.0e-4f;
@@ -4068,7 +4110,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	// First comb null at ~6.8kHz - creates musically useful tonal shaping.
 	// angle=0: pure on-axis (no effect), angle=1: full off-axis blend
 	const float fredStart = state.lastFred;
-	const float fredEnd = juce::jlimit (0.0f, 1.0f, fred);
+	const float fredEnd = juce::jlimit (0.0f, 1.0f, fred + variationAngleOffset);
 	const bool fredAudible = fredStart > 1.0e-4f || fredEnd > 1.0e-4f;
 	{
 		float* channelData[2] = { nullptr, nullptr };
@@ -4210,6 +4252,175 @@ void CABTRAudioProcessor::applyChaosDriveBuffer (IRLoaderState& state,
 		}
 
 		state.chaosDelayWritePos = (wp + 1) & mask;
+	}
+}
+
+void CABTRAudioProcessor::resetVariationStateForLoader (IRLoaderState& state, int loaderSeedIndex) noexcept
+{
+	if (variationInstanceSeed_ == 0)
+		variationInstanceSeed_ = createVariationInstanceSeed();
+
+	state.variationAmtSmoothed = 0.0f;
+	state.variationParamSmoothReady = false;
+	state.variationSizeAllpassState[0] = state.variationSizeAllpassState[1] = 0.0f;
+
+	auto resetVariationLane = [] (IRLoaderState::VariationLaneState& lane, juce::int64 seed) noexcept
+	{
+		lane.rng.setSeed (seed);
+		lane.prev = lane.rng.nextFloat() * 2.0f - 1.0f;
+		lane.curr = lane.prev;
+		lane.next = lane.rng.nextFloat() * 2.0f - 1.0f;
+		lane.phase = lane.rng.nextFloat();
+		lane.driftPhase = lane.rng.nextFloat();
+		lane.driftFreqHz = 0.0f;
+		lane.out = 0.0f;
+	};
+
+	const juce::int64 seedBase = 0x5A7CAB00LL + static_cast<juce::int64> (loaderSeedIndex) * 0x101LL;
+	const juce::int64 instanceSeedBase = variationInstanceSeed_
+	                                    ^ (0x6C8E9CF570932BD5LL
+	                                       + static_cast<juce::int64> (loaderSeedIndex) * 0x1F123BB5A6D1LL);
+	resetVariationLane (state.variationSize, seedBase + 11);
+	resetVariationLane (state.variationAngle, seedBase + 23);
+	resetVariationLane (state.variationDistance, seedBase + 37);
+	resetVariationLane (state.variationSizeFast, instanceSeedBase + 53);
+	resetVariationLane (state.variationAngleFast, instanceSeedBase + 67);
+	resetVariationLane (state.variationDistanceFast, instanceSeedBase + 79);
+}
+
+void CABTRAudioProcessor::resetAllVariationStates() noexcept
+{
+	resetVariationStateForLoader (stateA, 0);
+	resetVariationStateForLoader (stateB, 1);
+	resetVariationStateForLoader (stateC, 2);
+}
+
+void CABTRAudioProcessor::advanceVariationState (IRLoaderState& state, float variationTarget,
+                                                  float variationSmoothCoeff, int numSamples,
+                                                  float& sizeOffset, float& angleOffset,
+                                                  float& distanceOffset) noexcept
+{
+	sizeOffset = 0.0f;
+	angleOffset = 0.0f;
+	distanceOffset = 0.0f;
+
+	if (numSamples <= 0)
+		return;
+
+	const float target = juce::jlimit (kVariationMin, kVariationMax, variationTarget);
+	const bool active = target > 0.0001f
+	                 || (state.variationParamSmoothReady && state.variationAmtSmoothed > 0.0001f);
+	if (! active)
+	{
+		state.variationAmtSmoothed = 0.0f;
+		state.variationParamSmoothReady = false;
+		state.variationSizeAllpassState[0] = state.variationSizeAllpassState[1] = 0.0f;
+		return;
+	}
+
+	state.variationParamSmoothReady = true;
+	const float sr = juce::jmax (1.0f, static_cast<float> (currentSampleRate));
+	const float coeff = juce::jlimit (0.0f, 1.0f, variationSmoothCoeff);
+
+	auto depthFromAmount = [] (float amount) noexcept
+	{
+		const float a = juce::jlimit (0.0f, 1.0f, amount);
+		return a * std::sqrt (a); // close to pow(a, 1.5): subtle until the upper range.
+	};
+	auto smoothStep = [] (float x) noexcept
+	{
+		const float t = juce::jlimit (0.0f, 1.0f, x);
+		return t * t * (3.0f - 2.0f * t);
+	};
+
+	for (int i = 0; i < numSamples; ++i)
+	{
+		state.variationAmtSmoothed += (target - state.variationAmtSmoothed) * coeff;
+		const float depth = depthFromAmount (state.variationAmtSmoothed);
+		const float highRangeRate = smoothStep ((state.variationAmtSmoothed - 0.55f) / 0.45f);
+		const float rateScale = 0.70f + depth * 1.15f + highRangeRate * 4.0f;
+		const float fastNorm = smoothStep ((state.variationAmtSmoothed - 0.65f) / 0.35f);
+
+		const float sizePeriod = sr / (0.19f * rateScale);
+		const float anglePeriod = sr / (0.37f * rateScale);
+		const float distancePeriod = sr / (0.29f * rateScale);
+		const float sizeFastPeriod = sr / (2.0f + fastNorm * 8.0f);      // 500 ms -> 100 ms
+		const float angleFastPeriod = sr / (2.4f + fastNorm * 7.6f);     // ~417 ms -> 100 ms
+		const float distanceFastPeriod = sr / (2.2f + fastNorm * 7.8f);  // ~455 ms -> 100 ms
+
+		advanceChaosEngine (state.variationSize.prev, state.variationSize.curr, state.variationSize.next,
+		                    state.variationSize.phase, state.variationSize.driftPhase, state.variationSize.driftFreqHz,
+		                    state.variationSize.out, state.variationSize.rng, sizePeriod, depth, sr);
+		advanceChaosEngine (state.variationAngle.prev, state.variationAngle.curr, state.variationAngle.next,
+		                    state.variationAngle.phase, state.variationAngle.driftPhase, state.variationAngle.driftFreqHz,
+		                    state.variationAngle.out, state.variationAngle.rng, anglePeriod, depth, sr);
+		advanceChaosEngine (state.variationDistance.prev, state.variationDistance.curr, state.variationDistance.next,
+		                    state.variationDistance.phase, state.variationDistance.driftPhase, state.variationDistance.driftFreqHz,
+		                    state.variationDistance.out, state.variationDistance.rng, distancePeriod, depth, sr);
+
+		if (fastNorm > 0.0f)
+		{
+			advanceChaosEngine (state.variationSizeFast.prev, state.variationSizeFast.curr, state.variationSizeFast.next,
+			                    state.variationSizeFast.phase, state.variationSizeFast.driftPhase, state.variationSizeFast.driftFreqHz,
+			                    state.variationSizeFast.out, state.variationSizeFast.rng, sizeFastPeriod, depth, sr);
+			advanceChaosEngine (state.variationAngleFast.prev, state.variationAngleFast.curr, state.variationAngleFast.next,
+			                    state.variationAngleFast.phase, state.variationAngleFast.driftPhase, state.variationAngleFast.driftFreqHz,
+			                    state.variationAngleFast.out, state.variationAngleFast.rng, angleFastPeriod, depth, sr);
+			advanceChaosEngine (state.variationDistanceFast.prev, state.variationDistanceFast.curr, state.variationDistanceFast.next,
+			                    state.variationDistanceFast.phase, state.variationDistanceFast.driftPhase, state.variationDistanceFast.driftFreqHz,
+			                    state.variationDistanceFast.out, state.variationDistanceFast.rng, distanceFastPeriod, depth, sr);
+		}
+	}
+
+	if (target <= 0.0001f && state.variationAmtSmoothed <= 0.0001f)
+	{
+		state.variationAmtSmoothed = 0.0f;
+		state.variationParamSmoothReady = false;
+		state.variationSizeAllpassState[0] = state.variationSizeAllpassState[1] = 0.0f;
+		return;
+	}
+
+	const float finalDepth = depthFromAmount (state.variationAmtSmoothed);
+	const auto lane = [] (float v) noexcept { return juce::jlimit (-1.0f, 1.0f, v); };
+	const float fastMix = 0.40f * smoothStep ((state.variationAmtSmoothed - 0.65f) / 0.35f);
+	const auto blend = [lane, fastMix] (float slow, float fast) noexcept
+	{
+		return lane (lane (slow) * (1.0f - fastMix) + lane (fast) * fastMix);
+	};
+
+	sizeOffset     = blend (state.variationSize.out,     state.variationSizeFast.out)     * 0.020f * finalDepth;
+	angleOffset    = blend (state.variationAngle.out,    state.variationAngleFast.out)    * 0.040f * finalDepth;
+	distanceOffset = blend (state.variationDistance.out, state.variationDistanceFast.out) * 0.020f * finalDepth;
+}
+
+void CABTRAudioProcessor::applyVariationSizeProxy (IRLoaderState& state,
+                                                   juce::AudioBuffer<float>& buffer,
+                                                   float sizeOffset) noexcept
+{
+	const int numSamples = buffer.getNumSamples();
+	const int chCount = juce::jmin (buffer.getNumChannels(), 2);
+	const float absOffset = std::abs (sizeOffset);
+
+	if (numSamples <= 0 || chCount <= 0 || absOffset <= 1.0e-6f)
+		return;
+
+	const float allpassCoeff = juce::jlimit (-0.16f, 0.16f, sizeOffset * 8.0f);
+	const float wet = juce::jlimit (0.0f, 0.16f, absOffset * 8.0f);
+
+	for (int ch = 0; ch < chCount; ++ch)
+	{
+		auto* data = buffer.getWritePointer (ch);
+		float z = state.variationSizeAllpassState[ch];
+
+		for (int i = 0; i < numSamples; ++i)
+		{
+			const float x = data[i];
+			const float y = -allpassCoeff * x + z;
+			z = x + allpassCoeff * y;
+			data[i] = x + (y - x) * wet;
+		}
+
+		state.variationSizeAllpassState[ch] = z;
 	}
 }
 
@@ -4647,6 +4858,7 @@ void CABTRAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 	state.setProperty ("irPathA", stateA.currentFilePath, nullptr);
 	state.setProperty ("irPathB", stateB.currentFilePath, nullptr);
 	state.setProperty ("irPathC", stateC.currentFilePath, nullptr);
+	state.setProperty (kVariationInstanceSeedProperty, juce::String (variationInstanceSeed_), nullptr);
 	
 	// Convert to XML and save
 	auto xml = state.createXml();
@@ -4665,6 +4877,14 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 		{
 			// Restore APVTS parameters
 			parameters.replaceState (state);
+
+			const juce::String variationSeedString = state.getProperty (kVariationInstanceSeedProperty, {}).toString();
+			variationInstanceSeed_ = variationSeedString.isNotEmpty()
+			                       ? variationSeedString.getLargeIntValue()
+			                       : createVariationInstanceSeed();
+			if (variationInstanceSeed_ == 0)
+				variationInstanceSeed_ = createVariationInstanceSeed();
+			resetAllVariationStates();
 			
 			// Restore IR file paths
 			const juce::String pathA = state.getProperty ("irPathA", "");

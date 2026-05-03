@@ -4,7 +4,7 @@ CAB-TR es un cargador/convolucionador de respuestas a impulso con tres slots, pe
 
 ## Concepto
 
-Cada slot A/B/C puede cargar una IR y procesarla con su propia cadena: ganancia de entrada/salida, trim START/END, SIZE, filtros HP/LP, TILT, RESO, DIST, DELAY, PAN, FRED/Angle, MIX, EXP, CHAOS D/F, inversion, normalizacion y routing Mid/Side.
+Cada slot A/B/C puede cargar una IR y procesarla con su propia cadena: ganancia de entrada/salida, trim START/END, SIZE, filtros HP/LP, TILT, RESO, DIST, DELAY, PAN, FRED/Angle, MIX, VAR, EXP, CHAOS D/F, inversion, normalizacion y routing Mid/Side.
 
 El sistema de rutas permite:
 - `A->B->C`
@@ -24,6 +24,7 @@ El sistema `SUM BUS` permite enviar cada loader a Stereo, Mid o Side en los punt
 - **Seccion I/O desplegable**: muestra controles avanzados por loader.
 - **Filtro**: abre el prompt HP/LP con frecuencia, pendiente y on/off.
 - **EXP**: click izquierdo activa/desactiva; click derecho abre el prompt.
+- **VAR**: variacion realtime por loader para decorrelacion y movimiento sutil de pantalla/microfono.
 - **CHSD / CHSF**: chaos de delay/ganancia y chaos de filtros.
 - **ALIGN**: alinea tiempo/fase entre loaders activos.
 - **Export**: renderiza la cadena estatica combinada a una IR.
@@ -72,6 +73,10 @@ Recorte temporal de la IR antes de convolucion.
 
 Reescalado de la IR entre 0.25x y 4.0x.
 
+### VAR / Variation
+
+Variacion realtime por loader para aportar decorrelacion y movimiento organico. Al 100% modula SIZE mediante un proxy de fase que no recarga la IR, ANGLE/FRED hasta +/-4% y DIST hasta +/-2%. En el rango alto anade una microcapa rapida con seed persistente por instancia para dar mas densidad en usos de decorrelacion profunda, aportando hasta aprox. un 40% del peso final de modulacion. El seed de instancia se guarda con el estado del proyecto, asi que una sesion reabierta mantiene el mismo drift decorrelado.
+
 ### DELAY
 
 Delay post-loader de 0 a 1000 ms con precision de 0.001 ms. Tambien lo usa `ALIGN`.
@@ -100,6 +105,7 @@ Exporta una IR combinada con las partes estaticas de la cadena: routing, MODE IN
 Quedan fuera por naturaleza dinamica:
 - `CHAOS D`
 - `CHAOS F`
+- `VAR`
 - `EXP`
 - `LIMITER`
 
@@ -111,6 +117,7 @@ Quedan fuera por naturaleza dinamica:
 - Recargas de IR rate-limited para evitar picos de CPU.
 - Filtros HP/LP con coeficientes actualizados cada 32 samples.
 - Delay fraccional suavizado para ALIGN y offset manual.
+- `VAR` usa modulacion determinista por loader; el proxy de SIZE no recarga ni reconstruye la IR y los valores altos anaden una capa rapida con seed de instancia persistido en el estado del plugin, sin aumentar el rango maximo.
 - Mix global y mix por loader optimizados para evitar copias dry innecesarias cuando el camino esta 100% wet y estable.
 - El delay estable evita recalcular `setDelay()` por sample, pero mantiene la linea alimentada para reentrada sin clicks.
 - El audio thread evita asignaciones dinamicas en la ruta normal.
@@ -128,5 +135,6 @@ Quedan fuera por naturaleza dinamica:
 - Export de IR combinada.
 - Limitador dual `WET/GLOBAL`.
 - Expander por loader con orden `PRE/POST`.
+- `VAR` por loader para movimiento realtime sutil sin reconstruir la IR.
 - Ganancias INPUT/OUTPUT e IN/OUT unificadas en -INF a +24 dB.
 - Optimizaciones de mix dry/wet y delay estable sin cambiar la funcionalidad sonora esperada.

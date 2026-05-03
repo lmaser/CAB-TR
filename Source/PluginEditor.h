@@ -76,7 +76,7 @@ private:
 	public:
 		enum class Type { Unknown, HpFreq, LpFreq, Input, Output, Tilt,
 		                  Start, End, Size, Delay, Pan, Fred, Pos, Reso,
-	                  Mix, GlobalMix, GlobalOutput, LimThreshold };
+	                  Variation, Mix, GlobalMix, GlobalOutput, LimThreshold };
 
 		void setOwner (CABTRAudioProcessorEditor* o) { owner = o; }
 		void setType (Type t) { type_ = t; }
@@ -316,7 +316,7 @@ private:
 	struct LoaderRefs
 	{
 		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
-		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso;
+		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso, &variation;
 		juce::ToggleButton &inv, &norm, &rvs, &exp, &chaos, &chaosFilter;  juce::Label &chaosDisp, &expDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus;
 		FilterBarComponent &filterBar;  BarSlider &mix;
@@ -324,7 +324,7 @@ private:
 	struct AttachRefs
 	{
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &enableAtt;
-		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &inAtt, &outAtt, &tiltAtt, &startAtt, &endAtt, &sizeAtt, &delayAtt, &panAtt, &fredAtt, &posAtt, &resoAtt;
+		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &hpAtt, &lpAtt, &inAtt, &outAtt, &tiltAtt, &startAtt, &endAtt, &sizeAtt, &delayAtt, &panAtt, &fredAtt, &posAtt, &resoAtt, &variationAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   &invAtt, &normAtt, &rvsAtt, &expAtt, &chaosAtt, &chaosFilterAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> &modeInAtt, &modeOutAtt, &sumBusAtt;
 		std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   &mixAtt;
@@ -341,6 +341,7 @@ private:
 		const char* hpFreq;  const char* lpFreq;  const char* in;  const char* out;  const char* tilt;
 		const char* start;   const char* end;     const char* size;
 		const char* delay;   const char* pan;     const char* fred;   const char* pos;   const char* reso;
+		const char* variation;
 		const char* inv;     const char* norm;    const char* rvs;    const char* exp;    const char* chaos;  const char* chaosFilter;
 		const char* chaosAmt; const char* chaosSpd;
 		const char* chaosAmtFilter; const char* chaosSpdFilter;
@@ -378,6 +379,7 @@ private:
 	BarSlider fredSliderA;
 	BarSlider posSliderA;
 	BarSlider resoSliderA;
+	BarSlider variationSliderA;
 
 	juce::ToggleButton invButtonA;
 	juce::ToggleButton normButtonA;
@@ -402,6 +404,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fredAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> posAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resoAttachA;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> variationAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachA;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachA;
@@ -435,6 +438,7 @@ private:
 	BarSlider fredSliderB;
 	BarSlider posSliderB;
 	BarSlider resoSliderB;
+	BarSlider variationSliderB;
 
 	juce::ToggleButton invButtonB;
 	juce::ToggleButton normButtonB;
@@ -459,6 +463,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fredAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> posAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resoAttachB;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> variationAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachB;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachB;
@@ -492,6 +497,7 @@ private:
 	BarSlider fredSliderC;
 	BarSlider posSliderC;
 	BarSlider resoSliderC;
+	BarSlider variationSliderC;
 
 	juce::ToggleButton invButtonC;
 	juce::ToggleButton normButtonC;
@@ -516,6 +522,7 @@ private:
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fredAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> posAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resoAttachC;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> variationAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> invAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normAttachC;
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rvsAttachC;
@@ -654,8 +661,8 @@ private:
 	//  TR-style legend text cache (for value display)
 	// ============================================================================
 	struct CachedParamText { juce::String full, short_, intOnly; };
-	// Param indices: HP=0, LP=1, OUT=2, START=3, END=4, SIZE=5, DELAY=6, PAN=7, FRED=8, POS=9, MIX=10
-	static constexpr int kNumCachedParams = 14;
+	// Param indices mirror the loader slider order in paint()/refreshLegendTextCache().
+	static constexpr int kNumCachedParams = 15;
 	CachedParamText cachedTexts[3][kNumCachedParams];  // [loader][param]
 
 	// Global mix legend cache (for SEND mode dB display)
@@ -667,7 +674,7 @@ private:
 	int columnRight_[3] = {};
 
 	// Value display areas (calculated in paint(), used for click detection)
-	std::array<juce::Rectangle<int>, 42> cachedValueAreas_;  // 14 per loader x 3
+	std::array<juce::Rectangle<int>, 45> cachedValueAreas_;  // 15 per loader x 3
 
 	// Gear icon for info button
 	juce::Path cachedInfoGearPath;

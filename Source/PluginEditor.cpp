@@ -688,6 +688,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 		case Type::Fred:
 		case Type::Pos:
 		case Type::Reso:
+		case Type::Variation:
 		case Type::Mix:
 		case Type::GlobalMix:
 			return juce::String (v * 100.0, 1) + "%";
@@ -1395,6 +1396,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqA, CABTRAudioProcessor::kParamLpFreqA, CABTRAudioProcessor::kParamInA, CABTRAudioProcessor::kParamOutA, CABTRAudioProcessor::kParamTiltA,
 		CABTRAudioProcessor::kParamStartA,  CABTRAudioProcessor::kParamEndA,    CABTRAudioProcessor::kParamSizeA,
 		CABTRAudioProcessor::kParamDelayA,  CABTRAudioProcessor::kParamPanA,    CABTRAudioProcessor::kParamFredA, CABTRAudioProcessor::kParamPosA, CABTRAudioProcessor::kParamResoA,
+		CABTRAudioProcessor::kParamVariationA,
 		CABTRAudioProcessor::kParamInvA,    CABTRAudioProcessor::kParamNormA,   CABTRAudioProcessor::kParamRvsA,  CABTRAudioProcessor::kParamExpA, CABTRAudioProcessor::kParamChaosA, CABTRAudioProcessor::kParamChaosFilterA,
 		CABTRAudioProcessor::kParamChaosAmtA, CABTRAudioProcessor::kParamChaosSpdA,
 		CABTRAudioProcessor::kParamChaosAmtFilterA, CABTRAudioProcessor::kParamChaosSpdFilterA,
@@ -1405,6 +1407,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqB, CABTRAudioProcessor::kParamLpFreqB, CABTRAudioProcessor::kParamInB, CABTRAudioProcessor::kParamOutB, CABTRAudioProcessor::kParamTiltB,
 		CABTRAudioProcessor::kParamStartB,  CABTRAudioProcessor::kParamEndB,    CABTRAudioProcessor::kParamSizeB,
 		CABTRAudioProcessor::kParamDelayB,  CABTRAudioProcessor::kParamPanB,    CABTRAudioProcessor::kParamFredB, CABTRAudioProcessor::kParamPosB, CABTRAudioProcessor::kParamResoB,
+		CABTRAudioProcessor::kParamVariationB,
 		CABTRAudioProcessor::kParamInvB,    CABTRAudioProcessor::kParamNormB,   CABTRAudioProcessor::kParamRvsB,  CABTRAudioProcessor::kParamExpB, CABTRAudioProcessor::kParamChaosB, CABTRAudioProcessor::kParamChaosFilterB,
 		CABTRAudioProcessor::kParamChaosAmtB, CABTRAudioProcessor::kParamChaosSpdB,
 		CABTRAudioProcessor::kParamChaosAmtFilterB, CABTRAudioProcessor::kParamChaosSpdFilterB,
@@ -1415,6 +1418,7 @@ const CABTRAudioProcessorEditor::LoaderParamIds CABTRAudioProcessorEditor::kLoad
 		CABTRAudioProcessor::kParamHpFreqC, CABTRAudioProcessor::kParamLpFreqC, CABTRAudioProcessor::kParamInC, CABTRAudioProcessor::kParamOutC, CABTRAudioProcessor::kParamTiltC,
 		CABTRAudioProcessor::kParamStartC,  CABTRAudioProcessor::kParamEndC,    CABTRAudioProcessor::kParamSizeC,
 		CABTRAudioProcessor::kParamDelayC,  CABTRAudioProcessor::kParamPanC,    CABTRAudioProcessor::kParamFredC, CABTRAudioProcessor::kParamPosC, CABTRAudioProcessor::kParamResoC,
+		CABTRAudioProcessor::kParamVariationC,
 		CABTRAudioProcessor::kParamInvC,    CABTRAudioProcessor::kParamNormC,   CABTRAudioProcessor::kParamRvsC,  CABTRAudioProcessor::kParamExpC, CABTRAudioProcessor::kParamChaosC, CABTRAudioProcessor::kParamChaosFilterC,
 		CABTRAudioProcessor::kParamChaosAmtC, CABTRAudioProcessor::kParamChaosSpdC,
 		CABTRAudioProcessor::kParamChaosAmtFilterC, CABTRAudioProcessor::kParamChaosSpdFilterC,
@@ -1432,17 +1436,17 @@ CABTRAudioProcessorEditor::LoaderRefs CABTRAudioProcessorEditor::getLoaderRefs (
 	{
 		case 1: return { enableButtonB, browseButtonB, fileDisplayB,
 		                 hpFreqSliderB, lpFreqSliderB, inSliderB, outSliderB, tiltSliderB, startSliderB, endSliderB,
-		                 sizeSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB, resoSliderB,
+		                 sizeSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB, resoSliderB, variationSliderB,
 		                 invButtonB, normButtonB, rvsButtonB, expButtonB, chaosButtonB, chaosFilterButtonB, chaosDisplayB, expDisplayB,
 		                 modeInComboB, modeOutComboB, sumBusComboB, filterBarB_, mixSliderB };
 		case 2: return { enableButtonC, browseButtonC, fileDisplayC,
 		                 hpFreqSliderC, lpFreqSliderC, inSliderC, outSliderC, tiltSliderC, startSliderC, endSliderC,
-		                 sizeSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC, resoSliderC,
+		                 sizeSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC, resoSliderC, variationSliderC,
 		                 invButtonC, normButtonC, rvsButtonC, expButtonC, chaosButtonC, chaosFilterButtonC, chaosDisplayC, expDisplayC,
 		                 modeInComboC, modeOutComboC, sumBusComboC, filterBarC_, mixSliderC };
 		default: return { enableButtonA, browseButtonA, fileDisplayA,
 		                  hpFreqSliderA, lpFreqSliderA, inSliderA, outSliderA, tiltSliderA, startSliderA, endSliderA,
-		                  sizeSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA, resoSliderA,
+		                  sizeSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA, resoSliderA, variationSliderA,
 		                  invButtonA, normButtonA, rvsButtonA, expButtonA, chaosButtonA, chaosFilterButtonA, chaosDisplayA, expDisplayA,
 		                  modeInComboA, modeOutComboA, sumBusComboA, filterBarA_, mixSliderA };
 	}
@@ -1454,17 +1458,17 @@ CABTRAudioProcessorEditor::AttachRefs CABTRAudioProcessorEditor::getAttachRefs (
 	{
 		case 1: return { enableAttachB,
 		                 hpFreqAttachB, lpFreqAttachB, inAttachB, outAttachB, tiltAttachB, startAttachB, endAttachB,
-		                 sizeAttachB, delayAttachB, panAttachB, fredAttachB, posAttachB, resoAttachB,
+		                 sizeAttachB, delayAttachB, panAttachB, fredAttachB, posAttachB, resoAttachB, variationAttachB,
 		                 invAttachB, normAttachB, rvsAttachB, expAttachB, chaosAttachB, chaosFilterAttachB,
 		                 modeInAttachB, modeOutAttachB, sumBusAttachB, mixAttachB };
 		case 2: return { enableAttachC,
 		                 hpFreqAttachC, lpFreqAttachC, inAttachC, outAttachC, tiltAttachC, startAttachC, endAttachC,
-		                 sizeAttachC, delayAttachC, panAttachC, fredAttachC, posAttachC, resoAttachC,
+		                 sizeAttachC, delayAttachC, panAttachC, fredAttachC, posAttachC, resoAttachC, variationAttachC,
 		                 invAttachC, normAttachC, rvsAttachC, expAttachC, chaosAttachC, chaosFilterAttachC,
 		                 modeInAttachC, modeOutAttachC, sumBusAttachC, mixAttachC };
 		default: return { enableAttachA,
 		                  hpFreqAttachA, lpFreqAttachA, inAttachA, outAttachA, tiltAttachA, startAttachA, endAttachA,
-		                  sizeAttachA, delayAttachA, panAttachA, fredAttachA, posAttachA, resoAttachA,
+		                  sizeAttachA, delayAttachA, panAttachA, fredAttachA, posAttachA, resoAttachA, variationAttachA,
 		                  invAttachA, normAttachA, rvsAttachA, expAttachA, chaosAttachA, chaosFilterAttachA,
 		                  modeInAttachA, modeOutAttachA, sumBusAttachA, mixAttachA };
 	}
@@ -1514,6 +1518,7 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	setupSlider (r.fred,  "Angle " + suffix + " (off-axis mic simulation)", ST::Fred);
 	setupSlider (r.pos,   "Distance " + suffix + " (proximity/distance)",   ST::Pos);
 	setupSlider (r.reso,  "Resonance " + suffix + " (0%-200%)",        ST::Reso);
+	setupSlider (r.variation, "Variation " + suffix + " (cab/mic drift)", ST::Variation);
 
 	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
 	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
@@ -1614,6 +1619,7 @@ void CABTRAudioProcessorEditor::createLoaderAttachments (juce::AudioProcessorVal
 	a.fredAtt    = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.fred,    ui.fred);
 	a.posAtt     = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.pos,     ui.pos);
 	a.resoAtt    = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>   (params, ids.reso,    ui.reso);
+	a.variationAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (params, ids.variation, ui.variation);
 	a.invAtt     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.inv,     ui.inv);
 	a.normAtt    = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.norm,    ui.norm);
 	a.rvsAtt     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>   (params, ids.rvs,     ui.rvs);
@@ -2066,7 +2072,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			juce::Slider* loaderSliders[kNumCachedParams] = {
 				&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
 				&refs.start, &refs.end, &refs.size, &refs.delay,
-				&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.mix
+				&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.mix
 			};
 
 			for (int i = 0; i < kNumCachedParams; ++i)
@@ -2312,6 +2318,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& fred  = pick (fredSliderA,    fredSliderB,    fredSliderC);
 	auto& pos   = pick (posSliderA,     posSliderB,     posSliderC);
 	auto& reso  = pick (resoSliderA,    resoSliderB,    resoSliderC);
+	auto& variation = pick (variationSliderA, variationSliderB, variationSliderC);
 	auto& mix   = pick (mixSliderA,     mixSliderB,     mixSliderC);
 	auto& inv   = pick (invButtonA,     invButtonB,     invButtonC);
 	auto& norm  = pick (normButtonA,    normButtonB,    normButtonC);
@@ -2398,17 +2405,18 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		size.setVisible (false);   delay.setVisible (false);
 		fred.setVisible (false);
 		pos.setVisible (false);    reso.setVisible (false);
+		variation.setVisible (false);
 		inv.setVisible (false);    norm.setVisible (false);
 		rvs.setVisible (false);    exp.setVisible (false);   expDisp.setVisible (false);
 	}
 	else
 	{
-		// Collapsed main view: 7 sliders + two checkbox rows:
+		// Collapsed main view: 8 sliders + two checkbox rows:
 		//   INV / NRM
 		//   RVS / EXP
 		const int checkH = 30;
-		const int totalGap = gap * 6 + gap * 3; // 6 gaps between sliders + extra gap before checks + gap between rows
-		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH * 2) / 7);
+		const int totalGap = gap * 7 + gap * 3; // 7 gaps between sliders + extra gap before checks + gap between rows
+		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH * 2) / 8);
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		start.setBounds (sliderRow.removeFromLeft (sliderW));
@@ -2443,6 +2451,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		sliderRow = area.removeFromTop (sliderH);
 		reso.setBounds (sliderRow.removeFromLeft (sliderW));
 		reso.setVisible (true);
+		area.removeFromTop (gap);
+
+		sliderRow = area.removeFromTop (sliderH);
+		variation.setBounds (sliderRow.removeFromLeft (sliderW));
+		variation.setVisible (true);
 		area.removeFromTop (gap * 2);
 
 		constexpr int valuePadPx = 8;
@@ -2483,7 +2496,7 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 	juce::Component* components[] = {
 		&r.browseBtn, &r.fileDisp,
 		&r.hp, &r.lp, &r.in, &r.out, &r.tilt,
-		&r.start, &r.end, &r.size, &r.delay, &r.pan, &r.fred, &r.pos, &r.reso,
+		&r.start, &r.end, &r.size, &r.delay, &r.pan, &r.fred, &r.pos, &r.reso, &r.variation,
 		&r.inv, &r.norm, &r.rvs, &r.exp, &r.expDisp, &r.chaos, &r.chaosFilter, &r.chaosDisp,
 		&r.modeIn, &r.modeOut, &r.sumBus,
 		&r.filterBar, &r.mix
@@ -3192,7 +3205,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	struct ParamFmt { int type; const char* label; };
 	const ParamFmt fmts[kNumCachedParams] = {
 		{0,"HP"}, {0,"LP"}, {1,"IN"}, {1,"OUT"}, {5,"TILT"}, {2,"START"}, {2,"END"},
-		{3,"SIZE"}, {6,"DELAY"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"MIX"}
+		{3,"SIZE"}, {6,"DELAY"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {3,"MIX"}
 	};
 
 	for (int loader = 0; loader < 3; ++loader)
@@ -3201,7 +3214,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 		juce::Slider* loaderSliders[kNumCachedParams] = {
 			&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
 			&refs.start, &refs.end, &refs.size, &refs.delay,
-			&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.mix
+			&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.mix
 		};
 
 		for (int p = 0; p < kNumCachedParams; ++p)
@@ -3329,7 +3342,7 @@ juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point
 
 		BarSlider* sliders[] = { &r.hp, &r.lp, &r.in, &r.out, &r.tilt,
 		                         &r.start, &r.end, &r.size, &r.delay,
-		                         &r.pan, &r.fred, &r.pos, &r.reso };
+		                         &r.pan, &r.fred, &r.pos, &r.reso, &r.variation };
 
 		for (auto* s : sliders)
 			if (getValueAreaFor (s->getBounds(), colR).contains (p))
@@ -3542,6 +3555,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	const bool isFred  = (stype == BarSlider::Type::Fred);
 	const bool isPos   = (stype == BarSlider::Type::Pos);
 	const bool isReso  = (stype == BarSlider::Type::Reso);
+	const bool isVariation = (stype == BarSlider::Type::Variation);
 	const bool isMix   = (stype == BarSlider::Type::Mix || stype == BarSlider::Type::GlobalMix);
 
 	if (isHpLp)             { suffix = " Hz";          suffixShort = " Hz"; }
@@ -3557,6 +3571,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " %"; }
 	else if (isPos)         { suffix = " % DIST";     suffixShort = " %"; }
 	else if (isReso)        { suffix = " % RESO";     suffixShort = " %"; }
+	else if (isVariation)   { suffix = " % VAR";      suffixShort = " %"; }
 	else if (isMix)         { suffix = " % MIX";       suffixShort = " %"; }
 
 	const juce::String suffixText      = suffix.trimStart();
@@ -3581,7 +3596,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 0);
 	else if (isReso)
 		currentDisplay = juce::String (juce::jlimit (0.0, 200.0, s.getValue() * 100.0), 0);
-	else if (isFred || isPos || isMix)
+	else if (isFred || isPos || isVariation || isMix)
 		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 1);
 	else
 		currentDisplay = s.getTextFromValue (s.getValue());
@@ -3623,6 +3638,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		else if (isDelay)        worstCaseText = "1000.000";
 		else if (isPan)          worstCaseText = "100";
 		else if (isFred||isPos)  worstCaseText = "100.0";
+		else if (isVariation)    worstCaseText = "100.0";
 		else if (isReso)         worstCaseText = "200";
 		else if (isMix)          worstCaseText = "100.0";
 		else                     worstCaseText = "999.99";
@@ -3741,7 +3757,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 			minVal = 0.0;    maxVal = 100.0;
 			maxDecs = 0;     maxLen = 3;     // "100"
 		}
-		else if (isFred || isPos || isMix)
+		else if (isFred || isPos || isVariation || isMix)
 		{
 			minVal = 0.0;    maxVal = 100.0;
 			maxDecs = 1;     maxLen = 5;     // "100.0"
@@ -3868,7 +3884,8 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 			// Percent-based sliders: user typed 0-100/200, slider stores 0-1/2
 			const bool needsPercentConvert = (st == BarSlider::Type::Size || st == BarSlider::Type::Pan ||
 			                                  st == BarSlider::Type::Fred  || st == BarSlider::Type::Pos  ||
-			                                  st == BarSlider::Type::Reso  || st == BarSlider::Type::Mix  ||
+			                                  st == BarSlider::Type::Reso  || st == BarSlider::Type::Variation ||
+			                                  st == BarSlider::Type::Mix  ||
 			                                  st == BarSlider::Type::GlobalMix);
 
 			if (needsPercentConvert)
