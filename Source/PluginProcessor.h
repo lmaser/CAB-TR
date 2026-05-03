@@ -489,7 +489,7 @@ public:
 		// Rate-limiting: minimum interval between reloads to avoid overload during slider drag
 		juce::int64 lastReloadTime { 0 };
 		
-		// EMA-smoothed filter frequencies (per-sample smoothing, coeff update every 32 samples)
+		// EMA-smoothed filter frequencies (per-sample smoothing, coeff update every 8 samples)
 		float smoothedHpFreq = 80.0f;
 		float smoothedLpFreq = 12000.0f;
 		float smoothedPosFreq = -1.0f;
@@ -499,7 +499,7 @@ public:
 		int lastLpSlope = -1;
 		float lastPosFreq = -1.0f;
 		int filterCoeffCountdown = 0;
-		static constexpr int kFilterCoeffUpdateInterval = 32;
+		static constexpr int kFilterCoeffUpdateInterval = 8;
 		float lastPan = -1.0f;
 		float lastPanLeft = 1.0f;
 		float lastPanRight = 1.0f;
@@ -507,6 +507,8 @@ public:
 		float lastOutGain = 1.0f;
 		float lastMix = 1.0f;
 		float lastPosGain = 1.0f;
+		float distanceWet = 0.0f;
+		juce::AudioBuffer<float> distanceDryBuffer;
 		
 		// FRED (Fredman miking) state: circular delay buffer for off-axis simulation
 		// 7 samples = ~0.15ms @ 48kHz ~= 5cm path difference (realistic Fredman setup)
@@ -514,6 +516,7 @@ public:
 		static constexpr int kFredDelaySamples = 7;
 		float fredDelayBuffer[2][kFredDelaySamples] = {};
 		int fredDelayIndex = 0;
+		float lastFred = 0.0f;
 
 		// CHAOS micro-delay line (reused by smooth S&H + Drift engine)
 		static constexpr int kChaosDelayMaxSamples = 1024;

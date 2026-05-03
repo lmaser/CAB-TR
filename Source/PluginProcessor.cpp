@@ -758,6 +758,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	tempBufferC.setSize (2, bufAlloc);
 	globalDryBuffer.setSize (2, bufAlloc);
 	loaderDryBuffer.setSize (2, bufAlloc);
+	stateA.distanceDryBuffer.setSize (2, bufAlloc);
+	stateB.distanceDryBuffer.setSize (2, bufAlloc);
+	stateC.distanceDryBuffer.setSize (2, bufAlloc);
 
 	// Cache raw parameter pointers (avoids hash-table lookup every processBlock)
 	pEnableA = parameters.getRawParameterValue (kParamEnableA);
@@ -915,6 +918,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		state.lastOutGain = gainFaderDecibelsToGain (outDb);
 		state.lastMix = mixVal;
 		state.lastPosGain = 1.0f - juce::jlimit (0.0f, 1.0f, posVal) * 0.5f;
+		state.distanceWet = posVal > 0.01f ? 1.0f : 0.0f;
 	};
 
 	initLoaderSmoothing (stateA, loadRelaxed (pInA, 0.0f), loadRelaxed (pOutA, 0.0f),
@@ -933,6 +937,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	{
 		std::memset (state->fredDelayBuffer, 0, sizeof (state->fredDelayBuffer));
 		state->fredDelayIndex = 0;
+		state->lastFred = 0.0f;
 		std::memset (state->chaosDelayBuffer, 0, sizeof (state->chaosDelayBuffer));
 		state->chaosDelayWritePos = 0;
 		state->chaosDriveParamSmoothReady = false;
@@ -1103,6 +1108,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		tempBufferC.setSize  (nc, numSamples, false, false, true);
 		globalDryBuffer.setSize (nc, numSamples, false, false, true);
 		loaderDryBuffer.setSize (nc, numSamples, false, false, true);
+		stateA.distanceDryBuffer.setSize (nc, numSamples, false, false, true);
+		stateB.distanceDryBuffer.setSize (nc, numSamples, false, false, true);
+		stateC.distanceDryBuffer.setSize (nc, numSamples, false, false, true);
 	}
 
 	// Get global parameters (cached pointers - relaxed atomic, no hash lookup)
@@ -3778,12 +3786,15 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	}
 	
 	// 5-6. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
-	// Per-sample EMA frequency smoothing + coefficient update every 32 samples
-	const bool chaosFilterActive = chaosFilterEnabled
-		&& (chaosAmtFilter > 0.01f || (state.chaosFilterParamSmoothReady && state.chaosFilterAmtSmoothed > 0.01f));
+	// Per-sample EMA frequency smoothing + coefficient update every 8 samples
+	const float chaosFilterTargetAmt = chaosFilterEnabled
+		? juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter)
+		: 0.0f;
+	const bool chaosFilterActive = chaosFilterTargetAmt > 0.01f
+		|| (state.chaosFilterParamSmoothReady && state.chaosFilterAmtSmoothed > 0.01f);
 	if (! chaosFilterActive)
 	{
-		state.chaosFilterAmtSmoothed = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter);
+		state.chaosFilterAmtSmoothed = 0.0f;
 		state.chaosFilterSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpdFilter);
 		state.chaosFilterParamSmoothReady = false;
 	}
@@ -3908,7 +3919,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 
 				if (chaosFilterActive)
 				{
-					const float targetAmt = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter);
+					const float targetAmt = chaosFilterTargetAmt;
 					const float targetSpd = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpdFilter);
 					if (! state.chaosFilterParamSmoothReady)
 					{
@@ -3959,10 +3970,22 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	
 	// 4. DISTANCE EFFECT (exponential LPF + gain attenuation)
 	// 0% = close/bright (no change), 100% = far/dark (HF reduction + volume drop)
-	if (pos > 0.01f)
+	const float posAmount = juce::jlimit (0.0f, 1.0f, pos);
+	const float distanceWetStart = state.distanceWet;
+	const float distanceWetEnd = posAmount > 0.01f ? 1.0f : 0.0f;
+	const bool distanceActive = distanceWetEnd > 0.0f || distanceWetStart > 1.0e-4f;
+	if (distanceActive)
 	{
+		const bool needsDistanceCrossfade = distanceWetStart < 0.999f || distanceWetEnd < 0.999f
+		                                 || std::abs (distanceWetEnd - distanceWetStart) > 1.0e-4f;
+		if (needsDistanceCrossfade)
+		{
+			for (int ch = 0; ch < numChannels; ++ch)
+				state.distanceDryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+		}
+
 		// Exponential cutoff: 12kHz * exp(-pos * 2.08) -> pos=0->12kHz, pos=1->1.5kHz
-		const float cutoff = 12000.0f * std::exp (-pos * kDistDecay);
+		const float cutoff = 12000.0f * std::exp (-posAmount * kDistDecay);
 		constexpr float kPosSmooth = 0.9955f;
 		state.smoothedPosFreq += (cutoff - state.smoothedPosFreq) * (1.0f - kPosSmooth);
 
@@ -3981,10 +4004,28 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.posFilter.process (context);
 
 		// Distance gain attenuation: 0dB at pos=0, -6dB at pos=1
-		const float distGain = 1.0f - pos * 0.5f;
+		const float distGain = 1.0f - posAmount * 0.5f;
 		for (int ch = 0; ch < numChannels; ++ch)
 			buffer.applyGainRamp (ch, 0, numSamples, state.lastPosGain, distGain);
 		state.lastPosGain = distGain;
+
+		if (needsDistanceCrossfade)
+		{
+			const int safeSamples = juce::jmax (1, numSamples);
+			for (int ch = 0; ch < numChannels; ++ch)
+			{
+				auto* wet = buffer.getWritePointer (ch);
+				const auto* dry = state.distanceDryBuffer.getReadPointer (ch);
+				for (int i = 0; i < numSamples; ++i)
+				{
+					const float t = static_cast<float> (i + 1) / static_cast<float> (safeSamples);
+					const float wetAmt = distanceWetStart + (distanceWetEnd - distanceWetStart) * t;
+					wet[i] = dry[i] + (wet[i] - dry[i]) * wetAmt;
+				}
+			}
+		}
+
+		state.distanceWet = distanceWetEnd;
 	}
 	else
 	{
@@ -3994,6 +4035,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			for (int ch = 0; ch < numChannels; ++ch)
 				buffer.applyGainRamp (ch, 0, numSamples, state.lastPosGain, 1.0f);
 		state.lastPosGain = 1.0f;
+		state.distanceWet = 0.0f;
 	}
 
 	// 5. PAN
@@ -4025,7 +4067,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	// 7-sample circular delay (~0.15ms at 48kHz ~= 5cm path difference).
 	// First comb null at ~6.8kHz - creates musically useful tonal shaping.
 	// angle=0: pure on-axis (no effect), angle=1: full off-axis blend
-	if (fred > 0.001f)
+	const float fredStart = state.lastFred;
+	const float fredEnd = juce::jlimit (0.0f, 1.0f, fred);
+	const bool fredAudible = fredStart > 1.0e-4f || fredEnd > 1.0e-4f;
 	{
 		float* channelData[2] = { nullptr, nullptr };
 		const int chCount = juce::jmin (numChannels, 2);
@@ -4033,20 +4077,25 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			channelData[ch] = buffer.getWritePointer (ch);
 		
 		const int delayLen = IRLoaderState::kFredDelaySamples;
-		const float compensate = 1.0f / (1.0f + fred); // Gain compensation for additive sum
+		const int safeSamples = juce::jmax (1, numSamples);
 		for (int i = 0; i < numSamples; ++i)
 		{
 			const int idx = state.fredDelayIndex;
+			const float t = static_cast<float> (i + 1) / static_cast<float> (safeSamples);
+			const float fredAmt = fredStart + (fredEnd - fredStart) * t;
+			const float compensate = 1.0f / (1.0f + fredAmt); // Gain compensation for additive sum
 			for (int ch = 0; ch < chCount; ++ch)
 			{
 				const float direct = channelData[ch][i];
 				const float offAxis = state.fredDelayBuffer[ch][idx];
 				state.fredDelayBuffer[ch][idx] = direct;
 				// Additive comb: sum direct + delayed copy -> creates frequency cancellations
-				channelData[ch][i] = (direct + fred * offAxis) * compensate;
+				if (fredAudible)
+					channelData[ch][i] = (direct + fredAmt * offAxis) * compensate;
 			}
 			state.fredDelayIndex = (state.fredDelayIndex + 1) % delayLen;
 		}
+		state.lastFred = fredEnd;
 	}
 	
 	// Flush denormals in filter/tilt states (per-block, near-zero cost)
