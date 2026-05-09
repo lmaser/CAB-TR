@@ -55,6 +55,7 @@ public:
 	static constexpr const char* kParamModeInA      = "mode_in_a";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutA     = "mode_out_a"; // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamSumBusA      = "sum_bus_a"; // 0=ST, 1=->M, 2=->S
+	static constexpr const char* kParamFilterPosA   = "filter_pos_a"; // 0=F-post T-post, 1=F-pre T-pre, 2=F-pre T-post, 3=F-post T-pre
 	static constexpr const char* kParamMixA         = "mix_a";     // Per-loader dry/wet
 
 	// ============================================================================
@@ -99,6 +100,7 @@ public:
 	static constexpr const char* kParamModeInB      = "mode_in_b";  // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamModeOutB     = "mode_out_b"; // 0=L+R, 1=MID, 2=SIDE
 	static constexpr const char* kParamSumBusB      = "sum_bus_b"; // 0=ST, 1=->M, 2=->S
+	static constexpr const char* kParamFilterPosB   = "filter_pos_b";
 	static constexpr const char* kParamMixB         = "mix_b";     // Per-loader dry/wet
 
 	// ============================================================================
@@ -143,6 +145,7 @@ public:
 	static constexpr const char* kParamModeInC      = "mode_in_c";
 	static constexpr const char* kParamModeOutC     = "mode_out_c";
 	static constexpr const char* kParamSumBusC      = "sum_bus_c"; // 0=ST, 1=->M, 2=->S
+	static constexpr const char* kParamFilterPosC   = "filter_pos_c";
 	static constexpr const char* kParamMixC         = "mix_c";
 
 	// ============================================================================
@@ -335,6 +338,7 @@ public:
 
 	static constexpr int   kSumBusMax               = 2;          // 0=ST, 1=->M, 2=->S
 	static constexpr int   kSumBusDefault           = 0;          // ST (unchanged)
+	static constexpr int   kFilterPosDefault        = 0;          // 0=F-post T-post (current CAB behavior)
 
 	static constexpr int   kRouteMin                = 0;
 	static constexpr int   kRouteMax                = 5;          // 0=A->B->C, 1=A|B|C, 2=A->B|C, 3=A|B->C, 4=(A|B)->C, 5=A->(B|C)
@@ -693,6 +697,7 @@ private:
 	std::atomic<float>* pModeInA = nullptr;
 	std::atomic<float>* pModeOutA = nullptr;
 	std::atomic<float>* pSumBusA = nullptr;
+	std::atomic<float>* pFilterPosA = nullptr;
 	std::atomic<float>* pChaosB = nullptr;
 	std::atomic<float>* pChaosFilterB = nullptr;
 	std::atomic<float>* pChaosAmtB = nullptr;
@@ -702,6 +707,7 @@ private:
 	std::atomic<float>* pModeInB = nullptr;
 	std::atomic<float>* pModeOutB = nullptr;
 	std::atomic<float>* pSumBusB = nullptr;
+	std::atomic<float>* pFilterPosB = nullptr;
 	std::atomic<float>* pMixA = nullptr;
 	std::atomic<float>* pMixB = nullptr;
 	std::atomic<float>* pHpFreqC = nullptr;
@@ -734,6 +740,7 @@ private:
 	std::atomic<float>* pModeInC = nullptr;
 	std::atomic<float>* pModeOutC = nullptr;
 	std::atomic<float>* pSumBusC = nullptr;
+	std::atomic<float>* pFilterPosC = nullptr;
 	std::atomic<float>* pMixC = nullptr;
 	std::atomic<float>* pMatch = nullptr;
 	std::atomic<float>* pTrim  = nullptr;
@@ -909,6 +916,12 @@ private:
 	void applyChaosDriveBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
 	                            bool chaosEnabled, float chaosAmt, float chaosSpd,
 	                            float chaosParamSmoothCoeff) noexcept;
+	void applyLoaderTonePosition (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
+	                              bool applyFiltersStage, bool applyTiltStage, bool filtersFirst,
+	                              float hpFreq, float lpFreq, bool hpOn, bool lpOn,
+	                              int hpSlope, int lpSlope, float tiltDb,
+	                              bool chaosFilterEnabled, float chaosAmtFilter, float chaosSpdFilter,
+	                              float chaosParamSmoothCoeff) noexcept;
 	void advanceVariationState (IRLoaderState& state, float variationTarget, float variationSmoothCoeff,
 	                            int numSamples, float& sizeOffset, float& angleOffset,
 	                            float& distanceOffset) noexcept;
@@ -921,7 +934,7 @@ private:
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
 	                                  const juce::AudioBuffer<float>& dryBuffer,
 	                                  int loaderIndex, double sampleRate,
-	                                  int modeOut, float loaderMix);
+	                                  int modeOut, int filterPos, float loaderMix);
 
 	// Shared M/S encoding helper (used by processBlock + offline export)
 	static void applyMidSideInputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);

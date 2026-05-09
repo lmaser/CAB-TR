@@ -390,6 +390,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeOutA, "Mode Out A", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamSumBusA, "Sum Bus A", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamFilterPosA, "Filter Pos A",
+		juce::StringArray { "FvTv", "F^T^", "F^Tv", "FvT^" },
+		kFilterPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixA, "Mix A", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -504,6 +508,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeOutB, "Mode Out B", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamSumBusB, "Sum Bus B", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamFilterPosB, "Filter Pos B",
+		juce::StringArray { "FvTv", "F^T^", "F^Tv", "FvT^" },
+		kFilterPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixB, "Mix B", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -618,6 +626,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		kParamModeOutC, "Mode Out C", juce::StringArray { "L+R", "MID", "SIDE" }, kModeDefault));
 	layout.add (std::make_unique<juce::AudioParameterChoice> (
 		kParamSumBusC, "Sum Bus C", juce::StringArray { "ST", "->M", "->S" }, kSumBusDefault));
+	layout.add (std::make_unique<juce::AudioParameterChoice> (
+		kParamFilterPosC, "Filter Pos C",
+		juce::StringArray { "FvTv", "F^T^", "F^Tv", "FvT^" },
+		kFilterPosDefault));
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamMixC, "Mix C", kGlobalMixMin, kGlobalMixMax, kGlobalMixDefault));
 
@@ -845,6 +857,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pModeInA   = parameters.getRawParameterValue (kParamModeInA);
 	pModeOutA  = parameters.getRawParameterValue (kParamModeOutA);
 	pSumBusA   = parameters.getRawParameterValue (kParamSumBusA);
+	pFilterPosA = parameters.getRawParameterValue (kParamFilterPosA);
 	pChaosB    = parameters.getRawParameterValue (kParamChaosB);
 	pChaosFilterB = parameters.getRawParameterValue (kParamChaosFilterB);
 	pChaosAmtB = parameters.getRawParameterValue (kParamChaosAmtB);
@@ -854,6 +867,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pModeInB   = parameters.getRawParameterValue (kParamModeInB);
 	pModeOutB  = parameters.getRawParameterValue (kParamModeOutB);
 	pSumBusB   = parameters.getRawParameterValue (kParamSumBusB);
+	pFilterPosB = parameters.getRawParameterValue (kParamFilterPosB);
 	pMixA      = parameters.getRawParameterValue (kParamMixA);
 	pMixB      = parameters.getRawParameterValue (kParamMixB);
 	pEnableC   = parameters.getRawParameterValue (kParamEnableC);
@@ -887,6 +901,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pModeInC   = parameters.getRawParameterValue (kParamModeInC);
 	pModeOutC  = parameters.getRawParameterValue (kParamModeOutC);
 	pSumBusC   = parameters.getRawParameterValue (kParamSumBusC);
+	pFilterPosC = parameters.getRawParameterValue (kParamFilterPosC);
 	pMixC      = parameters.getRawParameterValue (kParamMixC);
 	pMatch     = parameters.getRawParameterValue (kParamMatch);
 	pTrim      = parameters.getRawParameterValue (kParamTrim);
@@ -2455,6 +2470,9 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const int sumBusA = static_cast<int> (pSumBusA->load());
 	const int sumBusB = static_cast<int> (pSumBusB->load());
 	const int sumBusC = static_cast<int> (pSumBusC->load());
+	const int filterPosA = static_cast<int> (pFilterPosA->load());
+	const int filterPosB = static_cast<int> (pFilterPosB->load());
+	const int filterPosC = static_cast<int> (pFilterPosC->load());
 
 	// Need at least one enabled loader with an IR
 	const bool hasA = enableA && stateA.impulseResponse.getNumSamples() > 0;
@@ -2555,6 +2573,115 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		return buf;
 	};
 
+	auto applyOfflinePreTone = [&] (juce::AudioBuffer<float>& path, int loaderIndex, int filterPos) -> void
+	{
+		const bool filterPre = (filterPos == 1 || filterPos == 2);
+		const bool tiltPre = (filterPos == 1 || filterPos == 3);
+		if (! filterPre && ! tiltPre)
+			return;
+
+		auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c) -> std::atomic<float>*
+		{
+			return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c);
+		};
+
+		const int numSamples = path.getNumSamples();
+		const int numChannels = path.getNumChannels();
+		const float hpFreq = pick (pHpFreqA, pHpFreqB, pHpFreqC)->load();
+		const float lpFreq = pick (pLpFreqA, pLpFreqB, pLpFreqC)->load();
+		const bool hpOn = pick (pHpOnA, pHpOnB, pHpOnC)->load() > 0.5f;
+		const bool lpOn = pick (pLpOnA, pLpOnB, pLpOnC)->load() > 0.5f;
+		const int hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+		                                  static_cast<int> (pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)->load()));
+		const int lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+		                                  static_cast<int> (pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)->load()));
+		const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
+		const float maxFreq = static_cast<float> (workingSR) * 0.49f;
+
+		auto applyTilt = [&]()
+		{
+			if (std::abs (tiltDb) <= 0.05f)
+				return;
+
+			float b0, b1, a1;
+			computeTiltShelfCoeffs (workingSR, tiltDb, b0, b1, a1);
+
+			for (int ch = 0; ch < numChannels; ++ch)
+			{
+				auto* data = path.getWritePointer (ch);
+				float s = 0.0f;
+				for (int i = 0; i < numSamples; ++i)
+				{
+					const float x = data[i];
+					const float y = b0 * x + s;
+					s = b1 * x - a1 * y;
+					data[i] = y;
+				}
+			}
+		};
+
+		auto applyFilters = [&]()
+		{
+			juce::dsp::ProcessSpec spec;
+			spec.sampleRate = workingSR;
+			spec.maximumBlockSize = static_cast<juce::uint32> (numSamples);
+			spec.numChannels = static_cast<juce::uint32> (numChannels);
+			juce::dsp::AudioBlock<float> block (path);
+			juce::dsp::ProcessContextReplacing<float> ctx (block);
+
+			if (hpOn && hpFreq >= 21.0f)
+			{
+				const float clampedHp = juce::jlimit (20.0f, maxFreq, hpFreq);
+				juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+				                                juce::dsp::IIR::Coefficients<float>> hp;
+				hp.prepare (spec);
+				if (hpSlope == 0)
+					*hp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (workingSR, clampedHp);
+				else if (hpSlope == 1)
+					*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (workingSR, clampedHp, kSqrt2Over2);
+				else
+					*hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (workingSR, clampedHp, kBW4_Q1);
+				hp.process (ctx);
+
+				if (hpSlope == 2)
+				{
+					juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+					                                juce::dsp::IIR::Coefficients<float>> hp2;
+					hp2.prepare (spec);
+					*hp2.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (workingSR, clampedHp, kBW4_Q2);
+					hp2.process (ctx);
+				}
+			}
+
+			if (lpOn && lpFreq <= 19900.0f)
+			{
+				const float clampedLp = juce::jlimit (20.0f, maxFreq, lpFreq);
+				juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+				                                juce::dsp::IIR::Coefficients<float>> lp;
+				lp.prepare (spec);
+				if (lpSlope == 0)
+					*lp.state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (workingSR, clampedLp);
+				else if (lpSlope == 1)
+					*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (workingSR, clampedLp, kSqrt2Over2);
+				else
+					*lp.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (workingSR, clampedLp, kBW4_Q1);
+				lp.process (ctx);
+
+				if (lpSlope == 2)
+				{
+					juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+					                                juce::dsp::IIR::Coefficients<float>> lp2;
+					lp2.prepare (spec);
+					*lp2.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (workingSR, clampedLp, kBW4_Q2);
+					lp2.process (ctx);
+				}
+			}
+		};
+
+		if (filterPre) applyFilters();
+		if (tiltPre) applyTilt();
+	};
+
 	auto getLoaderInputDb = [&] (int loaderIndex) -> float
 	{
 		switch (loaderIndex)
@@ -2591,8 +2718,10 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		if (std::abs (inGain - 1.0f) > 1.0e-6f)
 			wetPath.applyGain (inGain);
 
+		const int filterPos = loaderIndex == 0 ? filterPosA : (loaderIndex == 1 ? filterPosB : filterPosC);
+		applyOfflinePreTone (wetPath, loaderIndex, filterPos);
 		convolveExistingPath (wetPath, state.impulseResponse);
-		offlineProcessLoaderEffects (wetPath, dryPath, loaderIndex, workingSR, modeOut, loaderMix);
+		offlineProcessLoaderEffects (wetPath, dryPath, loaderIndex, workingSR, modeOut, filterPos, loaderMix);
 		return wetPath;
 	};
 
@@ -3395,7 +3524,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
                                                         const juce::AudioBuffer<float>& dryBuffer,
                                                         int loaderIndex, double sampleRate,
-                                                        int modeOut, float loaderMix)
+                                                        int modeOut, int filterPos, float loaderMix)
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
@@ -3430,6 +3559,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	const float pos = pick (pPosA, pPosB, pPosC)->load();
 	const float outDb = pick (pOutA, pOutB, pOutC)->load();
 	const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
+	const bool filterPre = (filterPos == 1 || filterPos == 2);
+	const bool tiltPre = (filterPos == 1 || filterPos == 3);
 
 #if CABTR_DSP_DEBUG_LOG
 	LOG_IR_EVENT (juce::String ("LOADER ") + ln + ": hpOn=" + juce::String ((int) hpOn)
@@ -3439,7 +3570,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	             + " delay=" + juce::String (delayMs, 2) + " pan=" + juce::String (pan, 3)
 	             + " fred=" + juce::String (fred, 3) + " pos=" + juce::String (pos, 3)
 	             + " outDb=" + juce::String (outDb, 2)
-	             + " tiltDb=" + juce::String (tiltDb, 2));
+	             + " tiltDb=" + juce::String (tiltDb, 2)
+	             + " filterPos=" + juce::String (filterPos));
 #endif
 
 	juce::dsp::ProcessSpec spec;
@@ -3451,8 +3583,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	if (std::abs (outDb) > 0.01f)
 		buffer.applyGain (gainFaderDecibelsToGain (outDb));
 
-	// Per-loader TILT EQ (1st-order symmetric shelf, pivot 1kHz)
-	if (std::abs (tiltDb) > 0.05f)
+	// Per-loader TILT EQ (post path; pre path is applied before convolution)
+	if (! tiltPre && std::abs (tiltDb) > 0.05f)
 	{
 		float b0, b1, a1;
 		computeTiltShelfCoeffs (sampleRate, tiltDb, b0, b1, a1);
@@ -3471,8 +3603,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 		}
 	}
 
-	// HP filter (matching realtime slope selection: 6/12/24 dB/oct)
-	if (hpOn && hpFreq >= 21.0f)
+	// HP filter (post path; pre path is applied before convolution)
+	if (! filterPre && hpOn && hpFreq >= 21.0f)
 	{
 		const float clampedHp = juce::jlimit (20.0f, maxFreq, hpFreq);
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
@@ -3500,8 +3632,8 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 		}
 	}
 
-	// LP filter (matching realtime slope selection: 6/12/24 dB/oct)
-	if (lpOn && lpFreq <= 19900.0f)
+	// LP filter (post path; pre path is applied before convolution)
+	if (! filterPre && lpOn && lpFreq <= 19900.0f)
 	{
 		const float clampedLp = juce::jlimit (20.0f, maxFreq, lpFreq);
 		juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
@@ -3637,145 +3769,19 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 // - Distance as exponential LPF + gain attenuation
 // - Timer debounce: no reload during slider drag
 //==============================================================================
-void CABTRAudioProcessor::processLoader (IRLoaderState& state, 
-                                          juce::AudioBuffer<float>& buffer,
-                                          int loaderIndex)
+void CABTRAudioProcessor::applyLoaderTonePosition (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
+                                                   bool applyFiltersStage, bool applyTiltStage, bool filtersFirst,
+                                                   float hpFreq, float lpFreq, bool hpOn, bool lpOn,
+                                                   int hpSlope, int lpSlope, float tiltDb,
+                                                   bool chaosFilterEnabled, float chaosAmtFilter, float chaosSpdFilter,
+                                                   float chaosParamSmoothCoeff) noexcept
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
-	
-	// EARLY EXIT: No processing if no IR loaded - pass through unchanged
-	if (state.currentFilePath.isEmpty())
+
+	auto applyTilt = [&]()
 	{
-		return;
-	}
-	
-	// STEP 0: Check if IR parameters changed -> set flag to reload on message thread
-	// CRITICAL: Cannot call loadImpulseResponse here (file I/O illegal in audio thread!)
-	// NOTE: IR reload is handled by timerCallback with debouncing (message thread).
-	// No parameter change detection needed here on the audio thread.
-	
-	// Get runtime parameters (cached pointers - no hash lookup)
-	// loaderIndex: 0=A, 1=B, 2=C
-	auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c) -> std::atomic<float>* { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
-
-	const float hpFreq = loadRelaxed (pick (pHpFreqA, pHpFreqB, pHpFreqC));
-	const float lpFreq = loadRelaxed (pick (pLpFreqA, pLpFreqB, pLpFreqC));
-	const bool  hpOn   = loadRelaxedBool (pick (pHpOnA,   pHpOnB,   pHpOnC));
-	const bool  lpOn   = loadRelaxedBool (pick (pLpOnA,   pLpOnB,   pLpOnC));
-	const int   hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
-	                                    loadRelaxedInt (pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)));
-	const int   lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
-	                                    loadRelaxedInt (pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)));
-	const bool  expanderEnabled = loadRelaxedBool (pick (pExpA, pExpB, pExpC));
-	const bool  expPost = loadRelaxedBool (pick (pExpOrderA, pExpOrderB, pExpOrderC));
-	const float expRatio = loadRelaxed (pick (pExpRatioA, pExpRatioB, pExpRatioC));
-	const float expThreshDb = loadRelaxed (pick (pExpThreshA, pExpThreshB, pExpThreshC));
-	const float expKneeDb = loadRelaxed (pick (pExpKneeA, pExpKneeB, pExpKneeC));
-	const float expAtkMs = loadRelaxed (pick (pExpAtkA, pExpAtkB, pExpAtkC));
-	const float expRelMs = loadRelaxed (pick (pExpRelA, pExpRelB, pExpRelC));
-	const float delayMs = loadRelaxed (pick (pDelayA, pDelayB, pDelayC));
-	const float pan = loadRelaxed (pick (pPanA, pPanB, pPanC));
-	const float fred = loadRelaxed (pick (pFredA, pFredB, pFredC));
-	const float pos = loadRelaxed (pick (pPosA, pPosB, pPosC));
-	const float variation = loadRelaxed (pick (pVariationA, pVariationB, pVariationC));
-	const float outDb = loadRelaxed (pick (pOutA, pOutB, pOutC));
-	const float inDb  = loadRelaxed (pick (pInA,  pInB,  pInC));
-	const float tiltDb = loadRelaxed (pick (pTiltA, pTiltB, pTiltC));
-	const bool chaosEnabled = loadRelaxedBool (pick (pChaosA, pChaosB, pChaosC));
-	const bool chaosFilterEnabled = loadRelaxedBool (pick (pChaosFilterA, pChaosFilterB, pChaosFilterC));
-	const float chaosAmt = loadRelaxed (pick (pChaosAmtA, pChaosAmtB, pChaosAmtC));
-	const float chaosSpd = loadRelaxed (pick (pChaosSpdA, pChaosSpdB, pChaosSpdC));
-	const float chaosAmtFilter = loadRelaxed (pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC));
-	const float chaosSpdFilter = loadRelaxed (pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC));
-	const float chaosParamSr = juce::jmax (1.0f, static_cast<float> (currentSampleRate));
-	const float chaosParamSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.010f));
-	const float variationSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.030f));
-	float variationSizeOffset = 0.0f;
-	float variationAngleOffset = 0.0f;
-	float variationDistanceOffset = 0.0f;
-	advanceVariationState (state, variation, variationSmoothCoeff, numSamples,
-	                       variationSizeOffset, variationAngleOffset, variationDistanceOffset);
-	
-	// (FRED processing happens after convolution + filters)
-	
-	// 1. INPUT GAIN (IN)
-	{
-		const float inGain = gainFaderDecibelsToGain (inDb);
-		for (int ch = 0; ch < numChannels; ++ch)
-			buffer.applyGainRamp (ch, 0, numSamples, state.lastInGain, inGain);
-		state.lastInGain = inGain;
-	}
-
-	// PRE-expander: after input conditioning, before the IR/convolution black box.
-	if (expanderEnabled && ! expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
-
-	// 1.5. CHAOS D: input decorrelation before the IR/convolution black box.
-	applyChaosDriveBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
-
-	// 2. CONVOLUTION (TwoStageFFTConvolver - head on audio thread, tail on background)
-	{
-		state.convolution.process (buffer);
-
-		// Sanitise: kill NaN/Inf/denormals that can leak from the engine
-		// during IR swaps (crossfade transients) or extreme input.
-		for (int ch = 0; ch < numChannels; ++ch)
-		{
-			auto* d = buffer.getWritePointer (ch);
-			for (int i = 0; i < numSamples; ++i)
-				if (! std::isfinite (d[i])) d[i] = 0.0f;
-		}
-	}
-
-	// POST-expander: immediately after the IR/convolution black box.
-	if (expanderEnabled && expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
-		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
-
-	// VAR size lane: tiny realtime cab-size proxy. It never touches the IR SIZE parameter,
-	// so it cannot trigger an impulse reload or convolver swap.
-	applyVariationSizeProxy (state, buffer, variationSizeOffset);
-
-	// 3. OUTPUT GAIN (OUT) - applied after PRE/POST IR placement, before tilt/filters
-	{
-		const float outGain = gainFaderDecibelsToGain (outDb);
-		for (int ch = 0; ch < numChannels; ++ch)
-			buffer.applyGainRamp (ch, 0, numSamples, state.lastOutGain, outGain);
-		state.lastOutGain = outGain;
-	}
-
-#if CABTR_DSP_DEBUG_LOG
-	// Per-loader post-convolution + post-out diagnostic (throttled)
-	{
-		static int diagLoaderCount[3] = {0, 0, 0};
-		++diagLoaderCount[loaderIndex];
-		const int bps = juce::jmax (1, (int)(currentSampleRate / juce::jmax (1, numSamples)));
-		if (diagLoaderCount[loaderIndex] >= bps)
-		{
-			diagLoaderCount[loaderIndex] = 0;
-			float pk = 0.0f;
-			for (int ch = 0; ch < numChannels; ++ch)
-				pk = juce::jmax (pk, buffer.getMagnitude (ch, 0, numSamples));
-			juce::String d;
-			d << "LOADER[" << loaderIndex << "] postConv+outGain peak=" << juce::String (pk, 4)
-			  << " inDb=" << juce::String (inDb, 2)
-			  << " outDb=" << juce::String (outDb, 2)
-			  << " tiltDb=" << juce::String (tiltDb, 2)
-			  << " hpOn=" << (int) hpOn << " lpOn=" << (int) lpOn
-			  << " hpFreq=" << juce::String (hpFreq, 1) << " lpFreq=" << juce::String (lpFreq, 1)
-			  << " irLen=" << state.impulseResponse.getNumSamples()
-			  << " hasIR=" << (int) (!state.currentFilePath.isEmpty());
-			LOG_IR_EVENT (d);
-		}
-	}
-#endif
-
-	// 4. PER-LOADER TILT EQ (1st-order symmetric shelf, pivot 1kHz)
-	if (std::abs (tiltDb) > 0.05f)
+	if (applyTiltStage && std::abs (tiltDb) > 0.05f)
 	{
 		// Recompute coefficients when tilt amount changes
 		if (std::abs (tiltDb - state.lastTiltDb) > 0.02f)
@@ -3818,7 +3824,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.tiltState[1] = rightState;
 		state.tiltB0 = b0; state.tiltB1 = b1; state.tiltA1 = a1;
 	}
-	else if (std::abs (state.lastTiltDb) > 0.05f)
+	else if (applyTiltStage && std::abs (state.lastTiltDb) > 0.05f)
 	{
 		// Reset tilt state when returning to 0
 		state.lastTiltDb = 0.0f;
@@ -3826,8 +3832,14 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		state.tiltTargetB0 = 1.0f; state.tiltTargetB1 = 0.0f; state.tiltTargetA1 = 0.0f;
 		state.tiltState[0] = state.tiltState[1] = 0.0f;
 	}
-	
-	// 5-6. HP + LP FILTERS with slope selection (6/12/24 dB/oct)
+	};
+
+	auto applyFilters = [&]()
+	{
+	if (! applyFiltersStage)
+		return;
+
+	// HP + LP FILTERS with slope selection (6/12/24 dB/oct)
 	// Per-sample EMA frequency smoothing + coefficient update every 8 samples
 	const float chaosFilterTargetAmt = chaosFilterEnabled
 		? juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmtFilter)
@@ -4009,7 +4021,172 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 			processSegment (numSamples);
 		}
 	}
+	};
+
+	if (filtersFirst)
+	{
+		applyFilters();
+		applyTilt();
+	}
+	else
+	{
+		applyTilt();
+		applyFilters();
+	}
+}
+
+void CABTRAudioProcessor::processLoader (IRLoaderState& state,
+                                          juce::AudioBuffer<float>& buffer,
+                                          int loaderIndex)
+{
+	const int numSamples = buffer.getNumSamples();
+	const int numChannels = buffer.getNumChannels();
+
+	// EARLY EXIT: No processing if no IR loaded - pass through unchanged
+	if (state.currentFilePath.isEmpty())
+	{
+		return;
+	}
+
+	// STEP 0: Check if IR parameters changed -> set flag to reload on message thread
+	// CRITICAL: Cannot call loadImpulseResponse here (file I/O illegal in audio thread!)
+	// NOTE: IR reload is handled by timerCallback with debouncing (message thread).
+	// No parameter change detection needed here on the audio thread.
+
+	// Get runtime parameters (cached pointers - no hash lookup)
+	// loaderIndex: 0=A, 1=B, 2=C
+	auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c) -> std::atomic<float>* { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
+
+	const float hpFreq = loadRelaxed (pick (pHpFreqA, pHpFreqB, pHpFreqC));
+	const float lpFreq = loadRelaxed (pick (pLpFreqA, pLpFreqB, pLpFreqC));
+	const bool  hpOn   = loadRelaxedBool (pick (pHpOnA,   pHpOnB,   pHpOnC));
+	const bool  lpOn   = loadRelaxedBool (pick (pLpOnA,   pLpOnB,   pLpOnC));
+	const int   hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+	                                    loadRelaxedInt (pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)));
+	const int   lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+	                                    loadRelaxedInt (pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)));
+	const bool  expanderEnabled = loadRelaxedBool (pick (pExpA, pExpB, pExpC));
+	const bool  expPost = loadRelaxedBool (pick (pExpOrderA, pExpOrderB, pExpOrderC));
+	const float expRatio = loadRelaxed (pick (pExpRatioA, pExpRatioB, pExpRatioC));
+	const float expThreshDb = loadRelaxed (pick (pExpThreshA, pExpThreshB, pExpThreshC));
+	const float expKneeDb = loadRelaxed (pick (pExpKneeA, pExpKneeB, pExpKneeC));
+	const float expAtkMs = loadRelaxed (pick (pExpAtkA, pExpAtkB, pExpAtkC));
+	const float expRelMs = loadRelaxed (pick (pExpRelA, pExpRelB, pExpRelC));
+	const float delayMs = loadRelaxed (pick (pDelayA, pDelayB, pDelayC));
+	const float pan = loadRelaxed (pick (pPanA, pPanB, pPanC));
+	const float fred = loadRelaxed (pick (pFredA, pFredB, pFredC));
+	const float pos = loadRelaxed (pick (pPosA, pPosB, pPosC));
+	const float variation = loadRelaxed (pick (pVariationA, pVariationB, pVariationC));
+	const float outDb = loadRelaxed (pick (pOutA, pOutB, pOutC));
+	const float inDb  = loadRelaxed (pick (pInA,  pInB,  pInC));
+	const float tiltDb = loadRelaxed (pick (pTiltA, pTiltB, pTiltC));
+	const bool chaosEnabled = loadRelaxedBool (pick (pChaosA, pChaosB, pChaosC));
+	const bool chaosFilterEnabled = loadRelaxedBool (pick (pChaosFilterA, pChaosFilterB, pChaosFilterC));
+	const float chaosAmt = loadRelaxed (pick (pChaosAmtA, pChaosAmtB, pChaosAmtC));
+	const float chaosSpd = loadRelaxed (pick (pChaosSpdA, pChaosSpdB, pChaosSpdC));
+	const float chaosAmtFilter = loadRelaxed (pick (pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC));
+	const float chaosSpdFilter = loadRelaxed (pick (pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC));
+	const int filterPos = loadRelaxedInt (pick (pFilterPosA, pFilterPosB, pFilterPosC));
+	const bool filterPre = (filterPos == 1 || filterPos == 2);
+	const bool tiltPre = (filterPos == 1 || filterPos == 3);
+	const float chaosParamSr = juce::jmax (1.0f, static_cast<float> (currentSampleRate));
+	const float chaosParamSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.010f));
+	const float variationSmoothCoeff = 1.0f - std::exp (-1.0f / (chaosParamSr * 0.030f));
+	float variationSizeOffset = 0.0f;
+	float variationAngleOffset = 0.0f;
+	float variationDistanceOffset = 0.0f;
+	advanceVariationState (state, variation, variationSmoothCoeff, numSamples,
+	                       variationSizeOffset, variationAngleOffset, variationDistanceOffset);
+
+	// (FRED processing happens after convolution + filters)
 	
+	// 1. INPUT GAIN (IN)
+	{
+		const float inGain = gainFaderDecibelsToGain (inDb);
+		for (int ch = 0; ch < numChannels; ++ch)
+			buffer.applyGainRamp (ch, 0, numSamples, state.lastInGain, inGain);
+		state.lastInGain = inGain;
+	}
+
+	// PRE-IR tone positioning. SAT-TR uses filter first when both are PRE.
+	if (filterPre || tiltPre)
+		applyLoaderTonePosition (state, buffer, filterPre, tiltPre, true,
+		                         hpFreq, lpFreq, hpOn, lpOn, hpSlope, lpSlope, tiltDb,
+		                         chaosFilterEnabled, chaosAmtFilter, chaosSpdFilter, chaosParamSmoothCoeff);
+
+	// PRE-expander: after input conditioning, before the IR/convolution black box.
+	if (expanderEnabled && ! expPost)
+		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		                     expanderEnabled, expRatio, expThreshDb,
+		                     expKneeDb, expAtkMs, expRelMs);
+
+	// 1.5. CHAOS D: input decorrelation before the IR/convolution black box.
+	applyChaosDriveBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
+
+	// 2. CONVOLUTION (TwoStageFFTConvolver - head on audio thread, tail on background)
+	{
+		state.convolution.process (buffer);
+
+		// Sanitise: kill NaN/Inf/denormals that can leak from the engine
+		// during IR swaps (crossfade transients) or extreme input.
+		for (int ch = 0; ch < numChannels; ++ch)
+		{
+			auto* d = buffer.getWritePointer (ch);
+			for (int i = 0; i < numSamples; ++i)
+				if (! std::isfinite (d[i])) d[i] = 0.0f;
+		}
+	}
+
+	// POST-expander: immediately after the IR/convolution black box.
+	if (expanderEnabled && expPost)
+		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		                     expanderEnabled, expRatio, expThreshDb,
+		                     expKneeDb, expAtkMs, expRelMs);
+
+	// VAR size lane: tiny realtime cab-size proxy. It never touches the IR SIZE parameter,
+	// so it cannot trigger an impulse reload or convolver swap.
+	applyVariationSizeProxy (state, buffer, variationSizeOffset);
+
+	// 3. OUTPUT GAIN (OUT) - current default keeps OUT before post tilt/filters.
+	{
+		const float outGain = gainFaderDecibelsToGain (outDb);
+		for (int ch = 0; ch < numChannels; ++ch)
+			buffer.applyGainRamp (ch, 0, numSamples, state.lastOutGain, outGain);
+		state.lastOutGain = outGain;
+	}
+
+#if CABTR_DSP_DEBUG_LOG
+	// Per-loader post-convolution + post-out diagnostic (throttled)
+	{
+		static int diagLoaderCount[3] = {0, 0, 0};
+		++diagLoaderCount[loaderIndex];
+		const int bps = juce::jmax (1, (int)(currentSampleRate / juce::jmax (1, numSamples)));
+		if (diagLoaderCount[loaderIndex] >= bps)
+		{
+			diagLoaderCount[loaderIndex] = 0;
+			float pk = 0.0f;
+			for (int ch = 0; ch < numChannels; ++ch)
+				pk = juce::jmax (pk, buffer.getMagnitude (ch, 0, numSamples));
+			juce::String d;
+			d << "LOADER[" << loaderIndex << "] postConv+outGain peak=" << juce::String (pk, 4)
+			  << " inDb=" << juce::String (inDb, 2)
+			  << " outDb=" << juce::String (outDb, 2)
+			  << " tiltDb=" << juce::String (tiltDb, 2)
+			  << " filterPos=" << filterPos
+			  << " hpOn=" << (int) hpOn << " lpOn=" << (int) lpOn
+			  << " hpFreq=" << juce::String (hpFreq, 1) << " lpFreq=" << juce::String (lpFreq, 1)
+			  << " irLen=" << state.impulseResponse.getNumSamples()
+			  << " hasIR=" << (int) (!state.currentFilePath.isEmpty());
+			LOG_IR_EVENT (d);
+		}
+	}
+#endif
+
+	if (! tiltPre || ! filterPre)
+		applyLoaderTonePosition (state, buffer, ! filterPre, ! tiltPre, false,
+		                         hpFreq, lpFreq, hpOn, lpOn, hpSlope, lpSlope, tiltDb,
+		                         chaosFilterEnabled, chaosAmtFilter, chaosSpdFilter, chaosParamSmoothCoeff);
+
 	// 4. DISTANCE EFFECT (exponential LPF + gain attenuation)
 	// 0% = close/bright (no change), 100% = far/dark (HF reduction + volume drop)
 	const float posAmount = juce::jlimit (0.0f, 1.0f, pos + variationDistanceOffset);
