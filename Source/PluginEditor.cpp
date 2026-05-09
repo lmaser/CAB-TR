@@ -2384,7 +2384,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 		const int layoutOverhead = (gap * 6) + modeLabelGap + comboLabelGap2;
 		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 9);
-		const int expandedVisualSliderH = juce::jlimit (24, 30, sliderH);
+		const int expandedVisualSliderH = visualSliderH;
 		const int comboSlotH = juce::jlimit (38, 48, sliderH + 14);
 
 		auto sliderRow = contentArea.removeFromTop (sliderH);
