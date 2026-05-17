@@ -18,8 +18,9 @@ CAB-TR uses a text-based UI with horizontal bar sliders. All controls are access
 - **Bar sliders**: Click and drag horizontally. Right-click for numeric entry.
 - **Toggle buttons**: The collapsed loader row uses `INV`, `NRM`, `RVS`, and `EXP`. The expanded I/O section adds `CHSF` and `CHSD`.
 - **VAR**: Per-loader realtime variation in the collapsed control set. Adds subtle cab/mic drift without reloading the IR.
-- **Combo boxes**: MODE IN, MODE OUT, SUM BUS per loader. Click to cycle options.
-- **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
+- **Empty loaders**: A loader is only operative when it is enabled and has an IR loaded. Empty enabled loaders stay transparent, and their DSP controls remain inactive until a file is loaded.
+- **Combo boxes**: MODE IN, MODE OUT, FILTER/TILT position, and SUM BUS per loader. Click to cycle options.
+- **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, F/T, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
 - **Filter bar**: Click to open the HP/LP filter configuration prompt with frequency, slope, and enable/disable controls.
 - **Gear icon** (top-right): Opens the info popup with version, credits, and a link to Graphics settings.
@@ -73,7 +74,7 @@ Adaptive spectral tilt equalization applied after the routing stage. It analyzes
 - **Bright** (+3 dB/oct): Presence emphasis.
 - **Bright+** (+6 dB/oct): Aggressive brightness boost.
 
-#### LIM THRESHOLD (-36 to 0 dB)
+#### LIM (-36 to 0 dB)
 
 Peak limiter threshold. Sets the ceiling above which the limiter engages.
 At `0 dB` (default) the limiter acts as a transparent safety net. Lower values compress the signal harder.
@@ -309,9 +310,9 @@ Export options:
 - Fixed temp buffer allocation causing distortion in hosts with small block sizes (e.g. FL Studio at 96 samples).
 - Cached per-block `std::exp` coefficients in `prepareToPlay` (tilt smoothing, DC blocker, NORM AGC).
 - Aligned tooltip rendering with shared TR-series style (centred `drawFittedText`).
-- Added dual-stage transparent peak limiter with LIM THRESHOLD (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.
+- Added dual-stage transparent peak limiter with LIM (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.
 - Added per-loader `EXP` with `PRE/POST` order around the IR loader plus THRESH, RATIO, KNEE, ATK, and REL controls.
-- Refined prompt UX and delay readouts for consistent numeric editing and 0.001 ms precision display.
+- Refined prompt UX and delay editing for consistent numeric entry, while keeping compact time readouts in the main UI.
 - Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `VAR`, `EXP`, and `LIMITER`.
 - Added per-loader `VAR` for subtle realtime cab/mic drift without triggering IR rebuilds.
 - Updated global and per-loader gain faders to a consistent -INF to +24 dB range with 0 dB centered.

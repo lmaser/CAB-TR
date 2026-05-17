@@ -46,6 +46,24 @@ namespace
 		return juce::String (dB, 1) + " dB";
 	}
 
+	juce::String formatTimeValue (double ms)
+	{
+		const double clampedMs = juce::jmax (0.0, ms);
+		if (clampedMs < 100.0)
+			return juce::String (clampedMs, 2) + " ms";
+		if (clampedMs < 1000.0)
+			return juce::String (clampedMs, 1) + " ms";
+		return juce::String (clampedMs / 1000.0, 2) + " s";
+	}
+
+	juce::String formatFrequencyValue (double hz)
+	{
+		const double clampedHz = juce::jmax (0.0, hz);
+		if (clampedHz < 1000.0)
+			return juce::String (clampedHz, 1) + " Hz";
+		return juce::String (clampedHz / 1000.0, 2) + " kHz";
+	}
+
 	juce::String formatChaosTooltip (float amountPercent, float speedHz)
 	{
 		return "AMT " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 100.0f, amountPercent))) + "%"
@@ -661,7 +679,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 	{
 		case Type::HpFreq:
 		case Type::LpFreq:
-			return juce::String (v, 1) + " Hz";
+			return formatFrequencyValue (v);
 
 		case Type::Input:
 		case Type::Output:
@@ -676,13 +694,11 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 
 		case Type::Start:
 		case Type::End:
-			return juce::String (static_cast<int> (std::round (v))) + " ms";
-
 		case Type::Delay:
-			return juce::String (v, 3) + " ms";
+			return formatTimeValue (v);
 
 		case Type::Size:
-			return juce::String (v * 100.0, 1) + "%";
+			return juce::String (juce::roundToInt (v * 100.0)) + "%";
 
 		case Type::Pan:
 		{
@@ -700,7 +716,7 @@ juce::String CABTRAudioProcessorEditor::BarSlider::getTextFromValue (double v)
 		case Type::Variation:
 		case Type::Mix:
 		case Type::GlobalMix:
-			return juce::String (v * 100.0, 1) + "%";
+			return juce::String (juce::roundToInt (v * 100.0)) + "%";
 
 		default:
 			break;
@@ -788,13 +804,11 @@ void CABTRAudioProcessorEditor::FilterBarComponent::updateTooltipForTarget (Drag
 {
 	if (target == HP)
 	{
-		const int hz = juce::roundToInt (hpFreq_);
-		setTooltip ("HP: " + juce::String (hz) + " Hz");
+		setTooltip ("HP: " + formatFrequencyValue (hpFreq_));
 	}
 	else if (target == LP)
 	{
-		const int hz = juce::roundToInt (lpFreq_);
-		setTooltip ("LP: " + juce::String (hz) + " Hz");
+		setTooltip ("LP: " + formatFrequencyValue (lpFreq_));
 	}
 	else
 	{
@@ -1528,12 +1542,12 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	setupSlider (r.start, "IR Start Time " + suffix,                   ST::Start);
 	setupSlider (r.end,   "IR End Time " + suffix,                     ST::End);
 	setupSlider (r.size,  "Size " + suffix + " (25%-400%)",            ST::Size);
-	setupSlider (r.delay, "Delay " + suffix + " (0-1000ms)",           ST::Delay);
 	setupSlider (r.pan,   "Pan " + suffix + " (L-R)",                  ST::Pan);
 	setupSlider (r.fred,  "Angle " + suffix + " (off-axis mic simulation)", ST::Fred);
 	setupSlider (r.pos,   "Distance " + suffix + " (proximity/distance)",   ST::Pos);
 	setupSlider (r.reso,  "Resonance " + suffix + " (0%-200%)",        ST::Reso);
 	setupSlider (r.variation, "Variation " + suffix + " (cab/mic drift)", ST::Variation);
+	setupSlider (r.delay, "Delay " + suffix + " (0-1000ms)",           ST::Delay);
 
 	addAndMakeVisible (r.inv);   r.inv.setButtonText ("INV");            r.inv.addListener (this);
 	addAndMakeVisible (r.norm);  r.norm.setButtonText ("NRM");           r.norm.addListener (this);
@@ -1575,7 +1589,7 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		r.expDisp.setInterceptsMouseClicks (true, false);
 		r.expDisp.addMouseListener (this, false);
 		r.expDisp.setTooltip (juce::String (savedOrder ? "POST" : "PRE") + " | 1:" + formatExpRatioDisplay (savedRatio)
-		                      + " | " + juce::String (juce::roundToInt (savedThresh)) + " dB");
+		                      + " | " + juce::String (savedThresh, 1) + " dB");
 		r.expDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.expDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.expDisp.setOpaque (false);
@@ -2003,7 +2017,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText (outTxt, valArea, juce::Justification::centredLeft);
 		}
 
-		// LIM THRESHOLD label + value (right of bar)
+		// LIM label + value (right of bar)
 		if (limThresholdSlider.isVisible())
 		{
 			const auto limBounds = limThresholdSlider.getBounds();
@@ -2011,7 +2025,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText ("LIM", limArea, juce::Justification::centred);
 
 			const float limDb = (float) limThresholdSlider.getValue();
-			juce::String limTxt = (limDb <= -35.9f) ? "-36 dB" : juce::String (limDb, 1) + " dB";
+			juce::String limTxt = juce::String (limDb, 1) + " dB";
 			const auto valArea = juce::Rectangle<int> (limBounds.getRight() + 4, limBounds.getY(), 66, limBounds.getHeight());
 			g.drawText (limTxt, valArea, juce::Justification::centredLeft);
 		}
@@ -2040,10 +2054,11 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 	// Per-loader MODE IN / MODE OUT labels (only when that loader is expanded)
 	{
-		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ComboBox& sumBus, juce::ComboBox& filterPos, juce::ToggleButton& enableBtn)
+		auto drawModeLabels = [&] (juce::ComboBox& modeIn, juce::ComboBox& modeOut, juce::ComboBox& sumBus, juce::ComboBox& filterPos, int loaderIndex)
 		{
 			if (! modeIn.isVisible()) return;
-			const float alpha = enableBtn.getToggleState() ? 1.0f : 0.35f;
+			const auto refs = getLoaderRefs (loaderIndex);
+			const float alpha = (refs.enableBtn.getToggleState() && loaderHasLoadedIR (loaderIndex)) ? 1.0f : 0.35f;
 			g.setColour (activeScheme.text.withAlpha (alpha));
 			const auto font = juce::Font (juce::FontOptions (15.0f).withStyle ("Bold"));
 			g.setFont (font);
@@ -2060,9 +2075,9 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText (useShort ? "SUM" : "SUM BUS",  sbArea, juce::Justification::centred);
 			g.drawText ("F / T", fpArea, juce::Justification::centred);
 		};
-		if (ioExpandedA_) drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, filterPosComboA, enableButtonA);
-		if (ioExpandedB_) drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, filterPosComboB, enableButtonB);
-		if (ioExpandedC_) drawModeLabels (modeInComboC, modeOutComboC, sumBusComboC, filterPosComboC, enableButtonC);
+		if (ioExpandedA_) drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, filterPosComboA, 0);
+		if (ioExpandedB_) drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, filterPosComboB, 1);
+		if (ioExpandedC_) drawModeLabels (modeInComboC, modeOutComboC, sumBusComboC, filterPosComboC, 2);
 	}
 
 	// Draw gear icon (in paint, like other TR plugins)
@@ -2094,14 +2109,14 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 		for (int loader = 0; loader < 3; ++loader)
 		{
 			auto refs = getLoaderRefs (loader);
-			const bool enabled = refs.enableBtn.getToggleState();
+			const bool enabled = refs.enableBtn.getToggleState() && loaderHasLoadedIR (loader);
 			g.setColour (enabled ? activeScheme.text : activeScheme.text.withAlpha (0.35f));
 			const int colR = columnRight_[loader];
 
 			juce::Slider* loaderSliders[kNumCachedParams] = {
 				&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
-				&refs.start, &refs.end, &refs.size, &refs.delay,
-				&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.mix
+				&refs.start, &refs.end, &refs.size, &refs.pan,
+				&refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.delay, &refs.mix
 			};
 
 			for (int i = 0; i < kNumCachedParams; ++i)
@@ -2479,11 +2494,6 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		delay.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
-		delay.setVisible (true);
-		area.removeFromTop (gap);
-
-		sliderRow = area.removeFromTop (sliderH);
 		fred.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
 		fred.setVisible (true);
 		area.removeFromTop (gap);
@@ -2501,6 +2511,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		sliderRow = area.removeFromTop (sliderH);
 		variation.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
 		variation.setVisible (true);
+		area.removeFromTop (gap);
+
+		sliderRow = area.removeFromTop (sliderH);
+		delay.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		delay.setVisible (true);
 		area.removeFromTop (gap * 2);
 
 		constexpr int valuePadPx = 8;
@@ -2530,18 +2545,41 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 //==============================================================================
 //  Loader enabled/disabled visual state
 //==============================================================================
+bool CABTRAudioProcessorEditor::loaderHasLoadedIR (int loaderIndex) const
+{
+	const auto* state = loaderIndex == 0 ? &audioProcessor.stateA
+	                  : loaderIndex == 1 ? &audioProcessor.stateB
+	                                     : &audioProcessor.stateC;
+
+	return state->currentFilePath.isNotEmpty()
+	    && state->impulseResponse.getNumSamples() > 0;
+}
+
 void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 {
 	auto r = getLoaderRefs (loaderIndex);
 
 	const bool enabled = r.enableBtn.getToggleState();
-	const float alpha = enabled ? 1.0f : 0.35f;
-	const bool interactive = enabled && ! promptOverlayActive;
+	const bool hasIR = loaderHasLoadedIR (loaderIndex);
+	const bool loaderReady = enabled && hasIR;
+	const bool fileInteractive = enabled && ! promptOverlayActive;
+	const float fileAlpha = enabled ? 1.0f : 0.35f;
+	const float alpha = loaderReady ? 1.0f : 0.35f;
+	const bool interactive = loaderReady && ! promptOverlayActive;
+
+	juce::Component* fileComponents[] = {
+		&r.browseBtn, &r.fileDisp,
+	};
+
+	for (auto* c : fileComponents)
+	{
+		c->setAlpha (fileAlpha);
+		c->setEnabled (fileInteractive);
+	}
 
 	juce::Component* components[] = {
-		&r.browseBtn, &r.fileDisp,
 		&r.hp, &r.lp, &r.in, &r.out, &r.tilt,
-		&r.start, &r.end, &r.size, &r.delay, &r.pan, &r.fred, &r.pos, &r.reso, &r.variation,
+		&r.start, &r.end, &r.size, &r.pan, &r.fred, &r.pos, &r.reso, &r.variation, &r.delay,
 		&r.inv, &r.norm, &r.rvs, &r.exp, &r.expDisp, &r.chaos, &r.chaosFilter, &r.chaosDisp,
 		&r.modeIn, &r.modeOut, &r.sumBus, &r.filterPos,
 		&r.filterBar, &r.mix
@@ -2579,6 +2617,8 @@ void CABTRAudioProcessorEditor::timerCallback()
 				*currentFiles[i] = f.getFileName();
 				*currentDirs[i]  = f.getParentDirectory();
 				fileDisps[i]->setText (*currentFiles[i], juce::dontSendNotification);
+				updateLoaderEnabledState (i);
+				legendDirty = true;
 			}
 		}
 	}
@@ -2698,6 +2738,8 @@ void CABTRAudioProcessorEditor::updateFileDisplayLabels (const juce::String& pat
 			*curFiles[i] = "";
 			displays[i]->setText ("No file loaded", juce::dontSendNotification);
 		}
+
+		updateLoaderEnabledState (i);
 	}
 }
 
@@ -3054,6 +3096,10 @@ void CABTRAudioProcessorEditor::loadIRFile (const juce::String& path, int loader
 	*curFiles[idx] = path;
 	displays[idx]->setText (file.getFileName(), juce::dontSendNotification);
 	audioProcessor.loadImpulseResponse (*states[idx], path);
+	updateLoaderEnabledState (idx);
+	legendDirty = true;
+	refreshLegendTextCache();
+	repaint();
 }
 
 //==============================================================================
@@ -3108,7 +3154,7 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 
 		for (int i = 0; i < 3; ++i)
 		{
-			if (! enableBtns[i]->getToggleState())
+			if (! enableBtns[i]->getToggleState() || ! loaderHasLoadedIR (i))
 				continue;
 
 			const bool hitExp = expBtns[i]->isVisible()
@@ -3194,7 +3240,9 @@ void CABTRAudioProcessorEditor::mouseDoubleClick (const juce::MouseEvent& e)
 			*curFiles[i] = juce::String();
 			displays[i]->setText ("No file loaded", juce::dontSendNotification);
 
+			updateLoaderEnabledState (i);
 			legendDirty = true;
+			refreshLegendTextCache();
 			repaint();
 			return;
 		}
@@ -3229,12 +3277,6 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 {
 	using namespace TR;
 
-	auto formatFreq = [] (double hz) {
-		if (hz < 1000.0)
-			return juce::String (hz, 1) + " Hz";
-		return juce::String (hz / 1000.0, 2) + " kHz";
-	};
-
 	auto formatDb = [] (float db) -> juce::String {
 		return formatGainFaderDb (db);
 	};
@@ -3246,20 +3288,29 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 		return "R" + juce::String (pct);
 	};
 
-	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=tilt(dB), 6=delay(ms, 3dp)
+	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=tilt(dB), 6=delay(ms)
 	struct ParamFmt { int type; const char* label; };
 	const ParamFmt fmts[kNumCachedParams] = {
 		{0,"HP"}, {0,"LP"}, {1,"IN"}, {1,"OUT"}, {5,"TILT"}, {2,"START"}, {2,"END"},
-		{3,"SIZE"}, {6,"DELAY"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {3,"MIX"}
+		{3,"SIZE"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {6,"DELAY"}, {3,"MIX"}
 	};
 
 	for (int loader = 0; loader < 3; ++loader)
 	{
 		auto refs = getLoaderRefs (loader);
+		const bool loaderEnabled = refs.enableBtn.getToggleState();
+		const bool loaderReady = loaderEnabled && loaderHasLoadedIR (loader);
 		juce::Slider* loaderSliders[kNumCachedParams] = {
 			&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
-			&refs.start, &refs.end, &refs.size, &refs.delay,
-			&refs.pan, &refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.mix
+			&refs.start, &refs.end, &refs.size, &refs.pan,
+			&refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.delay, &refs.mix
+		};
+
+		auto setLabelOnly = [] (CachedParamText& text, const char* label)
+		{
+			text.full = label;
+			text.short_ = label;
+			text.intOnly = label;
 		};
 
 		for (int p = 0; p < kNumCachedParams; ++p)
@@ -3271,26 +3322,26 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 			switch (fmt.type)
 			{
 				case 0: // Frequency
-					ct.full    = formatFreq (val) + " " + fmt.label;
-					ct.short_  = formatFreq (val);
-					ct.intOnly = juce::String (juce::roundToInt (val));
+					ct.full    = formatFrequencyValue (val) + " " + fmt.label;
+					ct.short_  = formatFrequencyValue (val);
+					ct.intOnly = formatFrequencyValue (val);
 					break;
 				case 1: // dB
 					ct.full    = formatDb ((float) val) + " " + fmt.label;
 					ct.short_  = formatDb ((float) val);
-					ct.intOnly = juce::String (juce::roundToInt (val));
+					ct.intOnly = formatDb ((float) val);
 					break;
 				case 2: // ms
-					ct.full    = juce::String (juce::roundToInt (val)) + " ms " + fmt.label;
-					ct.short_  = juce::String (juce::roundToInt (val)) + " ms";
-					ct.intOnly = juce::String (juce::roundToInt (val));
+					ct.full    = formatTimeValue (val) + " " + fmt.label;
+					ct.short_  = formatTimeValue (val);
+					ct.intOnly = formatTimeValue (val);
 					break;
 				case 3: // Percent (value is 0..1 range -> display as %)
 				{
 					const int pct = juce::roundToInt (val * 100.0);
 					ct.full    = juce::String (pct) + "% " + fmt.label;
 					ct.short_  = juce::String (pct) + "%";
-					ct.intOnly = juce::String (pct);
+					ct.intOnly = juce::String (pct) + "%";
 					break;
 				}
 				case 4: // Pan
@@ -3301,14 +3352,17 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 				case 5: // dB (Tilt)
 					ct.full    = juce::String (val, 1) + " dB " + fmt.label;
 					ct.short_  = juce::String (val, 1) + " dB";
-					ct.intOnly = juce::String (juce::roundToInt (val));
+					ct.intOnly = juce::String (val, 1) + " dB";
 					break;
 				case 6: // Delay ms (decimal)
-					ct.full    = juce::String (val, 3) + " ms " + fmt.label;
-					ct.short_  = juce::String (val, 3) + " ms";
-					ct.intOnly = juce::String (val, 3);
+					ct.full    = formatTimeValue (val) + " " + fmt.label;
+					ct.short_  = formatTimeValue (val);
+					ct.intOnly = formatTimeValue (val);
 					break;
 			}
+
+			if (! loaderReady)
+				setLabelOnly (ct, fmt.label);
 		}
 	}
 
@@ -3319,9 +3373,9 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 		const float level = isDry ? dualMixBar_.getDryLevel() : dualMixBar_.getWetLevel();
 		const float dB = (level <= 0.0001f) ? -100.0f : 20.0f * std::log10 (level);
 		if (dB <= -100.0f)
-			cachedMixIntOnly = "-INF";
+			cachedMixIntOnly = "-INF dB";
 		else if (std::abs (dB) < 0.05f)
-			cachedMixIntOnly = "0 dB";
+			cachedMixIntOnly = "0.0 dB";
 		else
 			cachedMixIntOnly = juce::String (dB, 1) + " dB";
 	}
@@ -3342,7 +3396,7 @@ juce::String CABTRAudioProcessorEditor::getMixText() const
 		const float level = isDry ? dualMixBar_.getDryLevel() : dualMixBar_.getWetLevel();
 		const float dB = (level <= 0.0001f) ? -100.0f : 20.0f * std::log10 (level);
 		if (dB <= -100.0f) return "-INF dB";
-		if (std::abs (dB) < 0.05f) return "0 dB";
+		if (std::abs (dB) < 0.05f) return "0.0 dB";
 		return juce::String (dB, 1) + " dB";
 	}
 	const int pct = juce::roundToInt (globalMixSlider.getValue() * 100.0);
@@ -3356,8 +3410,8 @@ juce::String CABTRAudioProcessorEditor::getMixTextShort() const
 		const bool isDry = (dualMixBar_.getLastTouched() != DualMixBarComponent::WET);
 		const float level = isDry ? dualMixBar_.getDryLevel() : dualMixBar_.getWetLevel();
 		const float dB = (level <= 0.0001f) ? -100.0f : 20.0f * std::log10 (level);
-		if (dB <= -100.0f) return "-INF";
-		if (std::abs (dB) < 0.05f) return "0 dB";
+		if (dB <= -100.0f) return "-INF dB";
+		if (std::abs (dB) < 0.05f) return "0.0 dB";
 		return juce::String (dB, 1) + " dB";
 	}
 	const int pct = juce::roundToInt (globalMixSlider.getValue() * 100.0);
@@ -3383,11 +3437,14 @@ juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point
 	for (int i = 0; i < 3; ++i)
 	{
 		auto r = getLoaderRefs (i);
+		if (! r.enableBtn.getToggleState() || ! loaderHasLoadedIR (i))
+			continue;
+
 		const int colR = columnRight_[i];
 
 		BarSlider* sliders[] = { &r.hp, &r.lp, &r.in, &r.out, &r.tilt,
-		                         &r.start, &r.end, &r.size, &r.delay,
-		                         &r.pan, &r.fred, &r.pos, &r.reso, &r.variation };
+		                         &r.start, &r.end, &r.size, &r.pan,
+		                         &r.fred, &r.pos, &r.reso, &r.variation, &r.delay };
 
 		for (auto* s : sliders)
 			if (getValueAreaFor (s->getBounds(), colR).contains (p))
@@ -3628,21 +3685,21 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	// Initial display value
 	juce::String currentDisplay;
 	if (isHpLp)
-		currentDisplay = juce::String (s.getValue(), 3);
+		currentDisplay = juce::String (s.getValue(), 2);
 	else if (isIn || isOut || isLimThresh)
 		currentDisplay = juce::String (s.getValue(), 1);
 	else if (isTilt)
-		currentDisplay = juce::String (s.getValue(), 2);
+		currentDisplay = juce::String (s.getValue(), 1);
 	else if (isStart || isEnd || isDelay)
 		currentDisplay = juce::String (s.getValue(), 3);
 	else if (isSize)
-		currentDisplay = juce::String (juce::jlimit (25.0, 400.0, s.getValue() * 100.0), 1);
+		currentDisplay = juce::String (juce::jlimit (25.0, 400.0, s.getValue() * 100.0), 2);
 	else if (isPan)
-		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 0);
+		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 2);
 	else if (isReso)
-		currentDisplay = juce::String (juce::jlimit (0.0, 200.0, s.getValue() * 100.0), 0);
+		currentDisplay = juce::String (juce::jlimit (0.0, 200.0, s.getValue() * 100.0), 2);
 	else if (isFred || isPos || isVariation || isMix)
-		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 1);
+		currentDisplay = juce::String (juce::jlimit (0.0, 100.0, s.getValue() * 100.0), 2);
 	else
 		currentDisplay = s.getTextFromValue (s.getValue());
 
@@ -3673,19 +3730,19 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 
 		// Worst-case widths for layout stability
 		juce::String worstCaseText;
-		if (isHpLp)              worstCaseText = "20000.000";
+		if (isHpLp)              worstCaseText = "20000.00";
 		else if (isIn)           worstCaseText = "-144.0";
 		else if (isOut)          worstCaseText = "-144.0";
 		else if (isLimThresh)    worstCaseText = "-36.0";
-		else if (isTilt)         worstCaseText = "-6.00";
+		else if (isTilt)         worstCaseText = "-6.0";
 		else if (isStart||isEnd) worstCaseText = "10000.000";
-		else if (isSize)         worstCaseText = "400.0";
+		else if (isSize)         worstCaseText = "400.00";
 		else if (isDelay)        worstCaseText = "1000.000";
-		else if (isPan)          worstCaseText = "100";
-		else if (isFred||isPos)  worstCaseText = "100.0";
-		else if (isVariation)    worstCaseText = "100.0";
-		else if (isReso)         worstCaseText = "200";
-		else if (isMix)          worstCaseText = "100.0";
+		else if (isPan)          worstCaseText = "100.00";
+		else if (isFred||isPos)  worstCaseText = "100.00";
+		else if (isVariation)    worstCaseText = "100.00";
+		else if (isReso)         worstCaseText = "200.00";
+		else if (isMix)          worstCaseText = "100.00";
 		else                     worstCaseText = "999.99";
 
 		const int maxInputTextW = juce::jmax (1, stringWidth (f, worstCaseText));
@@ -3757,7 +3814,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		if (isHpLp)
 		{
 			minVal = 20.0;   maxVal = 20000.0;
-			maxDecs = 0;     maxLen = 5;     // "20000"
+			maxDecs = 2;     maxLen = 8;     // "20000.00"
 		}
 		else if (isIn)
 		{
@@ -3780,7 +3837,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		else if (isTilt)
 		{
 			minVal = -6.0;   maxVal = 6.0;
-			maxDecs = 2;     maxLen = 5;     // "-6.00"
+			maxDecs = 1;     maxLen = 4;     // "-6.0"
 		}
 		else if (isStart || isEnd)
 		{
@@ -3790,7 +3847,7 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		else if (isSize)
 		{
 			minVal = 25.0;   maxVal = 400.0;
-			maxDecs = 1;     maxLen = 5;     // "400.0"
+			maxDecs = 2;     maxLen = 6;     // "400.00"
 		}
 		else if (isDelay)
 		{
@@ -3800,17 +3857,17 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 		else if (isPan)
 		{
 			minVal = 0.0;    maxVal = 100.0;
-			maxDecs = 0;     maxLen = 3;     // "100"
+			maxDecs = 2;     maxLen = 6;     // "100.00"
 		}
 		else if (isFred || isPos || isVariation || isMix)
 		{
 			minVal = 0.0;    maxVal = 100.0;
-			maxDecs = 1;     maxLen = 5;     // "100.0"
+			maxDecs = 2;     maxLen = 6;     // "100.00"
 		}
 		else if (isReso)
 		{
 			minVal = 0.0;    maxVal = 200.0;
-			maxDecs = 0;     maxLen = 3;     // "200"
+			maxDecs = 2;     maxLen = 6;     // "200.00"
 		}
 
 		te->setInputFilter (new NumericInputFilter (minVal, maxVal, maxLen, maxDecs), true);
@@ -4018,7 +4075,7 @@ void CABTRAudioProcessorEditor::openMixSendPrompt()
 	{
 		const float dB = linearToDb (g);
 		if (dB <= -100.0f) return "-INF";
-		if (std::abs (dB) < 0.05f) return "0";
+		if (std::abs (dB) < 0.05f) return "0.0";
 		return juce::String (dB, 1);
 	};
 
@@ -4335,12 +4392,12 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	};
 
 	// HP section
-	aw->addTextEditor ("hpFreq", juce::String (juce::roundToInt (hpFreq)), juce::String());
+	aw->addTextEditor ("hpFreq", juce::String (hpFreq, 2), juce::String());
 	auto* hpBar = new PromptBar (scheme, freqToNorm (hpFreq), freqToNorm (CABTRAudioProcessor::kFilterHpFreqDefault));
 	aw->addAndMakeVisible (hpBar);
 
 	// LP section
-	aw->addTextEditor ("lpFreq", juce::String (juce::roundToInt (lpFreq)), juce::String());
+	aw->addTextEditor ("lpFreq", juce::String (lpFreq, 2), juce::String());
 	auto* lpBar = new PromptBar (scheme, freqToNorm (lpFreq), freqToNorm (CABTRAudioProcessor::kFilterLpFreqDefault));
 	aw->addAndMakeVisible (lpBar);
 
@@ -4411,8 +4468,8 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 
 		auto* hpTe = aw->getTextEditor ("hpFreq");
 		auto* lpTe = aw->getTextEditor ("lpFreq");
-		float hpF = hpTe ? juce::jlimit (20.0f, 20000.0f, (float) hpTe->getText().getIntValue()) : 20.0f;
-		float lpF = lpTe ? juce::jlimit (20.0f, 20000.0f, (float) lpTe->getText().getIntValue()) : 20000.0f;
+		float hpF = hpTe ? juce::jlimit (20.0f, 20000.0f, hpTe->getText().getFloatValue()) : 20.0f;
+		float lpF = lpTe ? juce::jlimit (20.0f, 20000.0f, lpTe->getText().getFloatValue()) : 20000.0f;
 		if (hpF > lpF) { const float mid = (hpF + lpF) * 0.5f; hpF = mid; lpF = mid; }
 		if (hpTe) setP (hpFreqIdStr, hpF);
 		if (lpTe) setP (lpFreqIdStr, lpF);
@@ -4485,7 +4542,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 
 		if (auto* te = aw->getTextEditor (editorId))
 		{
-			te->setText (juce::String (juce::roundToInt (normToFreq (v01))), juce::sendNotification);
+			te->setText (juce::String (normToFreq (v01), 2), juce::sendNotification);
 			te->selectAll();
 		}
 		*syncing = false;
@@ -4499,12 +4556,12 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	{
 		if (*syncing || te == nullptr || bar == nullptr) return;
 		*syncing = true;
-		float freq = juce::jlimit (20.0f, 20000.0f, (float) te->getText().getIntValue());
+		float freq = juce::jlimit (20.0f, 20000.0f, te->getText().getFloatValue());
 		auto* otherTe = aw->getTextEditor (isHp ? "lpFreq" : "hpFreq");
-		const float otherFreq = otherTe ? juce::jlimit (20.0f, 20000.0f, (float) otherTe->getText().getIntValue()) : (isHp ? 20000.0f : 20.0f);
+		const float otherFreq = otherTe ? juce::jlimit (20.0f, 20000.0f, otherTe->getText().getFloatValue()) : (isHp ? 20000.0f : 20.0f);
 		if (isHp) freq = juce::jmin (freq, otherFreq);
 		else      freq = juce::jmax (freq, otherFreq);
-		te->setText (juce::String (juce::roundToInt (freq)), juce::dontSendNotification);
+		te->setText (juce::String (freq, 2), juce::dontSendNotification);
 		bar->value01 = freqToNorm (freq);
 		bar->repaint();
 		*syncing = false;
@@ -4560,8 +4617,17 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	lpHzLabel->setFont (promptFont);
 	aw->addAndMakeVisible (lpHzLabel);
 
+	auto applyFreqInputFilters = [aw]()
+	{
+		if (auto* hpTe = aw->getTextEditor ("hpFreq"))
+			hpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 8, 2), true);
+		if (auto* lpTe = aw->getTextEditor ("lpFreq"))
+			lpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 8, 2), true);
+	};
+
 	preparePromptTextEditor (*aw, "hpFreq", scheme.bg, scheme.text, scheme.fg, promptFont, false);
 	preparePromptTextEditor (*aw, "lpFreq", scheme.bg, scheme.text, scheme.fg, promptFont, false);
+	applyFreqInputFilters();
 
 	// Toggle forwarder: clicking HP/LP label toggles checkboxes
 	struct ToggleForwarder : public juce::MouseListener
@@ -4662,6 +4728,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 
 	preparePromptTextEditor (*aw, "hpFreq", scheme.bg, scheme.text, scheme.fg, promptFont, false);
 	preparePromptTextEditor (*aw, "lpFreq", scheme.bg, scheme.text, scheme.fg, promptFont, false);
+	applyFreqInputFilters();
 	layoutRows();
 
 	styleAlertButtons (*aw, lnf);
@@ -4754,7 +4821,7 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 	auto* aw = new juce::AlertWindow ("", "", juce::AlertWindow::NoIcon);
 	aw->setLookAndFeel (&lnf);
 
-	aw->addTextEditor ("amt", juce::String (juce::roundToInt (currentAmt)), juce::String());
+	aw->addTextEditor ("amt", juce::String (currentAmt, 2), juce::String());
 	aw->addTextEditor ("spd", juce::String (currentSpd, 2), juce::String());
 
 	// Inline bar component
@@ -4841,7 +4908,7 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 			}
 			else
 			{
-				te->setInputFilter (new PctInputFilter(), true);
+				te->setInputFilter (new NumericInputFilter (0.0, 100.0, 6, 2), true);
 			}
 
 			auto r = te->getBounds();
@@ -4908,7 +4975,7 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 		*syncing = true;
 		if (auto* te = aw->getTextEditor ("amt"))
 		{
-			te->setText (juce::String (juce::roundToInt (v01 * 100.0f)), juce::sendNotification);
+			te->setText (juce::String (v01 * 100.0f, 2), juce::sendNotification);
 			te->selectAll();
 		}
 		if (amtApvts != nullptr)

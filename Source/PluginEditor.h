@@ -52,6 +52,7 @@ private:
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
 	void layoutIRSection (juce::Rectangle<int> area, int loaderIndex);
 	void updateLoaderEnabledState (int loaderIndex);
+	bool loaderHasLoadedIR (int loaderIndex) const;
 	juce::String getMixText() const;
 	juce::String getMixTextShort() const;
 
