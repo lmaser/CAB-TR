@@ -1399,8 +1399,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 						juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
 			}
 
-			// Parallel compensation: 1/sqrt(N)
-			buffer.applyGain (1.0f / std::sqrt (static_cast<float> (numActive)));
 		}
 		else if (activeA)
 			processOne (stateA, buffer, 0, modeInA, modeOutA, mixA);
@@ -1422,7 +1420,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 			// Parallel path C
 			processOne (stateC, tempBufferC, 2, modeInC, modeOutC, mixC);
-			// Sum both paths and compensate - M/S bus-aware
+			// Sum both paths - M/S bus-aware
 			// Series path bus = last active stage in the A->B chain, parallel path bus = sumBusC
 			const int seriesBus = activeB ? sumBusB : sumBusA;
 			const int parallelBus = sumBusC;
@@ -1446,7 +1444,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferC.getReadPointer (ch), numSamples);
 			}
-			buffer.applyGain (kSqrt2Over2); // -3dB for 2 parallel paths
 		}
 		else
 		{
@@ -1469,7 +1466,7 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			// Series path: B->C stays in buffer
 			if (activeB) processOne (stateB, buffer, 1, modeInB, modeOutB, mixB);
 			if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
-			// Sum both paths and compensate - M/S bus-aware
+			// Sum both paths - M/S bus-aware
 			// Parallel path bus = sumBusA, series path bus = last active stage in the B->C chain
 			const int parallelBus = sumBusA;
 			const int seriesBus = activeC ? sumBusC : sumBusB;
@@ -1493,7 +1490,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 					juce::FloatVectorOperations::add (buffer.getWritePointer (ch), tempBufferA.getReadPointer (ch), numSamples);
 			}
-			buffer.applyGain (kSqrt2Over2); // -3dB for 2 parallel paths
 		}
 		else
 		{
@@ -1547,7 +1543,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				}
 			}
 
-			buffer.applyGain (1.0f / std::sqrt (static_cast<float> (numParallel)));
 		}
 		else if (activeA)
 		{
@@ -1608,7 +1603,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				}
 			}
 
-			buffer.applyGain (1.0f / std::sqrt (static_cast<float> (numParallel)));
 		}
 		else if (activeB)
 		{
@@ -2789,8 +2783,6 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 				for (int ch = 0; ch < 2; ++ch)
 					juce::FloatVectorOperations::add (result.getWritePointer (ch), procC.getReadPointer (ch), workingLen);
 		}
-		if (numActive >= 2)
-			result.applyGain (1.0f / std::sqrt (static_cast<float> (numActive)));
 	}
 	else if (route == 2) // A->B|C
 	{
@@ -2843,7 +2835,6 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 					juce::FloatVectorOperations::add (result.getWritePointer (ch), bufC.getReadPointer (ch), workingLen);
 				}
 			}
-			result.applyGain (kSqrt2Over2);
 		}
 		else if (hasC)
 		{
@@ -2903,7 +2894,6 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 					juce::FloatVectorOperations::add (result.getWritePointer (ch), seriesPath.getReadPointer (ch), workingLen);
 				}
 			}
-			result.applyGain (kSqrt2Over2);
 		}
 		else if (hasA)
 		{
@@ -2951,7 +2941,6 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 				}
 			}
 
-			result.applyGain (kSqrt2Over2);
 			hasContent = true;
 		}
 		else if (hasA)
@@ -3017,7 +3006,6 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 				}
 			}
 
-			result.applyGain (kSqrt2Over2);
 		}
 		else if (hasB)
 		{
