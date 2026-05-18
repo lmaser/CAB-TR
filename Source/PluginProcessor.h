@@ -586,9 +586,11 @@ public:
 
 		float variationAmtSmoothed = 0.0f;
 		bool variationParamSmoothReady = false;
+		VariationLaneState variationAir;
 		VariationLaneState variationSize;
 		VariationLaneState variationAngle;
 		VariationLaneState variationDistance;
+		VariationLaneState variationAirFast;
 		VariationLaneState variationSizeFast;
 		VariationLaneState variationAngleFast;
 		VariationLaneState variationDistanceFast;

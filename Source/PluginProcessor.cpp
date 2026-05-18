@@ -4445,9 +4445,11 @@ void CABTRAudioProcessor::resetVariationStateForLoader (IRLoaderState& state, in
 	const juce::int64 instanceSeedBase = variationInstanceSeed_
 	                                    ^ (0x6C8E9CF570932BD5LL
 	                                       + static_cast<juce::int64> (loaderSeedIndex) * 0x1F123BB5A6D1LL);
+	resetVariationLane (state.variationAir, seedBase + 5);
 	resetVariationLane (state.variationSize, seedBase + 11);
 	resetVariationLane (state.variationAngle, seedBase + 23);
 	resetVariationLane (state.variationDistance, seedBase + 37);
+	resetVariationLane (state.variationAirFast, instanceSeedBase + 41);
 	resetVariationLane (state.variationSizeFast, instanceSeedBase + 53);
 	resetVariationLane (state.variationAngleFast, instanceSeedBase + 67);
 	resetVariationLane (state.variationDistanceFast, instanceSeedBase + 79);
@@ -4509,10 +4511,15 @@ void CABTRAudioProcessor::advanceVariationState (IRLoaderState& state, float var
 		const float sizePeriod = sr / (0.19f * rateScale);
 		const float anglePeriod = sr / (0.37f * rateScale);
 		const float distancePeriod = sr / (0.29f * rateScale);
+		const float airPeriod = sr / (0.31f * rateScale);
 		const float sizeFastPeriod = sr / (2.0f + fastNorm * 8.0f);      // 500 ms -> 100 ms
 		const float angleFastPeriod = sr / (2.4f + fastNorm * 7.6f);     // ~417 ms -> 100 ms
 		const float distanceFastPeriod = sr / (2.2f + fastNorm * 7.8f);  // ~455 ms -> 100 ms
+		const float airFastPeriod = sr / (2.1f + fastNorm * 7.9f);       // ~476 ms -> 100 ms
 
+		advanceChaosEngine (state.variationAir.prev, state.variationAir.curr, state.variationAir.next,
+		                    state.variationAir.phase, state.variationAir.driftPhase, state.variationAir.driftFreqHz,
+		                    state.variationAir.out, state.variationAir.rng, airPeriod, depth, sr);
 		advanceChaosEngine (state.variationSize.prev, state.variationSize.curr, state.variationSize.next,
 		                    state.variationSize.phase, state.variationSize.driftPhase, state.variationSize.driftFreqHz,
 		                    state.variationSize.out, state.variationSize.rng, sizePeriod, depth, sr);
@@ -4525,6 +4532,9 @@ void CABTRAudioProcessor::advanceVariationState (IRLoaderState& state, float var
 
 		if (fastNorm > 0.0f)
 		{
+			advanceChaosEngine (state.variationAirFast.prev, state.variationAirFast.curr, state.variationAirFast.next,
+			                    state.variationAirFast.phase, state.variationAirFast.driftPhase, state.variationAirFast.driftFreqHz,
+			                    state.variationAirFast.out, state.variationAirFast.rng, airFastPeriod, depth, sr);
 			advanceChaosEngine (state.variationSizeFast.prev, state.variationSizeFast.curr, state.variationSizeFast.next,
 			                    state.variationSizeFast.phase, state.variationSizeFast.driftPhase, state.variationSizeFast.driftFreqHz,
 			                    state.variationSizeFast.out, state.variationSizeFast.rng, sizeFastPeriod, depth, sr);
@@ -4552,10 +4562,18 @@ void CABTRAudioProcessor::advanceVariationState (IRLoaderState& state, float var
 	{
 		return lane (lane (slow) * (1.0f - fastMix) + lane (fast) * fastMix);
 	};
+	const auto correlate = [lane] (float air, float local) noexcept
+	{
+		return lane (lane (air) * 0.70f + lane (local) * 0.30f);
+	};
+	constexpr float kVariationDepthScale = 4.0f;
 
-	sizeOffset     = blend (state.variationSize.out,     state.variationSizeFast.out)     * 0.020f * finalDepth;
-	angleOffset    = blend (state.variationAngle.out,    state.variationAngleFast.out)    * 0.040f * finalDepth;
-	distanceOffset = blend (state.variationDistance.out, state.variationDistanceFast.out) * 0.020f * finalDepth;
+	sizeOffset     = blend (correlate (state.variationAir.out, state.variationSize.out),
+	                        correlate (state.variationAirFast.out, state.variationSizeFast.out)) * (0.020f * kVariationDepthScale) * finalDepth; // +/-8%
+	angleOffset    = blend (correlate (state.variationAir.out, state.variationAngle.out),
+	                        correlate (state.variationAirFast.out, state.variationAngleFast.out)) * (0.040f * kVariationDepthScale) * finalDepth; // +/-16%
+	distanceOffset = blend (correlate (state.variationAir.out, state.variationDistance.out),
+	                        correlate (state.variationAirFast.out, state.variationDistanceFast.out)) * (0.020f * kVariationDepthScale) * finalDepth; // +/-8%
 }
 
 void CABTRAudioProcessor::applyVariationSizeProxy (IRLoaderState& state,
