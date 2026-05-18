@@ -194,7 +194,7 @@ Prompt controls:
 - **ATK (0.00 to 100 ms)**: Attack time.
 - **REL (5 to 2000 ms)**: Release time.
 - **SIDECHAIN GAIN (-INF to +24.0 dB)**: Internal detector trim; it changes only what the expander listens to, not the audio signal itself.
-- **SIDECHAIN HP/LP (20 Hz to 20 kHz)**: Internal detector band-pass range for frequency-selective expansion.
+- **SIDECHAIN HP / LP (20 Hz to 20 kHz)**: Optional detector filters for frequency-selective expansion. Each band can be enabled independently and set to `6 dB`, `12 dB`, or `24 dB` per octave.
 
 This makes `EXP ORDER` in CAB-TR directly analogous to `SAT-TR`: it decides whether the dynamics stage conditions what feeds the core black box (the IR) or shapes the result after it.
 
