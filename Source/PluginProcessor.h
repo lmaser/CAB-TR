@@ -46,6 +46,9 @@ public:
 	static constexpr const char* kParamExpKneeA     = "exp_knee_a";
 	static constexpr const char* kParamExpAtkA      = "exp_atk_a";
 	static constexpr const char* kParamExpRelA      = "exp_rel_a";
+	static constexpr const char* kParamExpScHpA     = "exp_sc_hp_a";
+	static constexpr const char* kParamExpScLpA     = "exp_sc_lp_a";
+	static constexpr const char* kParamExpScGainA   = "exp_sc_gain_a";
 	static constexpr const char* kParamChaosA       = "chaos_a";
 	static constexpr const char* kParamChaosFilterA    = "chaos_filter_a";
 	static constexpr const char* kParamChaosAmtA       = "chaos_amt_a";
@@ -91,6 +94,9 @@ public:
 	static constexpr const char* kParamExpKneeB     = "exp_knee_b";
 	static constexpr const char* kParamExpAtkB      = "exp_atk_b";
 	static constexpr const char* kParamExpRelB      = "exp_rel_b";
+	static constexpr const char* kParamExpScHpB     = "exp_sc_hp_b";
+	static constexpr const char* kParamExpScLpB     = "exp_sc_lp_b";
+	static constexpr const char* kParamExpScGainB   = "exp_sc_gain_b";
 	static constexpr const char* kParamChaosB       = "chaos_b";
 	static constexpr const char* kParamChaosFilterB    = "chaos_filter_b";
 	static constexpr const char* kParamChaosAmtB       = "chaos_amt_b";
@@ -136,6 +142,9 @@ public:
 	static constexpr const char* kParamExpKneeC     = "exp_knee_c";
 	static constexpr const char* kParamExpAtkC      = "exp_atk_c";
 	static constexpr const char* kParamExpRelC      = "exp_rel_c";
+	static constexpr const char* kParamExpScHpC     = "exp_sc_hp_c";
+	static constexpr const char* kParamExpScLpC     = "exp_sc_lp_c";
+	static constexpr const char* kParamExpScGainC   = "exp_sc_gain_c";
 	static constexpr const char* kParamChaosC       = "chaos_c";
 	static constexpr const char* kParamChaosFilterC    = "chaos_filter_c";
 	static constexpr const char* kParamChaosAmtC       = "chaos_amt_c";
@@ -296,6 +305,13 @@ public:
 	static constexpr float kExpRelMin                = 5.0f;   // ms
 	static constexpr float kExpRelMax                = 2000.0f;// ms
 	static constexpr float kExpRelDefault            = 50.0f;  // ms
+	static constexpr float kExpScFreqMin             = kFilterFreqMin;
+	static constexpr float kExpScFreqMax             = kFilterFreqMax;
+	static constexpr float kExpScHpDefault           = kFilterFreqMin;
+	static constexpr float kExpScLpDefault           = kFilterFreqMax;
+	static constexpr float kExpScGainMin             = kGainFloorDb;
+	static constexpr float kExpScGainMax             = kGainMaxDb;
+	static constexpr float kExpScGainDefault         = kGainDefaultDb;
 
 	static constexpr float kFredMin                 = 0.0f;
 	static constexpr float kFredMax                 = 1.0f;
@@ -605,6 +621,22 @@ public:
 		float tiltState[2] = { 0.0f, 0.0f };
 		float lastTiltDb = 0.0f;
 		float expLinkedEnv = 0.0f;
+
+		struct ExpSidechainBiquadState
+		{
+			float z1[2] = {};
+			float z2[2] = {};
+
+			void reset() noexcept
+			{
+				z1[0] = z1[1] = 0.0f;
+				z2[0] = z2[1] = 0.0f;
+			}
+		};
+
+		ExpSidechainBiquadState expScHpState;
+		ExpSidechainBiquadState expScLpState;
+		float expScLastGain = 1.0f;
 		
 		// Delete copy operations (contains atomic)
 		IRLoaderState() = default;
@@ -661,6 +693,9 @@ private:
 	std::atomic<float>* pExpKneeA = nullptr;
 	std::atomic<float>* pExpAtkA = nullptr;
 	std::atomic<float>* pExpRelA = nullptr;
+	std::atomic<float>* pExpScHpA = nullptr;
+	std::atomic<float>* pExpScLpA = nullptr;
+	std::atomic<float>* pExpScGainA = nullptr;
 	std::atomic<float>* pDelayA = nullptr;
 	std::atomic<float>* pPanA = nullptr;
 	std::atomic<float>* pFredA = nullptr;
@@ -682,6 +717,9 @@ private:
 	std::atomic<float>* pExpKneeB = nullptr;
 	std::atomic<float>* pExpAtkB = nullptr;
 	std::atomic<float>* pExpRelB = nullptr;
+	std::atomic<float>* pExpScHpB = nullptr;
+	std::atomic<float>* pExpScLpB = nullptr;
+	std::atomic<float>* pExpScGainB = nullptr;
 	std::atomic<float>* pDelayB = nullptr;
 	std::atomic<float>* pPanB = nullptr;
 	std::atomic<float>* pFredB = nullptr;
@@ -725,6 +763,9 @@ private:
 	std::atomic<float>* pExpKneeC = nullptr;
 	std::atomic<float>* pExpAtkC = nullptr;
 	std::atomic<float>* pExpRelC = nullptr;
+	std::atomic<float>* pExpScHpC = nullptr;
+	std::atomic<float>* pExpScLpC = nullptr;
+	std::atomic<float>* pExpScGainC = nullptr;
 	std::atomic<float>* pDelayC = nullptr;
 	std::atomic<float>* pPanC = nullptr;
 	std::atomic<float>* pFredC = nullptr;
@@ -912,9 +953,10 @@ private:
 	void processLoader (IRLoaderState& state, 
 	                    juce::AudioBuffer<float>& buffer,
 	                    int loaderIndex);
-	void applyExpanderBuffer (juce::AudioBuffer<float>& buffer, float sampleRate, float& linkedEnv,
+	void applyExpanderBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer, float sampleRate,
 	                         bool expanderEnabled, float expRatio, float expThreshDb,
-	                         float expKneeDb, float expAtkMs, float expRelMs) noexcept;
+	                         float expKneeDb, float expAtkMs, float expRelMs,
+	                         float expScHpHz, float expScLpHz, float expScGainDb) noexcept;
 	void applyChaosDriveBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
 	                            bool chaosEnabled, float chaosAmt, float chaosSpd,
 	                            float chaosParamSmoothCoeff) noexcept;

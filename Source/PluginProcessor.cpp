@@ -154,6 +154,64 @@ namespace
 		return static_cast<int> (std::lround (loadRelaxed (p, static_cast<float> (def))));
 	}
 
+	struct BiquadCoefficients
+	{
+		float b0 = 1.0f;
+		float b1 = 0.0f;
+		float b2 = 0.0f;
+		float a1 = 0.0f;
+		float a2 = 0.0f;
+	};
+
+	inline BiquadCoefficients makeDetectorHighPass (float frequency, float sampleRate) noexcept
+	{
+		const float freq = juce::jlimit (20.0f, sampleRate * 0.45f, frequency);
+		const float omega = juce::MathConstants<float>::twoPi * freq / sampleRate;
+		const float sinOmega = std::sin (omega);
+		const float cosOmega = std::cos (omega);
+		const float alpha = sinOmega / (2.0f * CABTRAudioProcessor::kSqrt2Over2);
+		const float invA0 = 1.0f / (1.0f + alpha);
+
+		BiquadCoefficients c;
+		c.b0 = ((1.0f + cosOmega) * 0.5f) * invA0;
+		c.b1 = (-(1.0f + cosOmega)) * invA0;
+		c.b2 = c.b0;
+		c.a1 = (-2.0f * cosOmega) * invA0;
+		c.a2 = (1.0f - alpha) * invA0;
+		return c;
+	}
+
+	inline BiquadCoefficients makeDetectorLowPass (float frequency, float sampleRate) noexcept
+	{
+		const float freq = juce::jlimit (20.0f, sampleRate * 0.45f, frequency);
+		const float omega = juce::MathConstants<float>::twoPi * freq / sampleRate;
+		const float sinOmega = std::sin (omega);
+		const float cosOmega = std::cos (omega);
+		const float alpha = sinOmega / (2.0f * CABTRAudioProcessor::kSqrt2Over2);
+		const float invA0 = 1.0f / (1.0f + alpha);
+
+		BiquadCoefficients c;
+		c.b0 = ((1.0f - cosOmega) * 0.5f) * invA0;
+		c.b1 = (1.0f - cosOmega) * invA0;
+		c.b2 = c.b0;
+		c.a1 = (-2.0f * cosOmega) * invA0;
+		c.a2 = (1.0f - alpha) * invA0;
+		return c;
+	}
+
+	inline float processDetectorBiquad (float x,
+	                                    CABTRAudioProcessor::IRLoaderState::ExpSidechainBiquadState& state,
+	                                    const BiquadCoefficients& coeffs,
+	                                    int channel) noexcept
+	{
+		auto& z1 = state.z1[channel];
+		auto& z2 = state.z2[channel];
+		const float y = coeffs.b0 * x + z1;
+		z1 = coeffs.b1 * x - coeffs.a1 * y + z2;
+		z2 = coeffs.b2 * x - coeffs.a2 * y;
+		return y;
+	}
+
 	// Compute 1st-order symmetric tilt shelf coefficients (bilinear, pivot 1kHz).
 	// Shared by per-loader tilt EQ and global MATCH tilt EQ.
 	inline void computeTiltShelfCoeffs (double sampleRate, float slopeDb,
@@ -368,6 +426,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamExpRelA, "Exp Rel A",
 		juce::NormalisableRange<float> (kExpRelMin, kExpRelMax, 0.01f, 0.3f), kExpRelDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScHpA, "Exp SC HP A",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScHpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScLpA, "Exp SC LP A",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScLpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScGainA, "Exp SC Gain A", makeGainFaderRange(), kExpScGainDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamChaosA, "Chaos D A", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -486,6 +552,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamExpRelB, "Exp Rel B",
 		juce::NormalisableRange<float> (kExpRelMin, kExpRelMax, 0.01f, 0.3f), kExpRelDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScHpB, "Exp SC HP B",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScHpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScLpB, "Exp SC LP B",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScLpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScGainB, "Exp SC Gain B", makeGainFaderRange(), kExpScGainDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamChaosB, "Chaos D B", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -604,6 +678,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 	layout.add (std::make_unique<juce::AudioParameterFloat> (
 		kParamExpRelC, "Exp Rel C",
 		juce::NormalisableRange<float> (kExpRelMin, kExpRelMax, 0.01f, 0.3f), kExpRelDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScHpC, "Exp SC HP C",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScHpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScLpC, "Exp SC LP C",
+		juce::NormalisableRange<float> (kExpScFreqMin, kExpScFreqMax, 1.0f, 0.3f), kExpScLpDefault));
+	layout.add (std::make_unique<juce::AudioParameterFloat> (
+		kParamExpScGainC, "Exp SC Gain C", makeGainFaderRange(), kExpScGainDefault));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
 		kParamChaosC, "Chaos D C", false));
 	layout.add (std::make_unique<juce::AudioParameterBool> (
@@ -819,6 +901,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pExpKneeA = parameters.getRawParameterValue (kParamExpKneeA);
 	pExpAtkA = parameters.getRawParameterValue (kParamExpAtkA);
 	pExpRelA = parameters.getRawParameterValue (kParamExpRelA);
+	pExpScHpA = parameters.getRawParameterValue (kParamExpScHpA);
+	pExpScLpA = parameters.getRawParameterValue (kParamExpScLpA);
+	pExpScGainA = parameters.getRawParameterValue (kParamExpScGainA);
 	pDelayA  = parameters.getRawParameterValue (kParamDelayA);
 	pPanA    = parameters.getRawParameterValue (kParamPanA);
 	pFredA   = parameters.getRawParameterValue (kParamFredA);
@@ -840,6 +925,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pExpKneeB = parameters.getRawParameterValue (kParamExpKneeB);
 	pExpAtkB = parameters.getRawParameterValue (kParamExpAtkB);
 	pExpRelB = parameters.getRawParameterValue (kParamExpRelB);
+	pExpScHpB = parameters.getRawParameterValue (kParamExpScHpB);
+	pExpScLpB = parameters.getRawParameterValue (kParamExpScLpB);
+	pExpScGainB = parameters.getRawParameterValue (kParamExpScGainB);
 	pDelayB  = parameters.getRawParameterValue (kParamDelayB);
 	pPanB    = parameters.getRawParameterValue (kParamPanB);
 	pFredB   = parameters.getRawParameterValue (kParamFredB);
@@ -884,6 +972,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	pExpKneeC  = parameters.getRawParameterValue (kParamExpKneeC);
 	pExpAtkC   = parameters.getRawParameterValue (kParamExpAtkC);
 	pExpRelC   = parameters.getRawParameterValue (kParamExpRelC);
+	pExpScHpC = parameters.getRawParameterValue (kParamExpScHpC);
+	pExpScLpC = parameters.getRawParameterValue (kParamExpScLpC);
+	pExpScGainC = parameters.getRawParameterValue (kParamExpScGainC);
 	pDelayC    = parameters.getRawParameterValue (kParamDelayC);
 	pPanC      = parameters.getRawParameterValue (kParamPanC);
 	pFredC     = parameters.getRawParameterValue (kParamFredC);
@@ -1014,6 +1105,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	std::atomic<float>* chaosDriveSpdPtrs[] = { pChaosSpdA, pChaosSpdB, pChaosSpdC };
 	std::atomic<float>* chaosFilterAmtPtrs[] = { pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC };
 	std::atomic<float>* chaosFilterSpdPtrs[] = { pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC };
+	std::atomic<float>* expScGainPtrs[] = { pExpScGainA, pExpScGainB, pExpScGainC };
 	IRLoaderState* states[] = { &stateA, &stateB, &stateC };
 	for (int i = 0; i < 3; ++i)
 	{
@@ -1023,6 +1115,9 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		states[i]->chaosDriveSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosDriveSpdPtrs[i]->load());
 		states[i]->chaosFilterAmtSmoothed = chaosFilterAmtPtrs[i]->load();
 		states[i]->chaosFilterSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosFilterSpdPtrs[i]->load());
+		states[i]->expScHpState.reset();
+		states[i]->expScLpState.reset();
+		states[i]->expScLastGain = gainFaderDecibelsToGain (loadRelaxed (expScGainPtrs[i], kExpScGainDefault));
 	}
 }
 
@@ -4060,6 +4155,9 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	const float expKneeDb = loadRelaxed (pick (pExpKneeA, pExpKneeB, pExpKneeC));
 	const float expAtkMs = loadRelaxed (pick (pExpAtkA, pExpAtkB, pExpAtkC));
 	const float expRelMs = loadRelaxed (pick (pExpRelA, pExpRelB, pExpRelC));
+	const float expScHpHz = loadRelaxed (pick (pExpScHpA, pExpScHpB, pExpScHpC), kExpScHpDefault);
+	const float expScLpHz = loadRelaxed (pick (pExpScLpA, pExpScLpB, pExpScLpC), kExpScLpDefault);
+	const float expScGainDb = loadRelaxed (pick (pExpScGainA, pExpScGainB, pExpScGainC), kExpScGainDefault);
 	const float delayMs = loadRelaxed (pick (pDelayA, pDelayB, pDelayC));
 	const float pan = loadRelaxed (pick (pPanA, pPanB, pPanC));
 	const float fred = loadRelaxed (pick (pFredA, pFredB, pFredC));
@@ -4104,9 +4202,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 
 	// PRE-expander: after input conditioning, before the IR/convolution black box.
 	if (expanderEnabled && ! expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		applyExpanderBuffer (state, buffer, static_cast<float> (currentSampleRate),
 		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
+		                     expKneeDb, expAtkMs, expRelMs,
+		                     expScHpHz, expScLpHz, expScGainDb);
 
 	// 1.5. CHAOS D: input decorrelation before the IR/convolution black box.
 	applyChaosDriveBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
@@ -4127,9 +4226,10 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 
 	// POST-expander: immediately after the IR/convolution black box.
 	if (expanderEnabled && expPost)
-		applyExpanderBuffer (buffer, static_cast<float> (currentSampleRate), state.expLinkedEnv,
+		applyExpanderBuffer (state, buffer, static_cast<float> (currentSampleRate),
 		                     expanderEnabled, expRatio, expThreshDb,
-		                     expKneeDb, expAtkMs, expRelMs);
+		                     expKneeDb, expAtkMs, expRelMs,
+		                     expScHpHz, expScLpHz, expScGainDb);
 
 	// VAR size lane: tiny realtime cab-size proxy. It never touches the IR SIZE parameter,
 	// so it cannot trigger an impulse reload or convolver swap.
@@ -4607,9 +4707,10 @@ void CABTRAudioProcessor::applyVariationSizeProxy (IRLoaderState& state,
 	}
 }
 
-void CABTRAudioProcessor::applyExpanderBuffer (juce::AudioBuffer<float>& buffer, float sampleRate, float& linkedEnv,
+void CABTRAudioProcessor::applyExpanderBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer, float sampleRate,
                                                bool expanderEnabled, float expRatio, float expThreshDb,
-                                               float expKneeDb, float expAtkMs, float expRelMs) noexcept
+                                               float expKneeDb, float expAtkMs, float expRelMs,
+                                               float expScHpHz, float expScLpHz, float expScGainDb) noexcept
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
@@ -4625,6 +4726,24 @@ void CABTRAudioProcessor::applyExpanderBuffer (juce::AudioBuffer<float>& buffer,
 		return;
 	const float kneeDb = juce::jlimit (kExpKneeMin, kExpKneeMax, expKneeDb);
 	const float slope = ratio - 1.0f;  // >0 = downward expansion, <0 = upward compression below threshold
+	const float maxDetectorFreq = juce::jmin (kExpScFreqMax, sr * 0.45f);
+	float detectorHpHz = juce::jlimit (kExpScFreqMin, maxDetectorFreq, expScHpHz);
+	const float detectorLpHz = juce::jlimit (kExpScFreqMin, maxDetectorFreq, expScLpHz);
+	if (detectorHpHz >= detectorLpHz)
+		detectorHpHz = juce::jmax (kExpScFreqMin, detectorLpHz * 0.95f);
+
+	const bool useDetectorHp = expScHpHz > kExpScHpDefault + 0.5f;
+	const bool useDetectorLp = expScLpHz < kExpScLpDefault - 0.5f;
+	const BiquadCoefficients detectorHp = useDetectorHp ? makeDetectorHighPass (detectorHpHz, sr) : BiquadCoefficients {};
+	const BiquadCoefficients detectorLp = useDetectorLp ? makeDetectorLowPass (detectorLpHz, sr) : BiquadCoefficients {};
+	if (! useDetectorHp)
+		state.expScHpState.reset();
+	if (! useDetectorLp)
+		state.expScLpState.reset();
+
+	const float detectorGainTarget = gainFaderDecibelsToGain (juce::jlimit (kExpScGainMin, kExpScGainMax, expScGainDb));
+	float detectorGain = state.expScLastGain;
+	const float detectorGainStep = numSamples > 0 ? (detectorGainTarget - detectorGain) / static_cast<float> (numSamples) : 0.0f;
 
 	const int chCount = juce::jmin (numChannels, 2);
 	float* channelData[2] = { nullptr, nullptr };
@@ -4635,17 +4754,25 @@ void CABTRAudioProcessor::applyExpanderBuffer (juce::AudioBuffer<float>& buffer,
 	{
 		float peak = 0.0f;
 		for (int ch = 0; ch < chCount; ++ch)
-			peak = juce::jmax (peak, std::abs (channelData[ch][i]));
+		{
+			float detectorSample = channelData[ch][i];
+			if (useDetectorHp)
+				detectorSample = processDetectorBiquad (detectorSample, state.expScHpState, detectorHp, ch);
+			if (useDetectorLp)
+				detectorSample = processDetectorBiquad (detectorSample, state.expScLpState, detectorLp, ch);
+			peak = juce::jmax (peak, std::abs (detectorSample * detectorGain));
+		}
+		detectorGain += detectorGainStep;
 
-		if (peak > linkedEnv)
-			linkedEnv = attCoeff * linkedEnv + (1.0f - attCoeff) * peak;
+		if (peak > state.expLinkedEnv)
+			state.expLinkedEnv = attCoeff * state.expLinkedEnv + (1.0f - attCoeff) * peak;
 		else
-			linkedEnv = relCoeff * linkedEnv + (1.0f - relCoeff) * peak;
+			state.expLinkedEnv = relCoeff * state.expLinkedEnv + (1.0f - relCoeff) * peak;
 
 		float gr = 1.0f;
-		if (linkedEnv > 1.0e-12f)
+		if (state.expLinkedEnv > 1.0e-12f)
 		{
-			const float envDb = 20.0f * std::log10 (linkedEnv);
+			const float envDb = 20.0f * std::log10 (state.expLinkedEnv);
 			float gainDeltaDb = 0.0f;
 
 			if (kneeDb <= 1.0e-6f)
@@ -4676,6 +4803,8 @@ void CABTRAudioProcessor::applyExpanderBuffer (juce::AudioBuffer<float>& buffer,
 		for (int ch = 0; ch < chCount; ++ch)
 			channelData[ch][i] *= gr;
 	}
+
+	state.expScLastGain = detectorGainTarget;
 }
 
 void CABTRAudioProcessor::applyMidSideOutputMode (juce::AudioBuffer<float>& buf, int modeVal, int nSamples)

@@ -64,6 +64,16 @@ namespace
 		return juce::String (clampedHz / 1000.0, 2) + " kHz";
 	}
 
+	juce::String formatFrequencyWithUnitForPrompt (float hz)
+	{
+		const float safeHz = juce::jlimit (20.0f, 20000.0f, hz);
+		if (safeHz >= 1000.0f)
+			return juce::String (safeHz / 1000.0f, 2) + " kHz";
+		if (safeHz >= 100.0f)
+			return juce::String (safeHz, 1) + " Hz";
+		return juce::String (safeHz, 2) + " Hz";
+	}
+
 	juce::String formatChaosTooltip (float amountPercent, float speedHz)
 	{
 		return "AMT " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 100.0f, amountPercent))) + "%"
@@ -105,6 +115,17 @@ namespace
 	juce::String formatExpRatioDisplay (float internalRatio, int decimals = 1)
 	{
 		return juce::String (expRatioInternalToDisplay (internalRatio), decimals);
+	}
+
+	juce::String formatExpTooltip (bool post, float ratio, float thresholdDb,
+	                               float scHpHz, float scLpHz, float scGainDb)
+	{
+		return juce::String (post ? "POST" : "PRE")
+		     + " | 1:" + formatExpRatioDisplay (ratio)
+		     + " | " + juce::String (thresholdDb, 1) + " dB"
+		     + " | SC " + formatFrequencyWithUnitForPrompt (scHpHz)
+		     + "-" + formatFrequencyWithUnitForPrompt (scLpHz)
+		     + " | " + formatGainFaderDb (scGainDb);
 	}
 
 	struct PopupSwatchButton final : public juce::TextButton
@@ -1582,14 +1603,26 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		const auto& threshParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpThreshA
 		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpThreshB
 		                                             : CABTRAudioProcessor::kParamExpThreshC;
+		const auto& scHpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScHpA
+		                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScHpB
+		                                           : CABTRAudioProcessor::kParamExpScHpC;
+		const auto& scLpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScLpA
+		                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScLpB
+		                                           : CABTRAudioProcessor::kParamExpScLpC;
+		const auto& scGainParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScGainA
+		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScGainB
+		                                             : CABTRAudioProcessor::kParamExpScGainC;
 		const bool  savedOrder = audioProcessor.getValueTreeState().getRawParameterValue (orderParamId)->load() >= 0.5f;
 		const float savedRatio = audioProcessor.getValueTreeState().getRawParameterValue (ratioParamId)->load();
 		const float savedThresh = audioProcessor.getValueTreeState().getRawParameterValue (threshParamId)->load();
+		const float savedScHp = audioProcessor.getValueTreeState().getRawParameterValue (scHpParamId)->load();
+		const float savedScLp = audioProcessor.getValueTreeState().getRawParameterValue (scLpParamId)->load();
+		const float savedScGain = audioProcessor.getValueTreeState().getRawParameterValue (scGainParamId)->load();
 		r.expDisp.setText ("", juce::dontSendNotification);
 		r.expDisp.setInterceptsMouseClicks (true, false);
 		r.expDisp.addMouseListener (this, false);
-		r.expDisp.setTooltip (juce::String (savedOrder ? "POST" : "PRE") + " | 1:" + formatExpRatioDisplay (savedRatio)
-		                      + " | " + juce::String (savedThresh, 1) + " dB");
+		r.expDisp.setTooltip (formatExpTooltip (savedOrder, savedRatio, savedThresh,
+		                                        savedScHp, savedScLp, savedScGain));
 		r.expDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.expDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.expDisp.setOpaque (false);
@@ -2381,6 +2414,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const bool expanded = (loaderIndex == 0) ? ioExpandedA_ : (loaderIndex == 1) ? ioExpandedB_ :                      ioExpandedC_;
 	const int visualSliderH = 24;
 	const int visualComboH = 38;
+	const int checkH = 30;
+	const int collapsedTotalGap = gap * 7 + gap * 3; // 7 slider gaps + extra gap before checks + gap between rows
+	const int collapsedSliderH = juce::jmax (20, (area.getHeight() - collapsedTotalGap - checkH * 2) / 8);
+	const int collapsedCheckboxBottom = juce::jlimit (area.getY() + checkH, area.getBottom(),
+	                                                  area.getY() + collapsedSliderH * 8 + collapsedTotalGap + checkH * 2);
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
 		return r.withSizeKeepingCentre (r.getWidth(), juce::jmin (h, r.getHeight()));
@@ -2391,16 +2429,15 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		// Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS
 		const int modeLabelGap = gap * 2;
 		const int comboLabelGap2 = 19;
-		const int checkH = 30;
 
 		auto contentArea = area;
-		auto checkArea = contentArea.removeFromBottom (checkH);
+		auto checkArea = juce::Rectangle<int> (area.getX(), collapsedCheckboxBottom - checkH, area.getWidth(), checkH);
+		contentArea.setBottom (checkArea.getY());
 		contentArea.removeFromBottom (gap * 2);
 
 		const int layoutOverhead = (gap * 6) + modeLabelGap + comboLabelGap2;
 		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 9);
 		const int expandedVisualSliderH = visualSliderH;
-		const int comboSlotH = juce::jlimit (38, 48, sliderH + 14);
 
 		auto sliderRow = contentArea.removeFromTop (sliderH);
 		in_.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), expandedVisualSliderH));
@@ -2433,17 +2470,19 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		contentArea.removeFromTop (gap);
 
 		// MODE IN / MODE OUT / F/T / SUM BUS combos (2x2 grid)
-		contentArea.removeFromTop (modeLabelGap);
 		const int modeComboW = (sliderW - gap) / 2;
-		auto modeRow = contentArea.removeFromTop (comboSlotH);
-		modeInCmb.setBounds  (fitControlHeight ({ modeRow.getX(), modeRow.getY(), modeComboW, comboSlotH }, visualComboH));
-		modeOutCmb.setBounds (fitControlHeight ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, comboSlotH }, visualComboH));
+		const int modeLabelOffset = 19; // Must match drawModeLabels() translation.
+		const int modeBlockH = modeLabelOffset + visualComboH + comboLabelGap2 + visualComboH;
+		const int modeGapSpace = checkArea.getY() - mix.getBounds().getBottom();
+		const int modeBlockY = mix.getBounds().getBottom() + juce::jmax (0, (modeGapSpace - modeBlockH) / 2);
+		auto modeRow = juce::Rectangle<int> (contentArea.getX(), modeBlockY + modeLabelOffset, contentArea.getWidth(), visualComboH);
+		modeInCmb.setBounds  ({ modeRow.getX(), modeRow.getY(), modeComboW, visualComboH });
+		modeOutCmb.setBounds ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, visualComboH });
 		modeInCmb.setVisible (true);
 		modeOutCmb.setVisible (true);
-		contentArea.removeFromTop (comboLabelGap2);
-		modeRow = contentArea.removeFromTop (comboSlotH);
-		filterPosCmb.setBounds (fitControlHeight ({ modeRow.getX(), modeRow.getY(), modeComboW, comboSlotH }, visualComboH));
-		sumBusCmb.setBounds    (fitControlHeight ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, comboSlotH }, visualComboH));
+		modeRow.translate (0, visualComboH + comboLabelGap2);
+		filterPosCmb.setBounds ({ modeRow.getX(), modeRow.getY(), modeComboW, visualComboH });
+		sumBusCmb.setBounds    ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, visualComboH });
 		filterPosCmb.setVisible (true);
 		sumBusCmb.setVisible (true);
 
@@ -2474,9 +2513,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		// Collapsed main view: 8 sliders + two checkbox rows:
 		//   INV / NRM
 		//   RVS / EXP
-		const int checkH = 30;
-		const int totalGap = gap * 7 + gap * 3; // 7 gaps between sliders + extra gap before checks + gap between rows
-		const int sliderH = juce::jmax (20, (area.getHeight() - totalGap - checkH * 2) / 8);
+		const int sliderH = collapsedSliderH;
 
 		auto sliderRow = area.removeFromTop (sliderH);
 		start.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
@@ -5241,6 +5278,15 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	const auto& relParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpRelA
 	                       : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpRelB
 	                                          : CABTRAudioProcessor::kParamExpRelC;
+	const auto& scHpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScHpA
+	                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScHpB
+	                                           : CABTRAudioProcessor::kParamExpScHpC;
+	const auto& scLpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScLpA
+	                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScLpB
+	                                           : CABTRAudioProcessor::kParamExpScLpC;
+	const auto& scGainParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScGainA
+	                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScGainB
+	                                             : CABTRAudioProcessor::kParamExpScGainC;
 
 	const bool currentOrder = audioProcessor.getValueTreeState().getRawParameterValue (orderParamId)->load() >= 0.5f;
 	const float currentRatio = audioProcessor.getValueTreeState().getRawParameterValue (ratioParamId)->load();
@@ -5248,6 +5294,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	const float currentKnee = audioProcessor.getValueTreeState().getRawParameterValue (kneeParamId)->load();
 	const float currentAtk = audioProcessor.getValueTreeState().getRawParameterValue (atkParamId)->load();
 	const float currentRel = audioProcessor.getValueTreeState().getRawParameterValue (relParamId)->load();
+	const float currentScHp = audioProcessor.getValueTreeState().getRawParameterValue (scHpParamId)->load();
+	const float currentScLp = audioProcessor.getValueTreeState().getRawParameterValue (scLpParamId)->load();
+	const float currentScGain = audioProcessor.getValueTreeState().getRawParameterValue (scGainParamId)->load();
 
 	auto* aw = new juce::AlertWindow ("", "", juce::AlertWindow::NoIcon);
 	aw->setLookAndFeel (&lnf);
@@ -5298,6 +5347,96 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		}
 	};
 
+	struct PromptRangeBar : public juce::Component
+	{
+		TRScheme colours;
+		float lowValue = 0.0f;
+		float highValue = 1.0f;
+		float defaultLow = 0.0f;
+		float defaultHigh = 1.0f;
+		std::function<void (float)> onLowValueChanged;
+		std::function<void (float)> onHighValueChanged;
+
+		PromptRangeBar (const TRScheme& s, float low01, float high01, float defLow01, float defHigh01)
+			: colours (s),
+			  lowValue (juce::jlimit (0.0f, 1.0f, juce::jmin (low01, high01))),
+			  highValue (juce::jlimit (0.0f, 1.0f, juce::jmax (low01, high01))),
+			  defaultLow (defLow01),
+			  defaultHigh (defHigh01) {}
+
+		void paint (juce::Graphics& g) override
+		{
+			const auto r = getLocalBounds().toFloat();
+			g.setColour (colours.outline);
+			g.drawRect (r, 4.0f);
+			const float pad = 7.0f;
+			auto inner = r.reduced (pad);
+			g.setColour (colours.bg);
+			g.fillRect (inner);
+
+			const float lowX = inner.getX() + inner.getWidth() * lowValue;
+			const float highX = inner.getX() + inner.getWidth() * highValue;
+			g.setColour (colours.fg);
+			g.fillRect (juce::Rectangle<float> (lowX, inner.getY(), juce::jmax (1.0f, highX - lowX), inner.getHeight()));
+			g.setColour (colours.outline);
+			g.fillRect (juce::Rectangle<float> (lowX - 2.0f, inner.getY(), 4.0f, inner.getHeight()));
+			g.fillRect (juce::Rectangle<float> (highX - 2.0f, inner.getY(), 4.0f, inner.getHeight()));
+		}
+
+		void mouseDown (const juce::MouseEvent& e) override
+		{
+			const float v = mouseToValue (e);
+			dragHigh = std::abs (v - highValue) < std::abs (v - lowValue);
+			setDraggedValue (v);
+		}
+
+		void mouseDrag (const juce::MouseEvent& e) override { setDraggedValue (mouseToValue (e)); }
+		void mouseDoubleClick (const juce::MouseEvent&) override { setValues (defaultLow, defaultHigh); }
+
+		void setValues (float low01, float high01)
+		{
+			const float low = juce::jlimit (0.0f, 1.0f, juce::jmin (low01, high01));
+			const float high = juce::jlimit (0.0f, 1.0f, juce::jmax (low01, high01));
+			lowValue = low;
+			highValue = high;
+			repaint();
+			if (onLowValueChanged) onLowValueChanged (lowValue);
+			if (onHighValueChanged) onHighValueChanged (highValue);
+		}
+
+		void setLowValue (float low01)
+		{
+			lowValue = juce::jlimit (0.0f, highValue, low01);
+			repaint();
+			if (onLowValueChanged) onLowValueChanged (lowValue);
+		}
+
+		void setHighValue (float high01)
+		{
+			highValue = juce::jlimit (lowValue, 1.0f, high01);
+			repaint();
+			if (onHighValueChanged) onHighValueChanged (highValue);
+		}
+
+	private:
+		bool dragHigh = false;
+
+		float mouseToValue (const juce::MouseEvent& e) const
+		{
+			const float pad = 7.0f;
+			const float innerW = (float) getWidth() - pad * 2.0f;
+			return innerW > 0.0f ? juce::jlimit (0.0f, 1.0f, ((float) e.x - pad) / innerW) : 0.0f;
+		}
+
+		void setDraggedValue (float v01)
+		{
+			if (dragHigh)
+				setHighValue (v01);
+			else
+				setLowValue (v01);
+		}
+	};
+
 	struct ResetLabel : public juce::Label
 	{
 		PromptBar* pairedBar = nullptr;
@@ -5332,8 +5471,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	aw->addTextEditor ("knee", juce::String (currentKnee, 1), juce::String());
 	aw->addTextEditor ("atk", juce::String (currentAtk, 2), juce::String());
 	aw->addTextEditor ("rel", juce::String (currentRel, 2), juce::String());
+	aw->addTextEditor ("scGain", juce::String (currentScGain, 1), juce::String());
 
-	for (auto* edId : { "thresh", "ratio", "knee", "atk", "rel" })
+	for (auto* edId : { "thresh", "ratio", "knee", "atk", "rel", "scGain" })
 		if (auto* te = aw->getTextEditor (edId))
 			bodyContent->addChildComponent (te);
 
@@ -5342,6 +5482,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	ResetLabel* kneeSuffix = nullptr; juce::Label* kneeUnit = nullptr;
 	ResetLabel* atkSuffix = nullptr; juce::Label* atkUnit = nullptr;
 	ResetLabel* relSuffix = nullptr; juce::Label* relUnit = nullptr;
+	ResetLabel* scGainSuffix = nullptr; juce::Label* scGainUnit = nullptr;
 
 	auto setupField = [&] (const char* editorId, const juce::String& suffixText,
 	                       const juce::String& unitText,
@@ -5356,9 +5497,10 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			                    : id == "ratio"  ? 4
 			                    : id == "knee"   ? 4
 			                    : id == "atk"    ? 6
+			                    : id == "scGain" ? 6
 			                                       : 7);
-			const juce::String allowed = (id == "thresh") ? "0123456789.-"
-			                                              : "0123456789.";
+			const juce::String allowed = (id == "thresh" || id == "scGain") ? "0123456789.-"
+			                                                                : "0123456789.";
 			te->setInputRestrictions (maxChars, allowed);
 			auto r = te->getBounds();
 			r.setHeight ((int) (f.getHeight() * kPromptEditorHeightScale) + kPromptEditorHeightPadPx);
@@ -5387,6 +5529,21 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	setupField ("knee", "KNEE", "dB", kneeSuffix, kneeUnit);
 	setupField ("atk", "ATK", "ms", atkSuffix, atkUnit);
 	setupField ("rel", "REL", "ms", relSuffix, relUnit);
+	setupField ("scGain", "GAIN", "dB", scGainSuffix, scGainUnit);
+
+	auto* sidechainLabel = new juce::Label ("", "SIDECHAIN");
+	sidechainLabel->setJustificationType (juce::Justification::centred);
+	applyLabelTextColour (*sidechainLabel, scheme.text);
+	sidechainLabel->setBorderSize (juce::BorderSize<int> (0));
+	sidechainLabel->setFont (f);
+	bodyContent->addAndMakeVisible (sidechainLabel);
+
+	auto* scRangeLabel = new juce::Label ("", "");
+	scRangeLabel->setJustificationType (juce::Justification::centred);
+	applyLabelTextColour (*scRangeLabel, scheme.text);
+	scRangeLabel->setBorderSize (juce::BorderSize<int> (0));
+	scRangeLabel->setFont (f);
+	bodyContent->addAndMakeVisible (scRangeLabel);
 
 	const float threshNorm = (currentThresh - CABTRAudioProcessor::kExpThreshMin)
 	                       / (CABTRAudioProcessor::kExpThreshMax - CABTRAudioProcessor::kExpThreshMin);
@@ -5398,23 +5555,59 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	auto relNormRange = juce::NormalisableRange<float> (CABTRAudioProcessor::kExpRelMin, CABTRAudioProcessor::kExpRelMax, 0.01f, 0.3f);
 	const float atkNorm = atkNormRange.convertTo0to1 (currentAtk);
 	const float relNorm = relNormRange.convertTo0to1 (currentRel);
+	auto scGainNormRange = juce::NormalisableRange<float> (CABTRAudioProcessor::kExpScGainMin,
+	                                                       CABTRAudioProcessor::kExpScGainMax,
+	                                                       0.0f,
+	                                                       CABTRAudioProcessor::kGainSkew);
+
+	auto freqToNorm = [] (float freq) -> float
+	{
+		constexpr float minF = CABTRAudioProcessor::kExpScFreqMin;
+		constexpr float maxF = CABTRAudioProcessor::kExpScFreqMax;
+		return std::log2 (juce::jlimit (minF, maxF, freq) / minF) / std::log2 (maxF / minF);
+	};
+
+	auto normToFreq = [] (float n) -> float
+	{
+		constexpr float minF = CABTRAudioProcessor::kExpScFreqMin;
+		constexpr float maxF = CABTRAudioProcessor::kExpScFreqMax;
+		return minF * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, n) * std::log2 (maxF / minF));
+	};
+
+	const float scHpNorm = freqToNorm (currentScHp);
+	const float scLpNorm = freqToNorm (currentScLp);
+	const float scGainNorm = scGainNormRange.convertTo0to1 (currentScGain);
 
 	auto* threshBar = new PromptBar (scheme, threshNorm, 1.0f);
 	auto* ratioBar = new PromptBar (scheme, ratioNorm, expRatioDisplayToNorm (CABTRAudioProcessor::kExpRatioDefault));
 	auto* kneeBar = new PromptBar (scheme, kneeNorm, 0.0f);
 	auto* atkBar = new PromptBar (scheme, atkNorm, atkNormRange.convertTo0to1 (CABTRAudioProcessor::kExpAtkDefault));
 	auto* relBar = new PromptBar (scheme, relNorm, relNormRange.convertTo0to1 (CABTRAudioProcessor::kExpRelDefault));
+	auto* scRangeBar = new PromptRangeBar (scheme, scHpNorm, scLpNorm,
+	                                       freqToNorm (CABTRAudioProcessor::kExpScHpDefault),
+	                                       freqToNorm (CABTRAudioProcessor::kExpScLpDefault));
+	auto* scGainBar = new PromptBar (scheme, scGainNorm, scGainNormRange.convertTo0to1 (CABTRAudioProcessor::kExpScGainDefault));
+	auto updateScRangeLabel = [scRangeLabel, scRangeBar, normToFreq]()
+	{
+		scRangeLabel->setText ("HP " + formatFrequencyWithUnitForPrompt (normToFreq (scRangeBar->lowValue))
+		                     + " | LP " + formatFrequencyWithUnitForPrompt (normToFreq (scRangeBar->highValue)),
+		                       juce::dontSendNotification);
+	};
+	updateScRangeLabel();
 	bodyContent->addAndMakeVisible (threshBar);
 	bodyContent->addAndMakeVisible (ratioBar);
 	bodyContent->addAndMakeVisible (kneeBar);
 	bodyContent->addAndMakeVisible (atkBar);
 	bodyContent->addAndMakeVisible (relBar);
+	bodyContent->addAndMakeVisible (scRangeBar);
+	bodyContent->addAndMakeVisible (scGainBar);
 
 	if (threshSuffix != nullptr) threshSuffix->pairedBar = threshBar;
 	if (ratioSuffix != nullptr) ratioSuffix->pairedBar = ratioBar;
 	if (kneeSuffix != nullptr) kneeSuffix->pairedBar = kneeBar;
 	if (atkSuffix != nullptr) atkSuffix->pairedBar = atkBar;
 	if (relSuffix != nullptr) relSuffix->pairedBar = relBar;
+	if (scGainSuffix != nullptr) scGainSuffix->pairedBar = scGainBar;
 
 	auto* viewport = new juce::Viewport();
 	viewport->setComponentID ("expViewport");
@@ -5441,6 +5634,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	const EnvPromptNumericSpec kneeSpec { false, 2, 1, CABTRAudioProcessor::kExpKneeMin, CABTRAudioProcessor::kExpKneeMax, 1 };
 	const EnvPromptNumericSpec atkSpec { false, 3, 2, CABTRAudioProcessor::kExpAtkMin, CABTRAudioProcessor::kExpAtkMax, 2 };
 	const EnvPromptNumericSpec relSpec { false, 4, 2, CABTRAudioProcessor::kExpRelMin, CABTRAudioProcessor::kExpRelMax, 2 };
+	const EnvPromptNumericSpec scGainSpec { true, 3, 1, CABTRAudioProcessor::kExpScGainMin, CABTRAudioProcessor::kExpScGainMax, 1 };
 
 	auto sanitiseEnvPromptText = [] (juce::String text, const EnvPromptNumericSpec& spec,
 	                                 bool& incompleteOut) -> juce::String
@@ -5512,6 +5706,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	auto* orderApvts = audioProcessor.getValueTreeState().getParameter (orderParamId);
 	auto* atkApvts = audioProcessor.getValueTreeState().getParameter (atkParamId);
 	auto* relApvts = audioProcessor.getValueTreeState().getParameter (relParamId);
+	auto* scHpApvts = audioProcessor.getValueTreeState().getParameter (scHpParamId);
+	auto* scLpApvts = audioProcessor.getValueTreeState().getParameter (scLpParamId);
+	auto* scGainApvts = audioProcessor.getValueTreeState().getParameter (scGainParamId);
 
 	auto orderState = std::make_shared<bool> (currentOrder);
 	struct OrderClickHandler : public juce::MouseListener
@@ -5604,18 +5801,54 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		*syncing = false;
 	};
 
+	scRangeBar->onLowValueChanged = [syncing, scHpApvts, normToFreq, updateScRangeLabel] (float v01) mutable
+	{
+		if (*syncing) return;
+		*syncing = true;
+		const float val = normToFreq (v01);
+		if (scHpApvts) scHpApvts->setValueNotifyingHost (scHpApvts->convertTo0to1 (val));
+		updateScRangeLabel();
+		*syncing = false;
+	};
+
+	scRangeBar->onHighValueChanged = [syncing, scLpApvts, normToFreq, updateScRangeLabel] (float v01) mutable
+	{
+		if (*syncing) return;
+		*syncing = true;
+		const float val = normToFreq (v01);
+		if (scLpApvts) scLpApvts->setValueNotifyingHost (scLpApvts->convertTo0to1 (val));
+		updateScRangeLabel();
+		*syncing = false;
+	};
+
+	scGainBar->onValueChanged = [aw, syncing, scGainApvts, scGainNormRange] (float v01)
+	{
+		if (*syncing) return;
+		*syncing = true;
+		const float val = scGainNormRange.convertFrom0to1 (v01);
+		if (auto* te = aw->getTextEditor ("scGain"))
+		{
+			te->setText (juce::String (val, 1), juce::sendNotification);
+			te->selectAll();
+		}
+		if (scGainApvts) scGainApvts->setValueNotifyingHost (scGainApvts->convertTo0to1 (val));
+		*syncing = false;
+	};
+
 	auto layoutBody = [aw, viewport, bodyContent,
 	                   orderLegend, orderLabel,
-	                   threshSuffix, ratioSuffix, kneeSuffix, atkSuffix, relSuffix,
-	                   threshUnit, ratioUnit, kneeUnit, atkUnit, relUnit,
-	                   threshBar, ratioBar, kneeBar, atkBar, relBar] ()
+	                   sidechainLabel, scRangeLabel,
+	                   threshSuffix, ratioSuffix, kneeSuffix, atkSuffix, relSuffix, scGainSuffix,
+	                   threshUnit, ratioUnit, kneeUnit, atkUnit, relUnit, scGainUnit,
+	                   threshBar, ratioBar, kneeBar, atkBar, relBar, scRangeBar, scGainBar] ()
 	{
 		auto* threshTe = aw->getTextEditor ("thresh");
 		auto* ratioTe = aw->getTextEditor ("ratio");
 		auto* kneeTe = aw->getTextEditor ("knee");
 		auto* atkTe = aw->getTextEditor ("atk");
 		auto* relTe = aw->getTextEditor ("rel");
-		if (! threshTe || ! ratioTe || ! kneeTe || ! atkTe || ! relTe) return;
+		auto* scGainTe = aw->getTextEditor ("scGain");
+		if (! threshTe || ! ratioTe || ! kneeTe || ! atkTe || ! relTe || ! scGainTe) return;
 
 		layoutAlertWindowButtons (*aw);
 		const int vpTop = kPromptBodyTopPad;
@@ -5627,6 +5860,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 
 		const int rowH = threshTe->getHeight();
 		const int barH = juce::jmax (8, rowH / 3);
+		const int scRangeBarH = juce::jmax (barH + 6, rowH / 2);
 		const int barGap = juce::jmax (2, rowH / 8);
 		const int rowTotal = rowH + barGap + barH;
 		const int gap = juce::jmax (3, rowH / 5);
@@ -5650,6 +5884,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		                                                          stringWidth (font, juce::String (CABTRAudioProcessor::kExpAtkMax, 2))) + 16);
 		const int relEditorW = juce::jlimit (24, 160, juce::jmax (stringWidth (font, juce::String (CABTRAudioProcessor::kExpRelMin, 2)),
 		                                                          stringWidth (font, juce::String (CABTRAudioProcessor::kExpRelMax, 2))) + 16);
+		const int scGainEditorW = juce::jlimit (24, 160, juce::jmax (stringWidth (font, juce::String (CABTRAudioProcessor::kExpScGainMin, 1)),
+		                                                             stringWidth (font, juce::String (CABTRAudioProcessor::kExpScGainMax, 1))) + 16);
 		const int labelGap = juce::jmax (spaceW, 12);
 		const int unitGapPx = juce::jmax (spaceW, 12);
 
@@ -5715,6 +5951,14 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			bar->setBounds (barX, rowY + rowH + barGap, barW, barH);
 		};
 
+		auto placeScRangeRow = [&] (int rowY) -> int
+		{
+			scRangeLabel->setBounds (contentLeft, rowY, innerW, rowH);
+			const int barY = rowY + rowH + barGap;
+			scRangeBar->setBounds (barX, barY, barW, scRangeBarH);
+			return rowH + barGap + scRangeBarH;
+		};
+
 		placeRow (threshTe, threshSuffix, threshUnit, threshBar, y, threshEditorW);
 		y += rowTotal + gap;
 		placeRow (ratioTe, ratioSuffix, ratioUnit, ratioBar, y, ratioEditorW);
@@ -5724,7 +5968,16 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		placeRow (atkTe, atkSuffix, atkUnit, atkBar, y, atkEditorW);
 		y += rowTotal + gap;
 		placeRow (relTe, relSuffix, relUnit, relBar, y, relEditorW);
-		y += rowTotal;
+		y += rowTotal + juce::jmax (gap, rowH / 2);
+
+		sidechainLabel->setBounds (contentLeft, y, innerW, rowH);
+		y += rowH + gap;
+
+		placeRow (scGainTe, scGainSuffix, scGainUnit, scGainBar, y, scGainEditorW);
+		y += rowTotal + gap;
+
+		y += placeScRangeRow (y);
+		y += juce::jmax (gap * 2, rowH / 2);
 
 		bodyContent->setSize (contentW, y);
 	};
@@ -5770,18 +6023,29 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		bar->repaint();
 	};
 
+	auto textToBarScGain = [syncing, scGainApvts, scGainNormRange] (float raw, PromptBar* bar)
+	{
+		if (*syncing || ! bar) return;
+		bar->value = scGainNormRange.convertTo0to1 (raw);
+		if (scGainApvts) scGainApvts->setValueNotifyingHost (scGainApvts->convertTo0to1 (raw));
+		bar->repaint();
+	};
+
 	auto handleEnvPromptText = [syncing, layoutBody, sanitiseEnvPromptText]
 		(juce::TextEditor* te, PromptBar* bar, const EnvPromptNumericSpec& spec, auto&& pushValue) mutable
 	{
 		if (*syncing || te == nullptr || bar == nullptr)
 			return;
 
-		*syncing = true;
 		const auto original = te->getText();
 		bool incomplete = false;
 		const auto sanitised = sanitiseEnvPromptText (original, spec, incomplete);
 		if (sanitised != original)
+		{
+			*syncing = true;
 			te->setText (sanitised, juce::dontSendNotification);
+			*syncing = false;
+		}
 
 		auto parseText = sanitised;
 		if (parseText.endsWithChar ('.'))
@@ -5794,7 +6058,6 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				pushValue (raw, bar);
 		}
 
-		*syncing = false;
 		layoutBody();
 	};
 
@@ -5813,6 +6076,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	if (auto* te = aw->getTextEditor ("rel"))
 		te->onTextChange = [te, relBar, relSpec, handleEnvPromptText, textToBarRel] () mutable
 		{ handleEnvPromptText (te, relBar, relSpec, textToBarRel); };
+	if (auto* te = aw->getTextEditor ("scGain"))
+		te->onTextChange = [te, scGainBar, scGainSpec, handleEnvPromptText, textToBarScGain] () mutable
+		{ handleEnvPromptText (te, scGainBar, scGainSpec, textToBarScGain); };
 
 	aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
@@ -5826,6 +6092,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	preparePromptTextEditor (*aw, "knee", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 	preparePromptTextEditor (*aw, "atk", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 	preparePromptTextEditor (*aw, "rel", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
+	preparePromptTextEditor (*aw, "scGain", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 	layoutBody();
 
 	styleAlertButtons (*aw, lnf);
@@ -5854,6 +6121,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		preparePromptTextEditor (*aw, "knee", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 		preparePromptTextEditor (*aw, "atk", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 		preparePromptTextEditor (*aw, "rel", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
+		preparePromptTextEditor (*aw, "scGain", scheme.bg, scheme.text, scheme.fg, kExpFont, false);
 		layoutBody();
 
 		auto syncFonts = [&] (ResetLabel* suffix, juce::Label* unit, const char* edId)
@@ -5870,6 +6138,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		syncFonts (kneeSuffix, kneeUnit, "knee");
 		syncFonts (atkSuffix, atkUnit, "atk");
 		syncFonts (relSuffix, relUnit, "rel");
+		syncFonts (scGainSuffix, scGainUnit, "scGain");
+		scRangeLabel->setFont (kExpFont);
 		layoutBody();
 
 		juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
@@ -5883,12 +6153,12 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 
 	aw->enterModalState (true,
 		juce::ModalCallbackFunction::create (
-			[safeThis, aw, orderState, threshBar, ratioBar, kneeBar, atkBar, relBar,
-			 parseEnvPromptValue, threshSpec, ratioSpec, kneeSpec, atkSpec, relSpec,
+			[safeThis, aw, orderState, threshBar, ratioBar, kneeBar, atkBar, relBar, scRangeBar, scGainBar,
+			 parseEnvPromptValue, threshSpec, ratioSpec, kneeSpec, atkSpec, relSpec, scGainSpec, normToFreq,
 			 viewport, orderHandler,
 			 savedOrder = currentOrder, savedThresh = currentThresh, savedRatio = currentRatio, savedKnee = currentKnee,
-			 savedAtk = currentAtk, savedRel = currentRel,
-			 orderParamId, threshParamId, ratioParamId, kneeParamId, atkParamId, relParamId,
+			 savedAtk = currentAtk, savedRel = currentRel, savedScHp = currentScHp, savedScLp = currentScLp, savedScGain = currentScGain,
+			 orderParamId, threshParamId, ratioParamId, kneeParamId, atkParamId, relParamId, scHpParamId, scLpParamId, scGainParamId,
 			 loaderIndex] (int result) mutable
 		{
 			std::unique_ptr<juce::AlertWindow> killer (aw);
@@ -5918,6 +6188,12 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 					p->setValueNotifyingHost (p->convertTo0to1 (savedAtk));
 				if (auto* p = vts.getParameter (relParamId))
 					p->setValueNotifyingHost (p->convertTo0to1 (savedRel));
+				if (auto* p = vts.getParameter (scHpParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (savedScHp));
+				if (auto* p = vts.getParameter (scLpParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (savedScLp));
+				if (auto* p = vts.getParameter (scGainParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (savedScGain));
 			}
 			else
 			{
@@ -5927,6 +6203,11 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				const float newKnee   = parseEnvPromptValue (aw->getTextEditor ("knee"),   kneeSpec,   savedKnee);
 				const float newAtk    = parseEnvPromptValue (aw->getTextEditor ("atk"),    atkSpec,    savedAtk);
 				const float newRel    = parseEnvPromptValue (aw->getTextEditor ("rel"),    relSpec,    savedRel);
+				float newScHp         = normToFreq (scRangeBar->lowValue);
+				float newScLp         = normToFreq (scRangeBar->highValue);
+				const float newScGain = parseEnvPromptValue (aw->getTextEditor ("scGain"), scGainSpec, savedScGain);
+				if (newScHp > newScLp)
+					std::swap (newScHp, newScLp);
 
 				if (auto* p = vts.getParameter (threshParamId))
 					p->setValueNotifyingHost (p->convertTo0to1 (newThresh));
@@ -5938,10 +6219,14 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 					p->setValueNotifyingHost (p->convertTo0to1 (newAtk));
 				if (auto* p = vts.getParameter (relParamId))
 					p->setValueNotifyingHost (p->convertTo0to1 (newRel));
+				if (auto* p = vts.getParameter (scHpParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newScHp));
+				if (auto* p = vts.getParameter (scLpParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newScLp));
+				if (auto* p = vts.getParameter (scGainParamId))
+					p->setValueNotifyingHost (p->convertTo0to1 (newScGain));
 
-				auto tip = juce::String (*orderState ? "POST" : "PRE")
-				         + " | " + juce::String (newThresh, 1) + " dB"
-				         + " | 1:" + formatExpRatioDisplay (newRatio);
+				auto tip = formatExpTooltip (*orderState, newRatio, newThresh, newScHp, newScLp, newScGain);
 				if (newKnee > 0.05f)
 					tip += " | K " + juce::String (newKnee, 1) + " dB";
 				auto& disp = loaderIndex == 0 ? safeThis->expDisplayA
