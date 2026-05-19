@@ -83,6 +83,14 @@ namespace
 		     + " Hz";
 	}
 
+	constexpr int kFooterMixValueWidthPx = 56;
+	constexpr int kFooterDbValueWidthPx = 66;
+
+	juce::Rectangle<int> makeFooterValueArea (const juce::Rectangle<int>& barBounds, int valueWidthPx)
+	{
+		return { barBounds.getRight() + 4, barBounds.getY(), valueWidthPx, barBounds.getHeight() };
+	}
+
 	float expRatioInternalToDisplay (float internalRatio) noexcept
 	{
 		return juce::jlimit (CABTRAudioProcessor::kExpRatioMin,
@@ -2064,7 +2072,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText ("MIX", mixArea, juce::Justification::centred);
 
 			const int gMixPct = juce::roundToInt (globalMixSlider.getValue() * 100.0);
-			const auto valArea = juce::Rectangle<int> (mixBounds.getRight() + 4, mixBounds.getY(), 56, mixBounds.getHeight());
+			const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
 			g.drawText (juce::String (gMixPct) + "%", valArea, juce::Justification::centredLeft);
 		}
 		else if (dualMixBar_.isVisible())
@@ -2073,7 +2081,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			const auto mixArea = mixBounds.withHeight (16).translated (0, -18);
 			g.drawText ("MIX", mixArea, juce::Justification::centred);
 
-			const auto valArea = juce::Rectangle<int> (mixBounds.getRight() + 4, mixBounds.getY(), 56, mixBounds.getHeight());
+			const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
 			g.drawText (cachedMixIntOnly, valArea, juce::Justification::centredLeft);
 		}
 
@@ -2086,7 +2094,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 			const float gOutDb = (float) globalOutputSlider.getValue();
 			juce::String outTxt = formatGainFaderDb (gOutDb);
-			const auto valArea = juce::Rectangle<int> (outBounds.getRight() + 4, outBounds.getY(), 66, outBounds.getHeight());
+			const auto valArea = makeFooterValueArea (outBounds, kFooterDbValueWidthPx);
 			g.drawText (outTxt, valArea, juce::Justification::centredLeft);
 		}
 
@@ -2099,7 +2107,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 			const float limDb = (float) limThresholdSlider.getValue();
 			juce::String limTxt = juce::String (limDb, 1) + " dB";
-			const auto valArea = juce::Rectangle<int> (limBounds.getRight() + 4, limBounds.getY(), 66, limBounds.getHeight());
+			const auto valArea = makeFooterValueArea (limBounds, kFooterDbValueWidthPx);
 			g.drawText (limTxt, valArea, juce::Justification::centredLeft);
 		}
 
@@ -3280,6 +3288,13 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 	// Right-click on value area opens numeric entry popup
 	if (e.mods.isPopupMenu())
 	{
+		if (dualMixBar_.isVisible()
+			&& makeFooterValueArea (dualMixBar_.getBounds(), kFooterMixValueWidthPx).contains (p))
+		{
+			openMixSendPrompt();
+			return;
+		}
+
 		if (auto* slider = getSliderForValueAreaPoint (p))
 		{
 			openNumericEntryPopupForSlider (*slider);
@@ -3534,24 +3549,21 @@ juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point
 	if (globalMixSlider.isVisible())
 	{
 		const auto mixBounds = globalMixSlider.getBounds();
-		const auto mixValArea = juce::Rectangle<int> (mixBounds.getRight() + 4, mixBounds.getY(), 56, mixBounds.getHeight());
-		if (mixValArea.contains (p))
+		if (makeFooterValueArea (mixBounds, kFooterMixValueWidthPx).contains (p))
 			return &globalMixSlider;
 	}
 
 	if (globalOutputSlider.isVisible())
 	{
 		const auto outBounds = globalOutputSlider.getBounds();
-		const auto outValArea = juce::Rectangle<int> (outBounds.getRight() + 4, outBounds.getY(), 66, outBounds.getHeight());
-		if (outValArea.contains (p))
+		if (makeFooterValueArea (outBounds, kFooterDbValueWidthPx).contains (p))
 			return &globalOutputSlider;
 	}
 
 	if (limThresholdSlider.isVisible())
 	{
 		const auto limBounds = limThresholdSlider.getBounds();
-		const auto limValArea = juce::Rectangle<int> (limBounds.getRight() + 4, limBounds.getY(), 66, limBounds.getHeight());
-		if (limValArea.contains (p))
+		if (makeFooterValueArea (limBounds, kFooterDbValueWidthPx).contains (p))
 			return &limThresholdSlider;
 	}
 
