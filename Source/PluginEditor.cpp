@@ -3721,7 +3721,9 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	auto* bar = dynamic_cast<BarSlider*> (&s);
 	const auto stype = bar ? bar->getType() : BarSlider::Type::Unknown;
 
-	const bool isHpLp  = (stype == BarSlider::Type::HpFreq || stype == BarSlider::Type::LpFreq);
+	const bool isHp    = (stype == BarSlider::Type::HpFreq);
+	const bool isLp    = (stype == BarSlider::Type::LpFreq);
+	const bool isHpLp  = (isHp || isLp);
 	const bool isIn    = (stype == BarSlider::Type::Input);
 	const bool isOut   = (stype == BarSlider::Type::Output || stype == BarSlider::Type::GlobalOutput);
 	const bool isLimThresh = (stype == BarSlider::Type::LimThreshold);
@@ -3737,21 +3739,22 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	const bool isVariation = (stype == BarSlider::Type::Variation);
 	const bool isMix   = (stype == BarSlider::Type::Mix || stype == BarSlider::Type::GlobalMix);
 
-	if (isHpLp)             { suffix = " Hz";          suffixShort = " Hz"; }
-	else if (isIn)          { suffix = " dB INPUT";    suffixShort = " dB"; }
-	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB"; }
+	if (isHp)               { suffix = " Hz HP";       suffixShort = " Hz HP"; }
+	else if (isLp)          { suffix = " Hz LP";       suffixShort = " Hz LP"; }
+	else if (isIn)          { suffix = " dB INPUT";    suffixShort = " dB IN"; }
+	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB OUT"; }
 	else if (isLimThresh)   { suffix = " dB LIM";      suffixShort = " dB LIM"; }
-	else if (isTilt)        { suffix = " dB TILT"; suffixShort = " dB"; }
-	else if (isStart)       { suffix = " ms START";    suffixShort = " ms"; }
-	else if (isEnd)         { suffix = " ms END";      suffixShort = " ms"; }
-	else if (isSize)        { suffix = " % SIZE";      suffixShort = " %"; }
-	else if (isDelay)       { suffix = " ms DELAY";    suffixShort = " ms"; }
-	else if (isPan)         { suffix = " % PAN";       suffixShort = " %"; }
-	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " %"; }
-	else if (isPos)         { suffix = " % DIST";     suffixShort = " %"; }
-	else if (isReso)        { suffix = " % RESO";     suffixShort = " %"; }
-	else if (isVariation)   { suffix = " % VAR";      suffixShort = " %"; }
-	else if (isMix)         { suffix = " % MIX";       suffixShort = " %"; }
+	else if (isTilt)        { suffix = " dB TILT";     suffixShort = " dB TILT"; }
+	else if (isStart)       { suffix = " ms START";    suffixShort = " ms START"; }
+	else if (isEnd)         { suffix = " ms END";      suffixShort = " ms END"; }
+	else if (isSize)        { suffix = " % SIZE";      suffixShort = " % SIZE"; }
+	else if (isDelay)       { suffix = " ms DELAY";    suffixShort = " ms DLY"; }
+	else if (isPan)         { suffix = " % PAN";       suffixShort = " % PAN"; }
+	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " % ANGLE"; }
+	else if (isPos)         { suffix = " % DIST";     suffixShort = " % DIST"; }
+	else if (isReso)        { suffix = " % RESO";     suffixShort = " % RESO"; }
+	else if (isVariation)   { suffix = " % VAR";      suffixShort = " % VAR"; }
+	else if (isMix)         { suffix = " % MIX";       suffixShort = " % MIX"; }
 
 	const juce::String suffixText      = suffix.trimStart();
 	const juce::String suffixTextShort = suffixShort.trimStart();
