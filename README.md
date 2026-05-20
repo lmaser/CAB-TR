@@ -13,14 +13,16 @@ The Sum Bus system lets each loader contribute to the Stereo, Mid, or Side bus i
 
 ## Interface
 
-CAB-TR uses a text-based UI with horizontal bar sliders. All controls are accessible without pages, tabs, or hidden menus.
+CAB-TR uses a text-based UI with horizontal bar sliders. Loader tabs switch between visible loader slots at compact widths, and the bottom `GLOBAL` tab switches between loader controls and the global control page.
 
 - **Bar sliders**: Click and drag horizontally. Right-click for numeric entry.
 - **Toggle buttons**: The collapsed loader row uses `INV`, `NRM`, `RVS`, and `EXP`. The expanded I/O section adds `CHSF` and `CHSD`.
 - **VAR**: Per-loader realtime variation in the collapsed control set. Adds subtle cab/mic drift without reloading the IR.
 - **Empty loaders**: A loader is only operative when it is enabled and has an IR loaded. Empty enabled loaders stay transparent, and their DSP controls remain inactive until a file is loaded.
 - **Combo boxes**: MODE IN, MODE OUT, FILTER/TILT position, and SUM BUS per loader. Click to cycle options.
+- **Loader tabs**: Use the side tabs to switch visible loaders when the window is compact. Wider sizes reveal more loaders at once.
 - **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, F/T, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
+- **Bottom global section**: Click the `GLOBAL` tab to switch between loader controls and the global control page.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
 - **Filter bar**: Click to open the HP/LP filter configuration prompt with frequency, slope, and enable/disable controls.
 - **Gear icon** (top-right): Opens the info popup with version, credits, and a link to Graphics settings.
@@ -49,7 +51,7 @@ Dry/wet blend. 0% = fully dry (bypass), 100% = fully processed.
 
 Routing topology for the three loaders:
 - **A->B->C**: Full series chain. Signal passes through A, then B, then C.
-- **A|B|C** (default): All three in parallel. Each processes the input independently; results are summed with `1/sqrt(N)` compensation.
+- **A|B|C** (default): All three in parallel. Each processes the input independently; results are summed directly.
 - **A->B|C**: A feeds into B (series), C runs in parallel. Two-path sum at the output.
 - **A|B->C**: A runs in parallel, B feeds into C (series). Two-path sum at the output.
 - **(A|B)->C**: A and B run in parallel first; their combined result then feeds C.
@@ -279,7 +281,7 @@ Export options:
 - **Variation**: Deterministic per-loader smooth modulation for subtle cab/mic drift. SIZE variation is a realtime all-pass proxy and never triggers an IR reload; high VAR values add a faster instance-seeded layer without increasing the maximum modulation range. The instance seed is persisted in plugin state.
 - **Variable delay**: Per-loader delay stage uses smoothed fractional delay for fine alignment and manual offset control.
 - **M/S summing**: Per-sample bus accumulation with fast path (no M/S overhead) when all loaders are set to ST.
-- **Parallel compensation**: `1/sqrt(N)` gain correction per routing mode (`N` = number of parallel paths).
+- **Parallel summing**: parallel branches are summed directly; use per-loader `OUT`/`MIX`, global `OUTPUT`, and the limiter for level management.
 
 ### FFT Backend
 - **FFTW** (preferred): Auto-loaded from system DLL on Windows. Provides optimized FFT for convolution.

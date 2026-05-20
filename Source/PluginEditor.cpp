@@ -1642,11 +1642,13 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.chaosFilter.addMouseListener (this, false);
 
 	{
-		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
-		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (chaosSpdId)->load();
-		const auto chaosTip = formatChaosTooltip (savedAmt, savedSpd);
-		r.chaos.setTooltip (chaosTip);
-		r.chaosFilter.setTooltip (chaosTip);
+		const auto& ids = kLoaderParams[juce::jlimit (0, 2, loaderIndex)];
+		const float savedAmtD = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
+		const float savedSpdD = audioProcessor.getValueTreeState().getRawParameterValue (chaosSpdId)->load();
+		const float savedAmtF = audioProcessor.getValueTreeState().getRawParameterValue (ids.chaosAmtFilter)->load();
+		const float savedSpdF = audioProcessor.getValueTreeState().getRawParameterValue (ids.chaosSpdFilter)->load();
+		r.chaos.setTooltip (formatChaosTooltip (savedAmtD, savedSpdD));
+		r.chaosFilter.setTooltip (formatChaosTooltip (savedAmtF, savedSpdF));
 		r.chaosDisp.setText ("", juce::dontSendNotification);
 		r.chaosDisp.setInterceptsMouseClicks (false, false);
 		r.chaosDisp.setTooltip ({});
