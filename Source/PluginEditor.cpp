@@ -2526,6 +2526,9 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		contentArea.removeFromBottom (gap * 2);
 
 		const int layoutOverhead = (gap * 6) + modeLabelGap + comboLabelGap2;
+		const int collapsedFixedVertical = (checkH * 2) + gap + (gap * 2) + (gap * 7);
+		const int expandedFixedVertical = checkH + (gap * 2) + layoutOverhead;
+		contentArea.removeFromBottom (juce::jmax (0, collapsedFixedVertical - expandedFixedVertical));
 		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 8);
 		const int expandedVisualSliderH = juce::jlimit (24, 30, sliderH);
 
