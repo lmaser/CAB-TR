@@ -236,6 +236,25 @@ namespace
 			.trimCharactersAtEnd ("/");
 	}
 
+	static juce::String getDisplayBrowserPath (const juce::File& file)
+	{
+		auto path = file.getFullPathName();
+	   #if JUCE_WINDOWS
+		return path.replaceCharacter ('/', '\\');
+	   #else
+		return path.replaceCharacter ('\\', '/');
+	   #endif
+	}
+
+	static juce::String getDisplayDrivePath (char driveLetter)
+	{
+	   #if JUCE_WINDOWS
+		return juce::String::charToString (driveLetter) + ":\\";
+	   #else
+		return juce::String::charToString (driveLetter) + ":/";
+	   #endif
+	}
+
 	static juce::File getNavigableParentFolder (const juce::File& folder)
 	{
 		if (! folder.exists() || ! folder.isDirectory())
@@ -1897,6 +1916,12 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	// Initialize palette
 	applyActivePalette();
 
+	// The processor restores IR paths before the editor exists when hosts copy
+	// or reload plugin instances; mirror that state into the browser folders.
+	updateFileDisplayLabels (audioProcessor.stateA.currentFilePath,
+	                         audioProcessor.stateB.currentFilePath,
+	                         audioProcessor.stateC.currentFilePath);
+
 	// Initial refresh of cached text
 	refreshLegendTextCache();
 	legendDirty = false;
@@ -2930,7 +2955,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 
 	// Add current path label at the top
 	auto& startFolder = loaderIndex == 0 ? currentFolderA : (loaderIndex == 1 ? currentFolderB : currentFolderC);
-	auto* pathLabel = new juce::Label ("Path", startFolder.getFullPathName());
+	auto* pathLabel = new juce::Label ("Path", getDisplayBrowserPath (startFolder));
 	pathLabel->setFont (juce::Font (juce::FontOptions (13.0f)));
 	pathLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	pathLabel->setJustificationType (juce::Justification::centredLeft);
@@ -2964,7 +2989,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 		}
 
 		if (safePathLabel != nullptr)
-			safePathLabel->setText (folder.getFullPathName(), juce::dontSendNotification);
+			safePathLabel->setText (getDisplayBrowserPath (folder), juce::dontSendNotification);
 
 		const bool hasParent = getNavigableParentFolder (folder).exists();
 		if (safeParentFolderLabel != nullptr)
@@ -2974,10 +2999,10 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 
 		if (updateDriveSelection && safeDriveCombo != nullptr)
 		{
-			const auto folderPath = folder.getFullPathName().replaceCharacter ('\\', '/');
+			const auto folderPath = getCanonicalBrowserPath (folder);
 			for (int i = 0; i < safeDriveCombo->getNumItems(); ++i)
 			{
-				if (folderPath.startsWithIgnoreCase (safeDriveCombo->getItemText (i)))
+				if (folderPath.startsWithIgnoreCase (getCanonicalBrowserPath (juce::File (safeDriveCombo->getItemText (i)))))
 				{
 					safeDriveCombo->setSelectedItemIndex (i, juce::dontSendNotification);
 					break;
@@ -2993,7 +3018,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	int driveIdx = 1;
 	for (char driveLetter = 'A'; driveLetter <= 'Z'; ++driveLetter)
 	{
-		juce::String drivePath = juce::String::charToString (driveLetter) + ":/";
+		const juce::String drivePath = getDisplayDrivePath (driveLetter);
 		juce::File driveFile (drivePath);
 		if (driveFile.exists())
 		{
@@ -3003,11 +3028,11 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	
 	// Set current drive based on folder path
 	auto currentFolder = startFolder;
-	juce::String folderPath = currentFolder.getFullPathName().replaceCharacter ('\\', '/');
+	const auto folderPath = getCanonicalBrowserPath (currentFolder);
 	int selectedDriveIdx = -1;
 	for (int i = 0; i < driveCombo->getNumItems(); ++i)
 	{
-		if (folderPath.startsWithIgnoreCase (driveCombo->getItemText (i)))
+		if (folderPath.startsWithIgnoreCase (getCanonicalBrowserPath (juce::File (driveCombo->getItemText (i)))))
 		{
 			selectedDriveIdx = i;
 			break;
@@ -3016,7 +3041,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	if (selectedDriveIdx >= 0)
 		driveCombo->setSelectedItemIndex (selectedDriveIdx, juce::dontSendNotification);
 	else
-		driveCombo->setTextWhenNothingSelected ("C:/");
+		driveCombo->setTextWhenNothingSelected (getDisplayDrivePath ('C'));
 
 	refreshFolderUi (currentFolder, false);
 
@@ -3090,7 +3115,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 
 	int py = 0;
 
-	auto* drivesLabel = new juce::Label ("", "Drives");
+	auto* drivesLabel = new juce::Label ("", "DRIVES");
 	drivesLabel->setFont (boldFont);
 	drivesLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	drivesLabel->setJustificationType (juce::Justification::centredLeft);
@@ -3102,7 +3127,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	browserPanel->addAndMakeVisible (driveCombo);
 	py += driveComboH + componentGap;
 
-	auto* pathTitleLabel = new juce::Label ("", "Path");
+	auto* pathTitleLabel = new juce::Label ("", "PATH");
 	pathTitleLabel->setFont (boldFont);
 	pathTitleLabel->setColour (juce::Label::textColourId, activeScheme.text);
 	pathTitleLabel->setJustificationType (juce::Justification::centredLeft);
@@ -3254,9 +3279,10 @@ void CABTRAudioProcessorEditor::loadIRFile (const juce::String& path, int loader
 	CABTRAudioProcessor::IRLoaderState* states[] = { &audioProcessor.stateA, &audioProcessor.stateB, &audioProcessor.stateC };
 
 	const int idx = juce::jlimit (0, 2, loaderIndex);
-	*curFiles[idx] = path;
+	const auto nativePath = file.getFullPathName();
+	*curFiles[idx] = file.getFileName();
 	displays[idx]->setText (file.getFileName(), juce::dontSendNotification);
-	audioProcessor.loadImpulseResponse (*states[idx], path);
+	audioProcessor.loadImpulseResponse (*states[idx], nativePath);
 	updateLoaderEnabledState (idx);
 	legendDirty = true;
 	refreshLegendTextCache();
