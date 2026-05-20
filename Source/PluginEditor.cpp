@@ -2570,7 +2570,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		const int expandedFixedVertical = checkH + (gap * 2) + layoutOverhead;
 		contentArea.removeFromBottom (juce::jmax (0, collapsedFixedVertical - expandedFixedVertical));
 		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 8);
-		const int expandedVisualSliderH = juce::jlimit (24, 30, sliderH);
+		const int expandedVisualSliderH = juce::jlimit (24, 32, sliderH);
 
 		auto sliderRow = contentArea.removeFromTop (sliderH);
 		in_.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), expandedVisualSliderH));
@@ -2670,7 +2670,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		const int collapsedTotalGap = gap * 7; // 7 slider gaps between 8 slider rows.
 		const int collapsedSliderH = juce::jmax (20, (contentArea.getHeight() - collapsedTotalGap) / 8);
 		const int sliderH = collapsedSliderH;
-		const int collapsedVisualSliderH = juce::jlimit (24, 30, sliderH);
+		const int collapsedVisualSliderH = juce::jlimit (24, 32, sliderH);
 
 		auto sliderRow = contentArea.removeFromTop (sliderH);
 		start.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
