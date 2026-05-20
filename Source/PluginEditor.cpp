@@ -1870,9 +1870,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	addChildComponent (promptOverlay);
 	promptOverlay.setInterceptsMouseClicks (true, true);
 
-	// Setup CRT effect
-	setComponentEffect (&crtEffect);
-
 	// Setup parameter listeners for UI state
 	for (auto* paramId : kUiMirrorParamIds)
 		params.addParameterListener (paramId, this);
@@ -1880,7 +1877,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	// Restore persisted UI state from processor (palette, CRT, colors)
 	useCustomPalette = audioProcessor.getUiUseCustomPalette();
 	crtEnabled       = audioProcessor.getUiFxTailEnabled();
-	crtEffect.setEnabled (crtEnabled);
+	applyCrtState (crtEnabled);
 	for (int i = 0; i < 2; ++i)
 		customPalette[(size_t) i] = audioProcessor.getUiCustomPaletteColour (i);
 
@@ -1905,9 +1902,6 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	                 getCompactTargetWidthForLoaderCount (kCompactMaxVisibleLoaders),
 	                 kCompactFixedHeightPx);
 
-	// Start timer
-	startTimer (kIdleTimerHz);
-
 	// Initialize loader enabled/disabled visual state
 	updateLoaderEnabledState (0);
 	updateLoaderEnabledState (1);
@@ -1918,6 +1912,7 @@ CABTRAudioProcessorEditor::~CABTRAudioProcessorEditor()
 {
 	TR::dismissEditorOwnedModalPrompts (lnf);
 	setPromptOverlayActive (false);
+	stopTimer();
 
 	// Persist UI state to processor before teardown
 	audioProcessor.setUiUseCustomPalette (useCustomPalette);
@@ -2815,12 +2810,21 @@ void CABTRAudioProcessorEditor::comboBoxChanged (juce::ComboBox* combo)
 	juce::ignoreUnused (combo);
 }
 
+void CABTRAudioProcessorEditor::applyCrtState (bool enabled)
+{
+	crtEnabled = enabled;
+	crtEffect.setEnabled (crtEnabled);
+	setComponentEffect (crtEnabled ? &crtEffect : nullptr);
+	crtTime = 0.0f;
+	stopTimer();
+	startTimerHz (crtEnabled ? kCrtTimerHz : kIdleTimerHz);
+}
+
 void CABTRAudioProcessorEditor::parameterChanged (const juce::String& paramID, float newValue)
 {
 	if (paramID == CABTRAudioProcessor::kParamUiFxTail)
 	{
-		crtEnabled = newValue > 0.5f;
-		crtEffect.setEnabled (crtEnabled);
+		applyCrtState (newValue > 0.5f);
 		return;
 	}
 
@@ -7202,8 +7206,7 @@ void CABTRAudioProcessorEditor::openGraphicsPopup()
 	lnf.setScheme (activeScheme);
 
 	useCustomPalette = audioProcessor.getUiUseCustomPalette();
-	crtEnabled = audioProcessor.getUiFxTailEnabled();
-	crtEffect.setEnabled (crtEnabled);
+	applyCrtState (audioProcessor.getUiFxTailEnabled());
 	applyActivePalette();
 
 	setPromptOverlayActive (true);
