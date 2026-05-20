@@ -28,7 +28,7 @@ CAB-TR uses a text-based UI with horizontal bar sliders. Loader tabs switch betw
 - **Gear icon** (top-right): Opens the info popup with version, credits, and a link to Graphics settings.
 - **Export icon** (top-right): Opens the export dialog to render the combined static IR chain to disk.
 - **Graphics popup**: Toggle CRT post-processing effect and switch between default/custom colour palettes.
-- **Resize**: Drag the bottom-right corner. Size persists across sessions.
+- **Resize**: Drag the bottom-right corner. New instances open at one-loader minimum size (`360 x 752`); width persists as 1/2/3-loader views and height stays fixed.
 
 ## Parameters
 

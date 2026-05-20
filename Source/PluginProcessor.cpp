@@ -852,7 +852,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CABTRAudioProcessor::createP
 		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
-		juce::ParameterID { kParamUiHeight, 1 }, "UI Height", 300, 1500, 600,
+		juce::ParameterID { kParamUiHeight, 1 }, "UI Height", 300, 1500, 752,
 		juce::AudioParameterIntAttributes().withAutomatable (false)));
 
 	layout.add (std::make_unique<juce::AudioParameterInt> (
