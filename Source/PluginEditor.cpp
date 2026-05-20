@@ -64,16 +64,6 @@ namespace
 		return juce::String (clampedHz / 1000.0, 2) + " kHz";
 	}
 
-	juce::String formatFrequencyWithUnitForPrompt (float hz)
-	{
-		const float safeHz = juce::jlimit (20.0f, 20000.0f, hz);
-		if (safeHz >= 1000.0f)
-			return juce::String (safeHz / 1000.0f, 2) + " kHz";
-		if (safeHz >= 100.0f)
-			return juce::String (safeHz, 1) + " Hz";
-		return juce::String (safeHz, 2) + " Hz";
-	}
-
 	juce::String formatChaosTooltip (float amountPercent, float speedHz)
 	{
 		return "AMT " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 100.0f, amountPercent))) + "%"
@@ -132,25 +122,10 @@ namespace
 		return "24dB";
 	}
 
-	juce::String formatExpScBandTooltip (const char* name, bool enabled, float hz, int slope)
-	{
-		return juce::String (name) + " "
-		     + (enabled ? (formatFrequencyWithUnitForPrompt (hz) + " " + filterSlopeToText (slope))
-		                : juce::String ("OFF"));
-	}
-
-	juce::String formatExpTooltip (bool post, float ratio, float thresholdDb,
-	                               float scHpHz, float scLpHz,
-	                               bool scHpOn, bool scLpOn,
-	                               int scHpSlope, int scLpSlope,
-	                               float scGainDb)
+	juce::String formatExpTooltip (bool post, float ratio)
 	{
 		return juce::String (post ? "POST" : "PRE")
-		     + " | 1:" + formatExpRatioDisplay (ratio)
-		     + " | " + juce::String (thresholdDb, 1) + " dB"
-		     + " | SC " + formatGainFaderDb (scGainDb)
-		     + " | " + formatExpScBandTooltip ("HP", scHpOn, scHpHz, scHpSlope)
-		     + " | " + formatExpScBandTooltip ("LP", scLpOn, scLpHz, scLpSlope);
+		     + " | 1:" + formatExpRatioDisplay (ratio);
 	}
 
 	struct PopupSwatchButton final : public juce::TextButton
@@ -1608,10 +1583,12 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	{
 		const float savedAmt = audioProcessor.getValueTreeState().getRawParameterValue (chaosAmtId)->load();
 		const float savedSpd = audioProcessor.getValueTreeState().getRawParameterValue (chaosSpdId)->load();
+		const auto chaosTip = formatChaosTooltip (savedAmt, savedSpd);
+		r.chaos.setTooltip (chaosTip);
+		r.chaosFilter.setTooltip (chaosTip);
 		r.chaosDisp.setText ("", juce::dontSendNotification);
-		r.chaosDisp.setInterceptsMouseClicks (true, false);
-		r.chaosDisp.addMouseListener (this, false);
-		r.chaosDisp.setTooltip (formatChaosTooltip (savedAmt, savedSpd));
+		r.chaosDisp.setInterceptsMouseClicks (false, false);
+		r.chaosDisp.setTooltip ({});
 		r.chaosDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.chaosDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.chaosDisp.setOpaque (false);
@@ -1625,52 +1602,12 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		const auto& ratioParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpRatioA
 		                         : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpRatioB
 		                                            : CABTRAudioProcessor::kParamExpRatioC;
-		const auto& threshParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpThreshA
-		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpThreshB
-		                                             : CABTRAudioProcessor::kParamExpThreshC;
-		const auto& scHpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScHpA
-		                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScHpB
-		                                           : CABTRAudioProcessor::kParamExpScHpC;
-		const auto& scLpParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScLpA
-		                        : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScLpB
-		                                           : CABTRAudioProcessor::kParamExpScLpC;
-		const auto& scHpOnParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScHpOnA
-		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScHpOnB
-		                                             : CABTRAudioProcessor::kParamExpScHpOnC;
-		const auto& scLpOnParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScLpOnA
-		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScLpOnB
-		                                             : CABTRAudioProcessor::kParamExpScLpOnC;
-		const auto& scHpSlopeParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScHpSlopeA
-		                             : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScHpSlopeB
-		                                                : CABTRAudioProcessor::kParamExpScHpSlopeC;
-		const auto& scLpSlopeParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScLpSlopeA
-		                             : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScLpSlopeB
-		                                                : CABTRAudioProcessor::kParamExpScLpSlopeC;
-		const auto& scGainParamId = loaderIndex == 0 ? CABTRAudioProcessor::kParamExpScGainA
-		                          : loaderIndex == 1 ? CABTRAudioProcessor::kParamExpScGainB
-		                                             : CABTRAudioProcessor::kParamExpScGainC;
 		const bool  savedOrder = audioProcessor.getValueTreeState().getRawParameterValue (orderParamId)->load() >= 0.5f;
 		const float savedRatio = audioProcessor.getValueTreeState().getRawParameterValue (ratioParamId)->load();
-		const float savedThresh = audioProcessor.getValueTreeState().getRawParameterValue (threshParamId)->load();
-		const float savedScHp = audioProcessor.getValueTreeState().getRawParameterValue (scHpParamId)->load();
-		const float savedScLp = audioProcessor.getValueTreeState().getRawParameterValue (scLpParamId)->load();
-		const bool savedScHpOn = audioProcessor.getValueTreeState().getRawParameterValue (scHpOnParamId)->load() >= 0.5f;
-		const bool savedScLpOn = audioProcessor.getValueTreeState().getRawParameterValue (scLpOnParamId)->load() >= 0.5f;
-		const int savedScHpSlope = juce::jlimit (CABTRAudioProcessor::kFilterSlopeMin,
-		                                         CABTRAudioProcessor::kFilterSlopeMax,
-		                                         (int) std::lround (audioProcessor.getValueTreeState().getRawParameterValue (scHpSlopeParamId)->load()));
-		const int savedScLpSlope = juce::jlimit (CABTRAudioProcessor::kFilterSlopeMin,
-		                                         CABTRAudioProcessor::kFilterSlopeMax,
-		                                         (int) std::lround (audioProcessor.getValueTreeState().getRawParameterValue (scLpSlopeParamId)->load()));
-		const float savedScGain = audioProcessor.getValueTreeState().getRawParameterValue (scGainParamId)->load();
+		r.exp.setTooltip (formatExpTooltip (savedOrder, savedRatio));
 		r.expDisp.setText ("", juce::dontSendNotification);
-		r.expDisp.setInterceptsMouseClicks (true, false);
-		r.expDisp.addMouseListener (this, false);
-		r.expDisp.setTooltip (formatExpTooltip (savedOrder, savedRatio, savedThresh,
-		                                        savedScHp, savedScLp,
-		                                        savedScHpOn, savedScLpOn,
-		                                        savedScHpSlope, savedScLpSlope,
-		                                        savedScGain));
+		r.expDisp.setInterceptsMouseClicks (false, false);
+		r.expDisp.setTooltip ({});
 		r.expDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.expDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.expDisp.setOpaque (false);
@@ -2543,8 +2480,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		chaos.setBounds (chsdX, checkArea.getY(), chsdW, checkH);
 		chaosFilter.setVisible (true);
 		chaos.setVisible (true);
-		chaosDisp.setBounds (checkArea.getX(), checkArea.getY(), checkArea.getWidth(), checkH);
-		chaosDisp.setVisible (true);
+		chaosDisp.setBounds (0, 0, 0, 0);
+		chaosDisp.setVisible (false);
 
 		// Hide collapsed-only controls
 		hp.setVisible (false);     lp.setVisible (false);
@@ -2615,7 +2552,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		checkArea = area.removeFromTop (checkH);
 		rvs.setBounds (checkArea.getX(), checkArea.getY(), leftW,  checkH);  rvs.setVisible (true);
 		exp.setBounds (rightX,           checkArea.getY(), rightW, checkH);  exp.setVisible (true);
-		expDisp.setBounds (rightX,       checkArea.getY(), rightW, checkH);  expDisp.setVisible (true);
+		expDisp.setBounds (0, 0, 0, 0);  expDisp.setVisible (false);
 
 		// Hide expanded-only controls
 		in_.setVisible (false);        out.setVisible (false);     tilt.setVisible (false);
@@ -3232,10 +3169,8 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 	{
 		juce::ToggleButton* enableBtns[]      = { &enableButtonA,  &enableButtonB,  &enableButtonC };
 		juce::ToggleButton* expBtns[]         = { &expButtonA,     &expButtonB,     &expButtonC };
-		juce::Label*        expDisps[]        = { &expDisplayA,    &expDisplayB,    &expDisplayC };
 		juce::ToggleButton* chaosBtns[]       = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
 		juce::ToggleButton* chaosFilterBtns[] = { &chaosFilterButtonA, &chaosFilterButtonB, &chaosFilterButtonC };
-		juce::Label*        chaosDisps[]      = { &chaosDisplayA,  &chaosDisplayB,  &chaosDisplayC };
 
 		for (int i = 0; i < 3; ++i)
 		{
@@ -3243,8 +3178,7 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 				continue;
 
 			const bool hitExp = expBtns[i]->isVisible()
-				&& (expBtns[i]->getBounds().contains (p)
-					|| (expDisps[i]->isVisible() && expDisps[i]->getBounds().contains (p)));
+				&& expBtns[i]->getBounds().contains (p);
 
 			if (hitExp)
 			{
@@ -3255,16 +3189,12 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 				return;
 			}
 
-			// Hit-test chaos filter button or its display overlay half
-			const bool hitFilter = chaosFilterBtns[i]->getBounds().contains (p)
-				|| (chaosDisps[i]->isVisible() && chaosDisps[i]->getBounds().contains (p)
-					&& p.x < chaosFilterBtns[i]->getBounds().getRight());
+			const bool hitFilter = chaosFilterBtns[i]->isVisible()
+				&& chaosFilterBtns[i]->getBounds().contains (p);
 
-			// Hit-test chaos delay button or its display overlay half
 			const bool hitDelay = !hitFilter
-				&& (chaosBtns[i]->getBounds().contains (p)
-					|| (chaosDisps[i]->isVisible() && chaosDisps[i]->getBounds().contains (p)
-						&& p.x >= chaosBtns[i]->getBounds().getX()));
+				&& chaosBtns[i]->isVisible()
+				&& chaosBtns[i]->getBounds().contains (p);
 
 			if (hitFilter)
 			{
@@ -3381,10 +3311,10 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	};
 
 	// Labels and format types: 0=freq, 1=dB, 2=ms, 3=percent, 4=pan, 5=tilt(dB), 6=delay(ms)
-	struct ParamFmt { int type; const char* label; };
+	struct ParamFmt { int type; const char* label; const char* shortLabel = nullptr; };
 	const ParamFmt fmts[kNumCachedParams] = {
 		{0,"HP"}, {0,"LP"}, {1,"IN"}, {1,"OUT"}, {5,"TILT"}, {2,"START"}, {2,"END"},
-		{3,"SIZE"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {6,"DELAY"}, {3,"MIX"}
+		{3,"SIZE"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {6,"DELAY","DLY"}, {3,"MIX"}
 	};
 
 	for (int loader = 0; loader < 3; ++loader)
@@ -3425,8 +3355,8 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 					break;
 				case 2: // ms
 					ct.full    = formatTimeValue (val) + " " + fmt.label;
-					ct.short_  = formatTimeValue (val);
-					ct.intOnly = formatTimeValue (val);
+					ct.short_  = formatTimeValue (val) + " " + fmt.label;
+					ct.intOnly = formatTimeValue (val) + " " + fmt.label;
 					break;
 				case 3: // Percent (value is 0..1 range -> display as %)
 				{
@@ -3447,10 +3377,13 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 					ct.intOnly = juce::String (val, 1) + " dB";
 					break;
 				case 6: // Delay ms (decimal)
+				{
+					const auto shortLabel = fmt.shortLabel != nullptr ? fmt.shortLabel : fmt.label;
 					ct.full    = formatTimeValue (val) + " " + fmt.label;
-					ct.short_  = formatTimeValue (val);
-					ct.intOnly = formatTimeValue (val);
+					ct.short_  = formatTimeValue (val) + " " + shortLabel;
+					ct.intOnly = formatTimeValue (val) + " " + shortLabel;
 					break;
+				}
 			}
 
 			if (! loaderReady)
@@ -3757,10 +3690,10 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB OUT"; }
 	else if (isLimThresh)   { suffix = " dB LIM";      suffixShort = " dB LIM"; }
 	else if (isTilt)        { suffix = " dB TILT";     suffixShort = " dB TILT"; }
-	else if (isStart)       { suffix = " ms START";    suffixShort = " ms START"; }
-	else if (isEnd)         { suffix = " ms END";      suffixShort = " ms END"; }
+	else if (isStart)       { suffix = " ms";          suffixShort = " ms"; }
+	else if (isEnd)         { suffix = " ms";          suffixShort = " ms"; }
 	else if (isSize)        { suffix = " % SIZE";      suffixShort = " % SIZE"; }
-	else if (isDelay)       { suffix = " ms DELAY";    suffixShort = " ms DLY"; }
+	else if (isDelay)       { suffix = " ms";          suffixShort = " ms"; }
 	else if (isPan)         { suffix = " % PAN";       suffixShort = " % PAN"; }
 	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " % ANGLE"; }
 	else if (isPos)         { suffix = " % DIST";     suffixShort = " % DIST"; }
@@ -5301,8 +5234,12 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 			                                    CABTRAudioProcessor::kChaosSpdMax,
 			                                    std::exp (spdLogMin + juce::jlimit (0.0f, 1.0f, spdBar->value) * spdLogRange));
 			auto tip = formatChaosTooltip (newAmt, newSpd);
-			auto& disp = loaderIndex == 0 ? safeThis->chaosDisplayA : (loaderIndex == 1 ? safeThis->chaosDisplayB : safeThis->chaosDisplayC);
-			disp.setTooltip (tip);
+			auto& chaosButton = loaderIndex == 0 ? safeThis->chaosButtonA
+			                  : (loaderIndex == 1 ? safeThis->chaosButtonB : safeThis->chaosButtonC);
+			auto& chaosFilterButton = loaderIndex == 0 ? safeThis->chaosFilterButtonA
+			                        : (loaderIndex == 1 ? safeThis->chaosFilterButtonB : safeThis->chaosFilterButtonC);
+			chaosButton.setTooltip (tip);
+			chaosFilterButton.setTooltip (tip);
 		}),
 		false);
 }
@@ -6498,13 +6435,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				if (auto* p = vts.getParameter (scGainParamId))
 					p->setValueNotifyingHost (p->convertTo0to1 (newScGain));
 
-				auto tip = formatExpTooltip (*orderState, newRatio, newThresh, newScHp, newScLp,
-				                            newScHpOn, newScLpOn, newScHpSlope, newScLpSlope, newScGain);
-				if (newKnee > 0.05f)
-					tip += " | K " + juce::String (newKnee, 1) + " dB";
-				auto& disp = loaderIndex == 0 ? safeThis->expDisplayA
-				           : (loaderIndex == 1 ? safeThis->expDisplayB : safeThis->expDisplayC);
-				disp.setTooltip (tip);
+				auto& button = loaderIndex == 0 ? safeThis->expButtonA
+				             : (loaderIndex == 1 ? safeThis->expButtonB : safeThis->expButtonC);
+				button.setTooltip (formatExpTooltip (*orderState, newRatio));
 			}
 
 			delete viewport;
