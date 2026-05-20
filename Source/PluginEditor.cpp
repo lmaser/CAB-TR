@@ -2268,10 +2268,14 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 
 	auto makeLoaderTabLabel = [] (int startIndex, int visibleCount)
 	{
+		static constexpr const char* singleLabels[] = { "A", "B", "C" };
 		if (visibleCount <= 1)
-			return juce::String (startIndex + 1);
+			return juce::String (singleLabels[juce::jlimit (0, 2, startIndex)]);
 
-		return juce::String (startIndex + 1) + "-" + juce::String (startIndex + visibleCount);
+		if (visibleCount == 2)
+			return startIndex <= 0 ? juce::String ("AB") : juce::String ("BC");
+
+		return juce::String();
 	};
 
 	for (int i = 0; i < cachedLoaderTabCount_; ++i)
@@ -2512,7 +2516,15 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	if (expanded)
 	{
 		// Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS.
-		// This mirrors SAT-TR so both compact common views line up exactly.
+		// CAB keeps the IR selector visible here so both loader views preserve file identity.
+		auto fileArea = area.removeFromTop (80);
+		browseBtn.setBounds (fileArea.removeFromTop (buttonH));
+		browseBtn.setVisible (true);
+		fileArea.removeFromTop (gap);
+		fileDisp.setBounds (fileArea);
+		fileDisp.setVisible (true);
+		area.removeFromTop (gap);
+
 		const int checkH = 42;
 		auto contentArea = area;
 		auto checkArea = contentArea.removeFromBottom (checkH);
@@ -2581,7 +2593,6 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		chaosDisp.setVisible (false);
 
 		// Hide collapsed-only controls
-		browseBtn.setVisible (false); fileDisp.setVisible (false);
 		hp.setVisible (false);     lp.setVisible (false);
 		start.setVisible (false);  end.setVisible (false);
 		size.setVisible (false);   delay.setVisible (false);
@@ -3446,9 +3457,15 @@ int CABTRAudioProcessorEditor::getCompactTargetWidthForLoaderCount (int loaderCo
 
 int CABTRAudioProcessorEditor::getMaxVisibleLoaderCountForWidth (int width) noexcept
 {
-	if (width >= getCompactTargetWidthForLoaderCount (kCompactMaxVisibleLoaders))
+	const int oneLoaderW = getCompactTargetWidthForLoaderCount (1);
+	const int twoLoadersW = getCompactTargetWidthForLoaderCount (2);
+	const int threeLoadersW = getCompactTargetWidthForLoaderCount (3);
+	const int twoLoaderThreshold = (oneLoaderW + twoLoadersW) / 2;
+	const int threeLoaderThreshold = (twoLoadersW + threeLoadersW) / 2;
+
+	if (width >= threeLoaderThreshold)
 		return 3;
-	if (width >= getCompactTargetWidthForLoaderCount (2))
+	if (width >= twoLoaderThreshold)
 		return 2;
 	return 1;
 }
