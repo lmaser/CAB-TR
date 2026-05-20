@@ -2543,6 +2543,9 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const int modeComboLabelOffset = 21;
 	const int modeComboGapY = 8;
 	const int visualComboH = 38;
+	constexpr int loaderHeaderBlockH = 72;
+	constexpr int fileNameGapY = 2;
+	constexpr int filePostGapY = 2;
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
 		return r.withSizeKeepingCentre (r.getWidth(), juce::jmin (h, r.getHeight()));
@@ -2552,13 +2555,13 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	{
 		// Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS.
 		// CAB keeps the IR selector visible here so both loader views preserve file identity.
-		auto fileArea = area.removeFromTop (80);
+		auto fileArea = area.removeFromTop (loaderHeaderBlockH - filePostGapY);
 		browseBtn.setBounds (fileArea.removeFromTop (buttonH));
 		browseBtn.setVisible (true);
-		fileArea.removeFromTop (gap);
+		fileArea.removeFromTop (fileNameGapY);
 		fileDisp.setBounds (fileArea);
 		fileDisp.setVisible (true);
-		area.removeFromTop (gap);
+		area.removeFromTop (filePostGapY);
 
 		const int checkH = 42;
 		auto contentArea = area;
@@ -2652,13 +2655,13 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		//   File selector + loaded filename
 		//   INV / NRM
 		//   RVS / EXP
-		auto fileArea = area.removeFromTop (80);
+		auto fileArea = area.removeFromTop (loaderHeaderBlockH - filePostGapY);
 		browseBtn.setBounds (fileArea.removeFromTop (buttonH));
 		browseBtn.setVisible (true);
-		fileArea.removeFromTop (gap);
+		fileArea.removeFromTop (fileNameGapY);
 		fileDisp.setBounds (fileArea);
 		fileDisp.setVisible (true);
-		area.removeFromTop (gap);
+		area.removeFromTop (filePostGapY);
 
 		const int checkH = 42;
 		auto contentArea = area;
