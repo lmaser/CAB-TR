@@ -2547,6 +2547,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	constexpr int loaderHeaderBlockH = 72;
 	constexpr int fileNameGapY = 2;
 	constexpr int filePostGapY = 2;
+	const int checkH = 42;
+	const int compactBottomSpacer = modeComboLabelOffset + gap * 2;
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
 		return r.withSizeKeepingCentre (r.getWidth(), juce::jmin (h, r.getHeight()));
@@ -2564,14 +2566,13 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		fileDisp.setVisible (true);
 		area.removeFromTop (filePostGapY);
 
-		const int checkH = 42;
 		auto contentArea = area;
 		auto checkArea = contentArea.removeFromBottom (checkH);
-		contentArea.removeFromBottom (gap * 2);
+		contentArea.removeFromBottom (compactBottomSpacer);
 
 		const int layoutOverhead = (gap * 6) + modeComboLabelOffset + modeComboGapY + modeComboLabelOffset;
-		const int collapsedFixedVertical = (checkH * 2) + gap + (gap * 2) + (gap * 7);
-		const int expandedFixedVertical = checkH + (gap * 2) + layoutOverhead;
+		const int collapsedFixedVertical = (checkH * 2) + gap + compactBottomSpacer + (gap * 7);
+		const int expandedFixedVertical = checkH + compactBottomSpacer + layoutOverhead;
 		contentArea.removeFromBottom (juce::jmax (0, collapsedFixedVertical - expandedFixedVertical));
 		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 8);
 		const int expandedVisualSliderH = juce::jlimit (24, 32, sliderH);
@@ -2664,12 +2665,11 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		fileDisp.setVisible (true);
 		area.removeFromTop (filePostGapY);
 
-		const int checkH = 42;
 		auto contentArea = area;
 		auto rvsExpArea = contentArea.removeFromBottom (checkH);
 		contentArea.removeFromBottom (gap);
 		auto invNormArea = contentArea.removeFromBottom (checkH);
-		contentArea.removeFromBottom (gap * 2);
+		contentArea.removeFromBottom (compactBottomSpacer);
 
 		const int collapsedTotalGap = gap * 7; // 7 slider gaps between 8 slider rows.
 		const int collapsedSliderH = juce::jmax (20, (contentArea.getHeight() - collapsedTotalGap) / 8);
