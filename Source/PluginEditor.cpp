@@ -86,6 +86,7 @@ namespace
 	constexpr int kCompactLoaderTabWidthPx = 34;
 	constexpr int kCompactLoaderTabHeightPx = 52;
 	constexpr int kCompactLoaderTabGapPx = 10;
+	constexpr int kCompactLoaderTabSafeInsetRightPx = 10;
 	constexpr int kCompactFooterRailSlotHeightPx = 34;
 	constexpr int kCompactFooterRailHeightPx = 28;
 	constexpr int kCompactFooterRailWidthPx = 132;
@@ -2457,7 +2458,8 @@ void CABTRAudioProcessorEditor::resized()
 			auto loaderArea = (viewSlot == visibleLoaderCount_ - 1) ? fixedLoaderBounds
 			                                                       : fixedLoaderBounds.removeFromLeft (kCompactLoaderColumnWidthPx);
 			columnLeft_[loader] = loaderArea.getX() + getCompactLoaderContentSideInsetPx();
-			columnRight_[loader] = loaderArea.getRight() - getCompactLoaderContentSideInsetPx();
+			columnRight_[loader] = loaderArea.getRight() - getCompactLoaderContentSideInsetPx()
+			                     - kCompactLoaderTabSafeInsetRightPx;
 			layoutIRSection (loaderArea, loader);
 		}
 	}
@@ -2481,8 +2483,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const int railSafeInsetPx = juce::jmax (0, getCompactLoaderContentSideInsetPx() - margin);
 	area.reduce (railSafeInsetPx, 0);
 	area.reduce (margin, margin);
-	constexpr int loaderTabSafeInsetRightPx = 10;
-	area.removeFromRight (loaderTabSafeInsetRightPx);
+	area.removeFromRight (kCompactLoaderTabSafeInsetRightPx);
 
 	// Enable checkbox at top
 	auto& enableBtn = pick (enableButtonA, enableButtonB, enableButtonC);
