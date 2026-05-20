@@ -255,6 +255,15 @@ namespace
 	   #endif
 	}
 
+	static juce::String getDisplayFolderSuffix()
+	{
+	   #if JUCE_WINDOWS
+		return "\\";
+	   #else
+		return "/";
+	   #endif
+	}
+
 	static juce::File getNavigableParentFolder (const juce::File& folder)
 	{
 		if (! folder.exists() || ! folder.isDirectory())
@@ -343,7 +352,7 @@ namespace
 
 			juce::String displayText = item.displayName;
 			if (item.isDirectory)
-				displayText += "/";
+				displayText += getDisplayFolderSuffix();
 
 			g.drawText (displayText, 8, 0, width - 16, height, juce::Justification::centredLeft, true);
 		}
@@ -1590,11 +1599,12 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	r.browseBtn.setColour (juce::TextButton::buttonColourId, activeScheme.bg);
 
 	addAndMakeVisible (r.fileDisp);
+	r.fileDisp.setOwner (this, loaderIndex);
 	r.fileDisp.setText ("No file loaded", juce::dontSendNotification);
 	r.fileDisp.setJustificationType (juce::Justification::centred);
 	r.fileDisp.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Bold")));
 	r.fileDisp.setMinimumHorizontalScale (0.55f);
-	r.fileDisp.setInterceptsMouseClicks (false, false);
+	r.fileDisp.setInterceptsMouseClicks (true, false);
 
 	using ST = BarSlider::Type;
 	auto setupSlider = [this] (BarSlider& slider, const juce::String& /*tooltip*/, ST type) {

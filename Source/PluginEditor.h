@@ -298,9 +298,7 @@ private:
 		bool isInterestedInFileDrag (const juce::StringArray& files) override
 		{
 			for (const auto& f : files)
-				if (f.endsWithIgnoreCase (".wav") || f.endsWithIgnoreCase (".aif") ||
-				    f.endsWithIgnoreCase (".aiff") || f.endsWithIgnoreCase (".flac") ||
-				    f.endsWithIgnoreCase (".mp3") || f.endsWithIgnoreCase (".ogg"))
+				if (isSupportedIRDragPath (f))
 					return true;
 			return false;
 		}
@@ -309,6 +307,47 @@ private:
 		{
 			if (owner == nullptr || files.isEmpty())
 				return;
+			juce::File droppedFile (files[0]);
+			owner->loadIRFile (files[0], loaderIndex);
+			if (droppedFile.existsAsFile())
+			{
+				juce::File* folders[] = { &owner->currentFolderA, &owner->currentFolderB, &owner->currentFolderC };
+				*folders[loaderIndex] = droppedFile.getParentDirectory();
+			}
+		}
+
+		static bool isSupportedIRDragPath (const juce::String& path)
+		{
+			return path.endsWithIgnoreCase (".wav") || path.endsWithIgnoreCase (".aif") ||
+			       path.endsWithIgnoreCase (".aiff") || path.endsWithIgnoreCase (".flac") ||
+			       path.endsWithIgnoreCase (".mp3") || path.endsWithIgnoreCase (".ogg") ||
+			       path.endsWithIgnoreCase (".ir");
+		}
+
+	private:
+		CABTRAudioProcessorEditor* owner = nullptr;
+		int loaderIndex = 0;
+	};
+
+	class IRFileLabel : public juce::Label,
+	                    public juce::FileDragAndDropTarget
+	{
+	public:
+		void setOwner (CABTRAudioProcessorEditor* o, int idx) { owner = o; loaderIndex = idx; }
+
+		bool isInterestedInFileDrag (const juce::StringArray& files) override
+		{
+			for (const auto& f : files)
+				if (BrowseButton::isSupportedIRDragPath (f))
+					return true;
+			return false;
+		}
+
+		void filesDropped (const juce::StringArray& files, int /*x*/, int /*y*/) override
+		{
+			if (owner == nullptr || files.isEmpty())
+				return;
+
 			juce::File droppedFile (files[0]);
 			owner->loadIRFile (files[0], loaderIndex);
 			if (droppedFile.existsAsFile())
@@ -328,7 +367,7 @@ private:
 	// ============================================================================
 	struct LoaderRefs
 	{
-		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  juce::Label &fileDisp;
+		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  IRFileLabel &fileDisp;
 		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso, &variation;
 		juce::ToggleButton &inv, &norm, &rvs, &exp, &chaos, &chaosFilter;  juce::Label &chaosDisp, &expDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus, &filterPos;
@@ -377,7 +416,7 @@ private:
 	// ============================================================================
 	juce::ToggleButton enableButtonA;
 	BrowseButton browseButtonA;
-	juce::Label fileDisplayA;
+	IRFileLabel fileDisplayA;
 
 	BarSlider hpFreqSliderA;
 	BarSlider lpFreqSliderA;
@@ -438,7 +477,7 @@ private:
 	// ============================================================================
 	juce::ToggleButton enableButtonB;
 	BrowseButton browseButtonB;
-	juce::Label fileDisplayB;
+	IRFileLabel fileDisplayB;
 
 	BarSlider hpFreqSliderB;
 	BarSlider lpFreqSliderB;
@@ -499,7 +538,7 @@ private:
 	// ============================================================================
 	juce::ToggleButton enableButtonC;
 	BrowseButton browseButtonC;
-	juce::Label fileDisplayC;
+	IRFileLabel fileDisplayC;
 
 	BarSlider hpFreqSliderC;
 	BarSlider lpFreqSliderC;
