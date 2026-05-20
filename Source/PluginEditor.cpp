@@ -2446,6 +2446,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const int railSafeInsetPx = juce::jmax (0, getCompactLoaderContentSideInsetPx() - margin);
 	area.reduce (railSafeInsetPx, 0);
 	area.reduce (margin, margin);
+	constexpr int loaderTabSafeInsetRightPx = 10;
+	area.removeFromRight (loaderTabSafeInsetRightPx);
 
 	// Enable checkbox at top
 	auto& enableBtn = pick (enableButtonA, enableButtonB, enableButtonC);
