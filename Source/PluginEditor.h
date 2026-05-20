@@ -51,6 +51,15 @@ private:
 	void openMixSendPrompt();
 	void applyLabelTextColour (juce::Label& label, juce::Colour colour);
 	void layoutIRSection (juce::Rectangle<int> area, int loaderIndex);
+	static int getCompactTargetWidthForLoaderCount (int loaderCount) noexcept;
+	static int getMaxVisibleLoaderCountForWidth (int width) noexcept;
+	void clearCompactRailAreas() noexcept;
+	void setVisibleLoaderCount (int loaderCount, bool requestResize);
+	void setFirstVisibleLoaderIndex (int loaderIndex);
+	void setFooterExpanded (bool shouldBeExpanded);
+	void hideLoaderSection (int loaderIndex);
+	void hideFooterControls();
+	void layoutFooterControls (juce::Rectangle<int> area);
 	void updateLoaderEnabledState (int loaderIndex);
 	bool loaderHasLoadedIR (int loaderIndex) const;
 	juce::String getMixText() const;
@@ -570,6 +579,19 @@ private:
 	juce::Rectangle<int> cachedToggleBarAreaB_;
 	juce::Rectangle<int> cachedToggleBarAreaC_;
 
+	// Loader/footer compaction state. Mirrors SAT-TR; later phases wire this
+	// into CAB-TR's IR-specific layout without changing DSP behaviour.
+	int visibleLoaderCount_ = 3;
+	int firstVisibleLoaderIndex_ = 0;
+	bool footerExpanded_ = false;
+	bool applyingCompactResize_ = false;
+	int cachedHeaderTitleX_ = 16;
+	juce::Rectangle<int> cachedLeftLoaderRailArea_;
+	juce::Rectangle<int> cachedRightLoaderRailArea_;
+	juce::Rectangle<int> cachedFooterRailArea_;
+	juce::Rectangle<int> cachedFooterPanelArea_;
+	juce::Rectangle<int> cachedFooterTitleArea_;
+
 	// ============================================================================
 	//  UI Components - Global
 	// ============================================================================
@@ -682,6 +704,7 @@ private:
 	juce::String cachedMixIntOnly;
 
 	// Column right edges (set in resized(), used by getValueAreaFor())
+	int columnLeft_[3] = {};
 	int columnRight_[3] = {};
 
 	// Value display areas (calculated in paint(), used for click detection)

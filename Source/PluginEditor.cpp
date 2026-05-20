@@ -75,10 +75,28 @@ namespace
 
 	constexpr int kFooterMixValueWidthPx = 56;
 	constexpr int kFooterDbValueWidthPx = 66;
+	constexpr int kCompactLoaderColumnWidthPx = 360;
+	constexpr int kCompactFixedHeightPx = 752;
+	constexpr int kCompactMinVisibleLoaders = 1;
+	constexpr int kCompactMaxVisibleLoaders = 3;
+	constexpr int kCompactSideRailWidthPx = 18;
+	constexpr int kCompactSideRailSlotWidthPx = 32;
+	constexpr int kCompactSideRailYInsetPx = 86;
+	constexpr int kCompactFooterRailSlotHeightPx = 34;
+	constexpr int kCompactFooterRailHeightPx = 22;
+	constexpr int kCompactFooterRailXInsetPx = 18;
+	constexpr int kCompactFooterPanelWidthPx = 500;
 
 	juce::Rectangle<int> makeFooterValueArea (const juce::Rectangle<int>& barBounds, int valueWidthPx)
 	{
 		return { barBounds.getRight() + 4, barBounds.getY(), valueWidthPx, barBounds.getHeight() };
+	}
+
+	juce::Rectangle<int> makeExpandedFooterValueArea (int panelRight, const juce::Rectangle<int>& barBounds)
+	{
+		return { barBounds.getRight() + 10, barBounds.getY() - 2,
+		         juce::jmax (0, panelRight - barBounds.getRight() - 10),
+		         barBounds.getHeight() + 4 };
 	}
 
 	float expRatioInternalToDisplay (float internalRatio) noexcept
@@ -1873,12 +1891,19 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 	refreshLegendTextCache();
 	legendDirty = false;
 
-	// Restore persisted window size
-	const int restoredW = juce::jlimit (800, 2000, audioProcessor.getUiEditorWidth());
-	const int restoredH = juce::jlimit (740, 1200, audioProcessor.getUiEditorHeight());
+	// Restore persisted window size. SAT/CAB compact layout uses one fixed
+	// column height and up to three loader-width columns.
+	const int restoredW = juce::jlimit (getCompactTargetWidthForLoaderCount (kCompactMinVisibleLoaders),
+	                                    getCompactTargetWidthForLoaderCount (kCompactMaxVisibleLoaders),
+	                                    audioProcessor.getUiEditorWidth());
+	const int restoredH = kCompactFixedHeightPx;
+	visibleLoaderCount_ = getMaxVisibleLoaderCountForWidth (restoredW);
 	setSize (restoredW, restoredH);
 	setResizable (true, true);
-	setResizeLimits (800, 740, 2000, 1200);
+	setResizeLimits (getCompactTargetWidthForLoaderCount (kCompactMinVisibleLoaders),
+	                 kCompactFixedHeightPx,
+	                 getCompactTargetWidthForLoaderCount (kCompactMaxVisibleLoaders),
+	                 kCompactFixedHeightPx);
 
 	// Start timer
 	startTimer (kIdleTimerHz);
@@ -1957,7 +1982,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 
 	// Title & version
 	{
-		constexpr int titleX = 16;
+		const int titleX = cachedHeaderTitleX_;
 		constexpr int titleY = 12;
 		constexpr int titleH = 32;
 		g.setFont (juce::Font (juce::FontOptions (28.0f).withStyle ("Bold")));
@@ -1984,90 +2009,122 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText (juce::String ("v") + InfoContent::version, versionX, versionY, versionW, versionH,
 			            juce::Justification::bottomRight, false);
 
-		// Footer combo labels - explicit font + colour
-		g.setColour (activeScheme.text);
-		g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")));
-
-		const auto routeArea = routeCombo.getBounds().withHeight (16).translated (0, -18);
-		g.drawText ("ROUTE", routeArea, juce::Justification::centred);
-
-		const auto matchArea = matchCombo.getBounds().withHeight (16).translated (0, -18);
-		g.drawText ("MATCH", matchArea, juce::Justification::centred);
-
-		// MIX MODE combo label
-		if (mixModeCombo.isVisible())
+		if (footerExpanded_ && ! cachedFooterTitleArea_.isEmpty())
 		{
-			const auto mmArea = mixModeCombo.getBounds().withHeight (16).translated (0, -18);
-			g.drawText ("MIX", mmArea, juce::Justification::centred);
+			g.setColour (activeScheme.text);
+			g.setFont (juce::Font (juce::FontOptions (28.0f).withStyle ("Bold")));
+			g.drawText ("GLOBAL", cachedFooterTitleArea_, juce::Justification::centred);
 		}
+
+		auto drawFooterComboLabel = [&] (juce::ComboBox& combo, const juce::String& text)
+		{
+			if (! combo.isVisible()) return;
+
+			g.setColour (activeScheme.text);
+			g.setFont (lnf.getComboBoxFont (combo));
+			const auto labelArea = combo.getBounds().withHeight (22).translated (0, -24);
+			g.drawText (text, labelArea, juce::Justification::centred);
+		};
+
+		drawFooterComboLabel (routeCombo, "ROUTE");
+		drawFooterComboLabel (matchCombo, "MATCH");
+		drawFooterComboLabel (mixModeCombo, "MIX");
 
 		// Global MIX label + value (right of bar)
 		if (globalMixSlider.isVisible())
 		{
 			const auto mixBounds = globalMixSlider.getBounds();
-			const auto mixArea = mixBounds.withHeight (16).translated (0, -18);
-			g.drawText ("MIX", mixArea, juce::Justification::centred);
+			if (! footerExpanded_)
+			{
+				const auto mixArea = mixBounds.withHeight (16).translated (0, -18);
+				g.drawText ("MIX", mixArea, juce::Justification::centred);
+			}
 
 			const int gMixPct = juce::roundToInt (globalMixSlider.getValue() * 100.0);
-			const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
-			g.drawText (juce::String (gMixPct) + "%", valArea, juce::Justification::centredLeft);
+			if (footerExpanded_)
+			{
+				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), mixBounds);
+				const auto txt = juce::String (gMixPct) + "%";
+				tryDrawLegend (valArea, txt + " MIX", txt + " MX", txt);
+			}
+			else
+			{
+				const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
+				g.drawText (juce::String (gMixPct) + "%", valArea, juce::Justification::centredLeft);
+			}
 		}
 		else if (dualMixBar_.isVisible())
 		{
 			const auto mixBounds = dualMixBar_.getBounds();
-			const auto mixArea = mixBounds.withHeight (16).translated (0, -18);
-			g.drawText ("MIX", mixArea, juce::Justification::centred);
+			if (! footerExpanded_)
+			{
+				const auto mixArea = mixBounds.withHeight (16).translated (0, -18);
+				g.drawText ("MIX", mixArea, juce::Justification::centred);
+			}
 
-			const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
-			g.drawText (cachedMixIntOnly, valArea, juce::Justification::centredLeft);
+			if (footerExpanded_)
+			{
+				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), mixBounds);
+				tryDrawLegend (valArea, cachedMixTextFull + " MIX", cachedMixTextShort + " MX", cachedMixIntOnly);
+			}
+			else
+			{
+				const auto valArea = makeFooterValueArea (mixBounds, kFooterMixValueWidthPx);
+				g.drawText (cachedMixIntOnly, valArea, juce::Justification::centredLeft);
+			}
 		}
 
 		// Global OUTPUT label + value (right of bar)
 		if (globalOutputSlider.isVisible())
 		{
 			const auto outBounds = globalOutputSlider.getBounds();
-			const auto outArea = outBounds.withHeight (16).translated (0, -18);
-			g.drawText ("OUTPUT", outArea, juce::Justification::centred);
+			if (! footerExpanded_)
+			{
+				const auto outArea = outBounds.withHeight (16).translated (0, -18);
+				g.drawText ("OUTPUT", outArea, juce::Justification::centred);
+			}
 
 			const float gOutDb = (float) globalOutputSlider.getValue();
 			juce::String outTxt = formatGainFaderDb (gOutDb);
-			const auto valArea = makeFooterValueArea (outBounds, kFooterDbValueWidthPx);
-			g.drawText (outTxt, valArea, juce::Justification::centredLeft);
+			if (footerExpanded_)
+			{
+				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), outBounds);
+				tryDrawLegend (valArea, outTxt + " OUT", outTxt + " OUT", outTxt);
+			}
+			else
+			{
+				const auto valArea = makeFooterValueArea (outBounds, kFooterDbValueWidthPx);
+				g.drawText (outTxt, valArea, juce::Justification::centredLeft);
+			}
 		}
 
 		// LIM label + value (right of bar)
 		if (limThresholdSlider.isVisible())
 		{
 			const auto limBounds = limThresholdSlider.getBounds();
-			const auto limArea = limBounds.withHeight (16).translated (0, -18);
-			g.drawText ("LIM", limArea, juce::Justification::centred);
+			if (! footerExpanded_)
+			{
+				const auto limArea = limBounds.withHeight (16).translated (0, -18);
+				g.drawText ("LIM", limArea, juce::Justification::centred);
+			}
 
 			const float limDb = (float) limThresholdSlider.getValue();
 			juce::String limTxt = juce::String (limDb, 1) + " dB";
-			const auto valArea = makeFooterValueArea (limBounds, kFooterDbValueWidthPx);
-			g.drawText (limTxt, valArea, juce::Justification::centredLeft);
+			if (footerExpanded_)
+			{
+				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), limBounds);
+				tryDrawLegend (valArea, limTxt + " LIM", limTxt + " LIM", limTxt);
+			}
+			else
+			{
+				const auto valArea = makeFooterValueArea (limBounds, kFooterDbValueWidthPx);
+				g.drawText (limTxt, valArea, juce::Justification::centredLeft);
+			}
 		}
 
-		// LIM MODE combo label
-		if (limModeCombo.isVisible())
-		{
-			const auto lmArea = limModeCombo.getBounds().withHeight (16).translated (0, -18);
-			g.drawText ("LIMIT", lmArea, juce::Justification::centred);
-		}
-
-		// INV POL combo label
-		if (invPolCombo.isVisible())
-		{
-			const auto ipArea = invPolCombo.getBounds().withHeight (16).translated (0, -18);
-			g.drawText ("INV POL", ipArea, juce::Justification::centred);
-		}
-
-		// INV STR combo label
-		if (invStrCombo.isVisible())
-		{
-			const auto isArea = invStrCombo.getBounds().withHeight (16).translated (0, -18);
-			g.drawText ("INV STR", isArea, juce::Justification::centred);
-		}
+		drawFooterComboLabel (limModeCombo, "LIMIT");
+		drawFooterComboLabel (invPolCombo, "INV POL");
+		drawFooterComboLabel (invStrCombo, "INV STR");
 	}
 
 	// Per-loader MODE IN / MODE OUT labels (only when that loader is expanded)
@@ -2163,6 +2220,13 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 	if (promptOverlayActive)
 		return;
 
+	const bool tooltipVisible = tooltipWindow != nullptr && tooltipWindow->isVisible();
+	if (tooltipVisible)
+	{
+		g.saveState();
+		g.excludeClipRegion (tooltipWindow->getBounds().expanded (2));
+	}
+
 	// Per-loader toggle bars (triangle + rounded horizontal bar)
 	auto drawToggleBar = [&] (const juce::Rectangle<int>& area, bool expanded)
 	{
@@ -2196,6 +2260,72 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 	drawToggleBar (cachedToggleBarAreaA_, ioExpandedA_);
 	drawToggleBar (cachedToggleBarAreaB_, ioExpandedB_);
 	drawToggleBar (cachedToggleBarAreaC_, ioExpandedC_);
+
+	auto drawSideRail = [&] (const juce::Rectangle<int>& area, bool pointsRight)
+	{
+		if (area.isEmpty()) return;
+
+		const float radius = (float) area.getWidth() * 0.55f;
+		g.setColour (activeScheme.fg.withAlpha (0.25f));
+		g.fillRoundedRectangle (area.toFloat(), radius);
+
+		const float triW = (float) area.getWidth() * 0.75f;
+		const float triH = triW * 1.15f;
+		const float cx = (float) area.getCentreX();
+		const float cy = (float) area.getCentreY();
+
+		juce::Path tri;
+		if (pointsRight)
+		{
+			tri.addTriangle (cx - triW * 0.35f, cy - triH * 0.5f,
+			                 cx - triW * 0.35f, cy + triH * 0.5f,
+			                 cx + triW * 0.35f, cy);
+		}
+		else
+		{
+			tri.addTriangle (cx + triW * 0.35f, cy - triH * 0.5f,
+			                 cx + triW * 0.35f, cy + triH * 0.5f,
+			                 cx - triW * 0.35f, cy);
+		}
+
+		g.setColour (activeScheme.text);
+		g.fillPath (tri);
+	};
+
+	drawSideRail (cachedLeftLoaderRailArea_, false);
+	drawSideRail (cachedRightLoaderRailArea_, true);
+
+	if (! cachedFooterRailArea_.isEmpty())
+	{
+		const float radius = (float) cachedFooterRailArea_.getHeight() * 0.3f;
+		g.setColour (activeScheme.fg.withAlpha (0.25f));
+		g.fillRoundedRectangle (cachedFooterRailArea_.toFloat(), radius);
+
+		const float triH = (float) cachedFooterRailArea_.getHeight() * 0.78f;
+		const float triW = triH * 1.125f;
+		const float cx = (float) cachedFooterRailArea_.getCentreX();
+		const float cy = (float) cachedFooterRailArea_.getCentreY();
+
+		juce::Path tri;
+		if (footerExpanded_)
+		{
+			tri.addTriangle (cx - triW * 0.5f, cy + triH * 0.35f,
+			                 cx + triW * 0.5f, cy + triH * 0.35f,
+			                 cx,               cy - triH * 0.35f);
+		}
+		else
+		{
+			tri.addTriangle (cx - triW * 0.5f, cy - triH * 0.35f,
+			                 cx + triW * 0.5f, cy - triH * 0.35f,
+			                 cx,               cy + triH * 0.35f);
+		}
+
+		g.setColour (activeScheme.text);
+		g.fillPath (tri);
+	}
+
+	if (tooltipVisible)
+		g.restoreState();
 }
 
 //==============================================================================
@@ -2203,13 +2333,30 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 //==============================================================================
 void CABTRAudioProcessorEditor::resized()
 {
+	if (! applyingCompactResize_)
+	{
+		const int snappedW = getCompactTargetWidthForLoaderCount (getMaxVisibleLoaderCountForWidth (getWidth()));
+		if (getWidth() != snappedW || getHeight() != kCompactFixedHeightPx)
+		{
+			juce::ScopedValueSetter<bool> guard (applyingCompactResize_, true);
+			setSize (snappedW, kCompactFixedHeightPx);
+			return;
+		}
+	}
+
 	// Persist window size to processor
 	audioProcessor.setUiEditorSize (getWidth(), getHeight());
 
 	auto bounds = getLocalBounds();
+	clearCompactRailAreas();
+	cachedToggleBarAreaA_ = {};
+	cachedToggleBarAreaB_ = {};
+	cachedToggleBarAreaC_ = {};
+	cachedValueAreas_.fill (juce::Rectangle<int>());
 	
 	// Header (title area + buttons)
 	auto header = bounds.removeFromTop (40);
+	cachedHeaderTitleX_ = kCompactSideRailSlotWidthPx + 10;
 
 	// Place ALIGN checkbox in header, next to the export icon
 	{
@@ -2221,104 +2368,63 @@ void CABTRAudioProcessorEditor::resized()
 		alignButton.setBounds (alignX, alignY, alignW, alignH);
 	}
 
-	// Footer for global controls (two rows)
-	auto footer = bounds.removeFromBottom (100);
-	
-	// Split remaining area into three columns for A, B and C
-	const int colWidth = bounds.getWidth() / 3;
-	auto leftArea = bounds.removeFromLeft (colWidth);
-	auto midArea = bounds.removeFromLeft (colWidth);
-	auto rightArea = bounds;
+	// Bottom rail toggles between loader view and the global footer view.
+	auto footerRailSlot = bounds.removeFromBottom (kCompactFooterRailSlotHeightPx);
+	cachedFooterRailArea_ = footerRailSlot
+		.reduced (kCompactFooterRailXInsetPx, juce::jmax (0, (footerRailSlot.getHeight() - kCompactFooterRailHeightPx) / 2))
+		.withHeight (kCompactFooterRailHeightPx);
 
-	// Store column right edges for value area clamping
-	columnRight_[0] = leftArea.getRight();
-	columnRight_[1] = midArea.getRight();
-	columnRight_[2] = rightArea.getRight();
-
-	// Layout IR Loader A
-	layoutIRSection (leftArea, 0);
-
-	// Layout IR Loader B
-	layoutIRSection (midArea, 1);
-
-	// Layout IR Loader C
-	layoutIRSection (rightArea, 2);
-
-
-
-	// Layout footer: two rows
-	// Row 1: MIX bar+val | OUTPUT bar+val | LIM bar+val
-	// Row 2: ROUTE | MATCH | LIMIT | INV POL | INV STR | ALIGN
-	const int footerMargin = 10;
-	const int barH         = 22;
-	const int topPad       = 10;   // space above row 1 (separation from loaders)
-	const int rowGap       = 14;   // space between row 1 and row 2
-	const int bottomPad    = 12;   // space below row 2
-
-	// Apply vertical padding
-	footer.removeFromTop (topPad);
-	footer.removeFromBottom (bottomPad);
-
-	// Split remaining footer into two rows
-	auto footerRow1 = footer.removeFromTop ((footer.getHeight() - rowGap) / 2);
-	footer.removeFromTop (rowGap);
-	auto footerRow2 = footer;
-
-	// Row 1: MIX / OUTPUT / LIM - uniform bar widths across full width
+	if (footerExpanded_)
 	{
-		const int mixValW    = 60;
-		const int outValW    = 70;
-		const int limValW    = 70;
-		const int secGap     = 12;
-
-		auto area = footerRow1.reduced (footerMargin, 0);
-		auto row  = area.withSizeKeepingCentre (area.getWidth(), barH);
-
-		const int fixedW = mixValW + outValW + limValW + secGap * 2;
-		const int barW   = juce::jmax (30, (row.getWidth() - fixedW) / 3);
-
-		const bool isSendMode = mixModeCombo.getSelectedId() == 2;
-		auto mixBarArea = row.removeFromLeft (barW);
-		if (isSendMode)
-		{
-			globalMixSlider.setVisible (false);
-			dualMixBar_.setBounds (mixBarArea);
-			dualMixBar_.setVisible (true);
-		}
-		else
-		{
-			globalMixSlider.setBounds (mixBarArea);
-			globalMixSlider.setVisible (true);
-			dualMixBar_.setBounds (0, 0, 0, 0);
-			dualMixBar_.setVisible (false);
-		}
-		row.removeFromLeft (mixValW);
-		row.removeFromLeft (secGap);
-
-		globalOutputSlider.setBounds (row.removeFromLeft (barW));
-		row.removeFromLeft (outValW);
-		row.removeFromLeft (secGap);
-
-		limThresholdSlider.setBounds (row.removeFromLeft (barW));
+		for (int loader = 0; loader < 3; ++loader)
+			hideLoaderSection (loader);
+		layoutFooterControls (bounds);
 	}
-
-	// Row 2: ROUTE | MATCH | MIX | LIMIT | INV POL | INV STR - uniform
+	else
 	{
-		auto area = footerRow2.reduced (footerMargin, 0);
-		auto row  = area.withSizeKeepingCentre (area.getWidth(), 26);
+		hideFooterControls();
+		for (int loader = 0; loader < 3; ++loader)
+			hideLoaderSection (loader);
 
-		trimCombo.setVisible (false);
+		visibleLoaderCount_ = getMaxVisibleLoaderCountForWidth (bounds.getWidth());
+		firstVisibleLoaderIndex_ = juce::jlimit (0,
+		                                         kCompactMaxVisibleLoaders - visibleLoaderCount_,
+		                                         firstVisibleLoaderIndex_);
 
-		const int numItems = 6;
-		const int gap = 4;
-		const int itemW = (row.getWidth() - gap * (numItems - 1)) / numItems;
+		auto loaderBounds = bounds;
+		const bool showLeftRail = firstVisibleLoaderIndex_ > 0;
+		const bool showRightRail = firstVisibleLoaderIndex_ + visibleLoaderCount_ < kCompactMaxVisibleLoaders;
+		const auto leftRailSlot = loaderBounds.removeFromLeft (kCompactSideRailSlotWidthPx);
+		const auto rightRailSlot = loaderBounds.removeFromRight (kCompactSideRailSlotWidthPx);
 
-		routeCombo.setBounds   (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
-		matchCombo.setBounds   (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
-		mixModeCombo.setBounds (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
-		limModeCombo.setBounds (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
-		invPolCombo.setBounds  (row.removeFromLeft (itemW));  row.removeFromLeft (gap);
-		invStrCombo.setBounds  (row);
+		if (showLeftRail || showRightRail)
+		{
+			auto makeSideRail = [&] (juce::Rectangle<int> slot)
+			{
+				const int y = bounds.getY() + kCompactSideRailYInsetPx;
+				const int h = juce::jmax (0, bounds.getHeight() - kCompactSideRailYInsetPx * 2);
+				return juce::Rectangle<int> { slot.getCentreX() - (kCompactSideRailWidthPx / 2), y,
+				                              kCompactSideRailWidthPx, h };
+			};
+
+			if (showLeftRail)
+				cachedLeftLoaderRailArea_ = makeSideRail (leftRailSlot);
+			if (showRightRail)
+				cachedRightLoaderRailArea_ = makeSideRail (rightRailSlot);
+		}
+
+		const int fixedLoadersW = juce::jmin (loaderBounds.getWidth(),
+		                                      visibleLoaderCount_ * kCompactLoaderColumnWidthPx);
+		auto fixedLoaderBounds = loaderBounds.withWidth (fixedLoadersW);
+		for (int viewSlot = 0; viewSlot < visibleLoaderCount_; ++viewSlot)
+		{
+			const int loader = firstVisibleLoaderIndex_ + viewSlot;
+			auto loaderArea = (viewSlot == visibleLoaderCount_ - 1) ? fixedLoaderBounds
+			                                                       : fixedLoaderBounds.removeFromLeft (kCompactLoaderColumnWidthPx);
+			columnLeft_[loader] = loaderArea.getX();
+			columnRight_[loader] = loaderArea.getRight();
+			layoutIRSection (loaderArea, loader);
+		}
 	}
 
 	promptOverlay.setBounds (getLocalBounds());
@@ -2342,6 +2448,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	// Enable checkbox at top
 	auto& enableBtn = pick (enableButtonA, enableButtonB, enableButtonC);
 	enableBtn.setBounds (area.removeFromTop (buttonH));
+	enableBtn.setVisible (true);
 	area.removeFromTop (gap);
 
 	// File explorer section
@@ -2350,8 +2457,10 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& fileDisp = pick (fileDisplayA, fileDisplayB, fileDisplayC);
 	
 	browseBtn.setBounds (fileArea.removeFromTop (buttonH));
+	browseBtn.setVisible (true);
 	fileArea.removeFromTop (gap);
 	fileDisp.setBounds (fileArea);
+	fileDisp.setVisible (true);
 	area.removeFromTop (gap);
 
 	// Toggle bar area - full column width (union computed in resized)
@@ -3131,6 +3240,27 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 {
 	const auto p = e.getEventRelativeTo (this).getPosition();
 
+	if (! e.mods.isPopupMenu())
+	{
+		if (cachedFooterRailArea_.contains (p))
+		{
+			setFooterExpanded (! footerExpanded_);
+			return;
+		}
+
+		if (cachedLeftLoaderRailArea_.contains (p))
+		{
+			setFirstVisibleLoaderIndex (firstVisibleLoaderIndex_ - 1);
+			return;
+		}
+
+		if (cachedRightLoaderRailArea_.contains (p))
+		{
+			setFirstVisibleLoaderIndex (firstVisibleLoaderIndex_ + 1);
+			return;
+		}
+	}
+
 	// Toggle IO section expand/collapse (per-loader independent)
 	{
 		struct { juce::Rectangle<int>& area; bool& state; int idx; } bars[] = {
@@ -3219,7 +3349,8 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 	if (e.mods.isPopupMenu())
 	{
 		if (dualMixBar_.isVisible()
-			&& makeFooterValueArea (dualMixBar_.getBounds(), kFooterMixValueWidthPx).contains (p))
+			&& (footerExpanded_ ? makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), dualMixBar_.getBounds())
+			                    : makeFooterValueArea (dualMixBar_.getBounds(), kFooterMixValueWidthPx)).contains (p))
 		{
 			openMixSendPrompt();
 			return;
@@ -3293,6 +3424,199 @@ void CABTRAudioProcessorEditor::setupBar (juce::Slider& s)
 	s.setColour (juce::Slider::trackColourId, juce::Colours::transparentBlack);
 	s.setColour (juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
 	s.setColour (juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+}
+
+int CABTRAudioProcessorEditor::getCompactTargetWidthForLoaderCount (int loaderCount) noexcept
+{
+	const int safeCount = juce::jlimit (kCompactMinVisibleLoaders, kCompactMaxVisibleLoaders, loaderCount);
+	const int railSlots = kCompactSideRailSlotWidthPx * 2;
+	return safeCount * kCompactLoaderColumnWidthPx + railSlots;
+}
+
+int CABTRAudioProcessorEditor::getMaxVisibleLoaderCountForWidth (int width) noexcept
+{
+	if (width >= kCompactMaxVisibleLoaders * kCompactLoaderColumnWidthPx)
+		return 3;
+	if (width >= getCompactTargetWidthForLoaderCount (2))
+		return 2;
+	return 1;
+}
+
+void CABTRAudioProcessorEditor::clearCompactRailAreas() noexcept
+{
+	cachedLeftLoaderRailArea_ = {};
+	cachedRightLoaderRailArea_ = {};
+	cachedFooterRailArea_ = {};
+	cachedFooterPanelArea_ = {};
+	cachedFooterTitleArea_ = {};
+}
+
+void CABTRAudioProcessorEditor::setVisibleLoaderCount (int loaderCount, bool requestResize)
+{
+	const int safeCount = juce::jlimit (kCompactMinVisibleLoaders, kCompactMaxVisibleLoaders, loaderCount);
+	const bool changed = visibleLoaderCount_ != safeCount;
+	visibleLoaderCount_ = safeCount;
+	firstVisibleLoaderIndex_ = juce::jlimit (0,
+	                                         kCompactMaxVisibleLoaders - visibleLoaderCount_,
+	                                         firstVisibleLoaderIndex_);
+
+	if (requestResize)
+	{
+		const int targetW = getCompactTargetWidthForLoaderCount (safeCount);
+		if (getWidth() != targetW || getHeight() != kCompactFixedHeightPx)
+			setSize (targetW, kCompactFixedHeightPx);
+	}
+	else if (changed)
+	{
+		resized();
+	}
+
+	if (changed || requestResize)
+		repaint();
+}
+
+void CABTRAudioProcessorEditor::setFirstVisibleLoaderIndex (int loaderIndex)
+{
+	const int maxFirst = kCompactMaxVisibleLoaders - visibleLoaderCount_;
+	const int safeIndex = juce::jlimit (0, juce::jmax (0, maxFirst), loaderIndex);
+	if (firstVisibleLoaderIndex_ == safeIndex)
+		return;
+
+	firstVisibleLoaderIndex_ = safeIndex;
+	resized();
+	repaint();
+}
+
+void CABTRAudioProcessorEditor::setFooterExpanded (bool shouldBeExpanded)
+{
+	if (footerExpanded_ == shouldBeExpanded)
+		return;
+
+	footerExpanded_ = shouldBeExpanded;
+	resized();
+	repaint();
+}
+
+void CABTRAudioProcessorEditor::hideLoaderSection (int loaderIndex)
+{
+	auto refs = getLoaderRefs (loaderIndex);
+
+	juce::Component* components[] = {
+		&refs.enableBtn, &refs.browseBtn, &refs.fileDisp,
+		&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
+		&refs.start, &refs.end, &refs.size, &refs.pan, &refs.fred, &refs.pos, &refs.reso,
+		&refs.variation, &refs.delay,
+		&refs.inv, &refs.norm, &refs.rvs, &refs.exp, &refs.expDisp,
+		&refs.chaos, &refs.chaosFilter, &refs.chaosDisp,
+		&refs.modeIn, &refs.modeOut, &refs.sumBus, &refs.filterPos,
+		&refs.filterBar, &refs.mix
+	};
+
+	for (auto* component : components)
+	{
+		component->setVisible (false);
+		component->setBounds (0, 0, 0, 0);
+	}
+
+	if (loaderIndex >= 0 && loaderIndex < 3)
+	{
+		columnLeft_[loaderIndex] = 0;
+		columnRight_[loaderIndex] = 0;
+		for (int i = 0; i < kNumCachedParams; ++i)
+			cachedValueAreas_[(size_t) (loaderIndex * kNumCachedParams + i)] = {};
+	}
+
+	if (loaderIndex == 0)
+		cachedToggleBarAreaA_ = {};
+	else if (loaderIndex == 1)
+		cachedToggleBarAreaB_ = {};
+	else if (loaderIndex == 2)
+		cachedToggleBarAreaC_ = {};
+}
+
+void CABTRAudioProcessorEditor::hideFooterControls()
+{
+	juce::Component* components[] = {
+		&globalMixSlider, &dualMixBar_, &globalOutputSlider, &limThresholdSlider,
+		&routeCombo, &matchCombo, &mixModeCombo, &limModeCombo, &invPolCombo, &invStrCombo, &trimCombo
+	};
+
+	for (auto* component : components)
+	{
+		component->setVisible (false);
+		component->setBounds (0, 0, 0, 0);
+	}
+}
+
+void CABTRAudioProcessorEditor::layoutFooterControls (juce::Rectangle<int> area)
+{
+	trimCombo.setVisible (false);
+	trimCombo.setBounds (0, 0, 0, 0);
+
+	const int contentX = juce::jmax (0, cachedHeaderTitleX_);
+	const int availableW = juce::jmax (1, area.getWidth() - contentX * 2);
+	const int panelW = juce::jmin (kCompactFooterPanelWidthPx, availableW);
+	const int panelX = area.getX() + (area.getWidth() - panelW) / 2;
+	auto panel = area.withX (panelX).withWidth (panelW).reduced (0, 28);
+	cachedFooterPanelArea_ = panel;
+	const int barH = 30;
+	const int comboH = 34;
+	const int labelReserve = 24;
+	const int barGap = 18;
+	const int comboGap = 8;
+	const int sliderW = juce::jmin (260, juce::jmax (180, (int) std::round ((double) panelW * 0.52)));
+	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
+	{
+		return r.withSizeKeepingCentre (r.getWidth(), juce::jmin (h, r.getHeight()));
+	};
+
+	auto setMixBarBounds = [&] (juce::Rectangle<int> barArea)
+	{
+		const bool isSendMode = mixModeCombo.getSelectedId() == 2;
+		if (isSendMode)
+		{
+			globalMixSlider.setVisible (false);
+			globalMixSlider.setBounds (0, 0, 0, 0);
+			dualMixBar_.setBounds (barArea);
+			dualMixBar_.setVisible (true);
+		}
+		else
+		{
+			globalMixSlider.setBounds (barArea);
+			globalMixSlider.setVisible (true);
+			dualMixBar_.setBounds (0, 0, 0, 0);
+			dualMixBar_.setVisible (false);
+		}
+	};
+
+	auto placeBar = [&] (juce::Component& component)
+	{
+		auto row = panel.removeFromTop (barH);
+		component.setBounds (fitControlHeight (row.removeFromLeft (sliderW), 28));
+		component.setVisible (true);
+		panel.removeFromTop (barGap);
+	};
+
+	cachedFooterTitleArea_ = panel.removeFromTop (30);
+	panel.removeFromTop (22);
+
+	auto mixRow = panel.removeFromTop (barH);
+	setMixBarBounds (fitControlHeight (mixRow.removeFromLeft (sliderW), 28));
+	panel.removeFromTop (barGap);
+
+	placeBar (globalOutputSlider);
+	placeBar (limThresholdSlider);
+
+	panel.removeFromTop (12);
+
+	juce::ComboBox* combos[] = { &routeCombo, &matchCombo, &mixModeCombo, &limModeCombo, &invPolCombo, &invStrCombo };
+	for (auto* combo : combos)
+	{
+		panel.removeFromTop (labelReserve);
+		combo->setBounds (panel.removeFromTop (comboH));
+		combo->setVisible (true);
+		panel.removeFromTop (comboGap);
+	}
 }
 
 bool CABTRAudioProcessorEditor::refreshLegendTextCache()
@@ -3482,21 +3806,24 @@ juce::Slider* CABTRAudioProcessorEditor::getSliderForValueAreaPoint (juce::Point
 	if (globalMixSlider.isVisible())
 	{
 		const auto mixBounds = globalMixSlider.getBounds();
-		if (makeFooterValueArea (mixBounds, kFooterMixValueWidthPx).contains (p))
+		if ((footerExpanded_ ? makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), mixBounds)
+		                     : makeFooterValueArea (mixBounds, kFooterMixValueWidthPx)).contains (p))
 			return &globalMixSlider;
 	}
 
 	if (globalOutputSlider.isVisible())
 	{
 		const auto outBounds = globalOutputSlider.getBounds();
-		if (makeFooterValueArea (outBounds, kFooterDbValueWidthPx).contains (p))
+		if ((footerExpanded_ ? makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), outBounds)
+		                     : makeFooterValueArea (outBounds, kFooterDbValueWidthPx)).contains (p))
 			return &globalOutputSlider;
 	}
 
 	if (limThresholdSlider.isVisible())
 	{
 		const auto limBounds = limThresholdSlider.getBounds();
-		if (makeFooterValueArea (limBounds, kFooterDbValueWidthPx).contains (p))
+		if ((footerExpanded_ ? makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), limBounds)
+		                     : makeFooterValueArea (limBounds, kFooterDbValueWidthPx)).contains (p))
 			return &limThresholdSlider;
 	}
 
@@ -3543,9 +3870,8 @@ void CABTRAudioProcessorEditor::updateInfoIconCache()
 juce::Rectangle<int> CABTRAudioProcessorEditor::getExportIconArea() const
 {
 	constexpr int size = 24;
-	constexpr int x = 134;
 	constexpr int y = 16;
-	return { x, y, size, size };
+	return { cachedHeaderTitleX_ + 118, y, size, size };
 }
 
 void CABTRAudioProcessorEditor::updateExportIconCache()
