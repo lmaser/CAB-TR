@@ -2181,12 +2181,12 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			const auto refs = getLoaderRefs (loaderIndex);
 			const float alpha = (refs.enableBtn.getToggleState() && loaderHasLoadedIR (loaderIndex)) ? 1.0f : 0.35f;
 			g.setColour (activeScheme.text.withAlpha (alpha));
-			const auto font = juce::Font (juce::FontOptions (15.0f).withStyle ("Bold"));
+			const auto font = juce::Font (juce::FontOptions (17.0f).withStyle ("Bold"));
 			g.setFont (font);
-			const auto miArea = modeIn.getBounds().withHeight (18).translated (0, -19);
-			const auto moArea = modeOut.getBounds().withHeight (18).translated (0, -19);
-			const auto sbArea = sumBus.getBounds().withHeight (18).translated (0, -19);
-			const auto fpArea = filterPos.getBounds().withHeight (18).translated (0, -19);
+			const auto miArea = modeIn.getBounds().withHeight (20).translated (0, -21);
+			const auto moArea = modeOut.getBounds().withHeight (20).translated (0, -21);
+			const auto sbArea = sumBus.getBounds().withHeight (20).translated (0, -21);
+			const auto fpArea = filterPos.getBounds().withHeight (20).translated (0, -21);
 			const float comboW = (float) modeIn.getWidth();
 			juce::GlyphArrangement ga;
 			ga.addLineOfText (font, "MODE OUT", 0.0f, 0.0f);
@@ -2194,7 +2194,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			g.drawText (useShort ? "IN"  : "MODE IN",  miArea, juce::Justification::centred);
 			g.drawText (useShort ? "OUT" : "MODE OUT", moArea, juce::Justification::centred);
 			g.drawText (useShort ? "SUM" : "SUM BUS",  sbArea, juce::Justification::centred);
-			g.drawText ("F / T", fpArea, juce::Justification::centred);
+			g.drawText (useShort ? "F/T" : "F / T",    fpArea, juce::Justification::centred);
 		};
 		if (ioExpandedA_) drawModeLabels (modeInComboA, modeOutComboA, sumBusComboA, filterPosComboA, 0);
 		if (ioExpandedB_) drawModeLabels (modeInComboB, modeOutComboB, sumBusComboB, filterPosComboB, 1);
@@ -2540,8 +2540,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const bool expanded = (loaderIndex == 0) ? ioExpandedA_
 	                     : (loaderIndex == 1) ? ioExpandedB_
 	                     :                      ioExpandedC_;
-	const int modeLabelGap = gap * 2;
-	const int comboLabelGap2 = 19;
+	const int modeComboLabelOffset = 21;
+	const int modeComboGapY = 8;
 	const int visualComboH = 38;
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
@@ -2565,7 +2565,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		auto checkArea = contentArea.removeFromBottom (checkH);
 		contentArea.removeFromBottom (gap * 2);
 
-		const int layoutOverhead = (gap * 6) + modeLabelGap + comboLabelGap2;
+		const int layoutOverhead = (gap * 6) + modeComboLabelOffset + modeComboGapY + modeComboLabelOffset;
 		const int collapsedFixedVertical = (checkH * 2) + gap + (gap * 2) + (gap * 7);
 		const int expandedFixedVertical = checkH + (gap * 2) + layoutOverhead;
 		contentArea.removeFromBottom (juce::jmax (0, collapsedFixedVertical - expandedFixedVertical));
@@ -2603,16 +2603,22 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		contentArea.removeFromTop (gap);
 
 		// MODE IN / MODE OUT / F/T / SUM BUS combos (2x2 grid, same as SAT-TR)
-		contentArea.removeFromTop (modeLabelGap);
 		const int modeComboW = (sliderW - gap) / 2;
 		const int comboSlotH = juce::jlimit (38, 48, sliderH + 14);
-		auto modeRow1 = contentArea.removeFromTop (comboSlotH);
+		const int modeComboBlockH = modeComboLabelOffset + comboSlotH
+		                          + modeComboGapY + modeComboLabelOffset + comboSlotH;
+		const int modeBlockTopLimit = mix.getBottom() + gap;
+		const int modeBlockBottomLimit = checkArea.getY() - gap;
+		const int availableModeBlockH = juce::jmax (modeComboBlockH, modeBlockBottomLimit - modeBlockTopLimit);
+		const int modeVisualTop = modeBlockTopLimit + juce::jmax (0, (availableModeBlockH - modeComboBlockH) / 2);
+		const int modeY = modeVisualTop + modeComboLabelOffset;
+		const int modeX = contentArea.getX();
+		auto modeRow1 = juce::Rectangle<int> (modeX, modeY, sliderW, comboSlotH);
 		modeInCmb.setBounds  (fitControlHeight ({ modeRow1.getX(), modeRow1.getY(), modeComboW, comboSlotH }, visualComboH));
 		modeOutCmb.setBounds (fitControlHeight ({ modeRow1.getX() + modeComboW + gap, modeRow1.getY(), modeComboW, comboSlotH }, visualComboH));
 		modeInCmb.setVisible (true);
 		modeOutCmb.setVisible (true);
-		contentArea.removeFromTop (comboLabelGap2);
-		auto modeRow2 = contentArea.removeFromTop (comboSlotH);
+		auto modeRow2 = juce::Rectangle<int> (modeX, modeY + comboSlotH + modeComboGapY + modeComboLabelOffset, sliderW, comboSlotH);
 		filterPosCmb.setBounds (fitControlHeight ({ modeRow2.getX(), modeRow2.getY(), modeComboW, comboSlotH }, visualComboH));
 		sumBusCmb.setBounds    (fitControlHeight ({ modeRow2.getX() + modeComboW + gap, modeRow2.getY(), modeComboW, comboSlotH }, visualComboH));
 		filterPosCmb.setVisible (true);
@@ -2748,10 +2754,10 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 	const bool enabled = r.enableBtn.getToggleState();
 	const bool hasIR = loaderHasLoadedIR (loaderIndex);
 	const bool loaderReady = enabled && hasIR;
-	const bool fileInteractive = enabled && ! promptOverlayActive;
+	const bool fileInteractive = enabled;
 	const float fileAlpha = enabled ? 1.0f : 0.35f;
 	const float alpha = loaderReady ? 1.0f : 0.35f;
-	const bool interactive = loaderReady && ! promptOverlayActive;
+	const bool interactive = loaderReady;
 
 	juce::Component* fileComponents[] = {
 		&r.browseBtn, &r.fileDisp,
@@ -3995,36 +4001,10 @@ void CABTRAudioProcessorEditor::setPromptOverlayActive (bool shouldBeActive)
 	if (shouldBeActive)
 		promptOverlay.toFront (false);
 
-	if (shouldBeActive)
+	// promptOverlay intercepts mouse input while the modal prompt is open. Do not disable
+	// the underlying controls here, otherwise overlay dimming stacks with disabled alpha.
+	if (! shouldBeActive)
 	{
-		// Disable ALL interactive controls while prompt is open
-		const std::array<juce::Component*, 9> globalControls {
-			&enableButtonA, &enableButtonB, &enableButtonC, &alignButton,
-			&browseButtonA, &browseButtonB, &browseButtonC,
-			&routeCombo,
-			&invButtonA
-		};
-		for (auto* c : globalControls)
-			c->setEnabled (false);
-
-		// Disable loader subsection controls
-		updateLoaderEnabledState (0);
-		updateLoaderEnabledState (1);
-		updateLoaderEnabledState (2);
-	}
-	else
-	{
-		// Re-enable global controls
-		const std::array<juce::Component*, 9> globalControls {
-			&enableButtonA, &enableButtonB, &enableButtonC, &alignButton,
-			&browseButtonA, &browseButtonB, &browseButtonC,
-			&routeCombo,
-			&invButtonA
-		};
-		for (auto* c : globalControls)
-			c->setEnabled (true);
-
-		// Re-apply loader enabled state (respects per-loader enable toggle)
 		updateLoaderEnabledState (0);
 		updateLoaderEnabledState (1);
 		updateLoaderEnabledState (2);
