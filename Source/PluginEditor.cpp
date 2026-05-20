@@ -81,11 +81,19 @@ namespace
 	constexpr int kCompactMaxVisibleLoaders = 3;
 	constexpr int kCompactSideRailWidthPx = 18;
 	constexpr int kCompactSideRailSlotWidthPx = 32;
+	constexpr int kCompactRailContentGapPx = 2;
 	constexpr int kCompactSideRailYInsetPx = 86;
 	constexpr int kCompactFooterRailSlotHeightPx = 34;
 	constexpr int kCompactFooterRailHeightPx = 22;
 	constexpr int kCompactFooterRailXInsetPx = 18;
 	constexpr int kCompactFooterPanelWidthPx = 500;
+
+	constexpr int getCompactLoaderContentSideInsetPx() noexcept
+	{
+		// Keep the external compact width equal to the simple plugins while
+		// reserving safe space for side-rail overlays inside each loader.
+		return ((kCompactSideRailSlotWidthPx + kCompactSideRailWidthPx) / 2) + kCompactRailContentGapPx;
+	}
 
 	juce::Rectangle<int> makeFooterValueArea (const juce::Rectangle<int>& barBounds, int valueWidthPx)
 	{
@@ -2351,7 +2359,7 @@ void CABTRAudioProcessorEditor::resized()
 	
 	// Header (title area + buttons)
 	auto header = bounds.removeFromTop (40);
-	cachedHeaderTitleX_ = kCompactSideRailSlotWidthPx + 10;
+	cachedHeaderTitleX_ = getCompactLoaderContentSideInsetPx();
 
 	// Place ALIGN checkbox in header, next to the export icon
 	{
@@ -2389,8 +2397,9 @@ void CABTRAudioProcessorEditor::resized()
 		auto loaderBounds = bounds;
 		const bool showLeftRail = firstVisibleLoaderIndex_ > 0;
 		const bool showRightRail = firstVisibleLoaderIndex_ + visibleLoaderCount_ < kCompactMaxVisibleLoaders;
-		const auto leftRailSlot = loaderBounds.removeFromLeft (kCompactSideRailSlotWidthPx);
-		const auto rightRailSlot = loaderBounds.removeFromRight (kCompactSideRailSlotWidthPx);
+		const auto leftRailSlot = bounds.withWidth (kCompactSideRailSlotWidthPx);
+		const auto rightRailSlot = bounds.withX (bounds.getRight() - kCompactSideRailSlotWidthPx)
+		                                .withWidth (kCompactSideRailSlotWidthPx);
 
 		if (showLeftRail || showRightRail)
 		{
@@ -2416,8 +2425,8 @@ void CABTRAudioProcessorEditor::resized()
 			const int loader = firstVisibleLoaderIndex_ + viewSlot;
 			auto loaderArea = (viewSlot == visibleLoaderCount_ - 1) ? fixedLoaderBounds
 			                                                       : fixedLoaderBounds.removeFromLeft (kCompactLoaderColumnWidthPx);
-			columnLeft_[loader] = loaderArea.getX();
-			columnRight_[loader] = loaderArea.getRight();
+			columnLeft_[loader] = loaderArea.getX() + getCompactLoaderContentSideInsetPx();
+			columnRight_[loader] = loaderArea.getRight() - getCompactLoaderContentSideInsetPx();
 			layoutIRSection (loaderArea, loader);
 		}
 	}
@@ -2438,24 +2447,14 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 	auto pick = [&] (auto& a, auto& b, auto& c) -> auto& { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
 
+	const int railSafeInsetPx = juce::jmax (0, getCompactLoaderContentSideInsetPx() - margin);
+	area.reduce (railSafeInsetPx, 0);
 	area.reduce (margin, margin);
 
 	// Enable checkbox at top
 	auto& enableBtn = pick (enableButtonA, enableButtonB, enableButtonC);
 	enableBtn.setBounds (area.removeFromTop (buttonH));
 	enableBtn.setVisible (true);
-	area.removeFromTop (gap);
-
-	// File explorer section
-	auto fileArea = area.removeFromTop (80);
-	auto& browseBtn = pick (browseButtonA, browseButtonB, browseButtonC);
-	auto& fileDisp = pick (fileDisplayA, fileDisplayB, fileDisplayC);
-	
-	browseBtn.setBounds (fileArea.removeFromTop (buttonH));
-	browseBtn.setVisible (true);
-	fileArea.removeFromTop (gap);
-	fileDisp.setBounds (fileArea);
-	fileDisp.setVisible (true);
 	area.removeFromTop (gap);
 
 	// Toggle bar area - full column width (union computed in resized)
@@ -2473,6 +2472,8 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	// Component references
 	auto& hp    = pick (hpFreqSliderA,  hpFreqSliderB,  hpFreqSliderC);
 	auto& lp    = pick (lpFreqSliderA,  lpFreqSliderB,  lpFreqSliderC);
+	auto& browseBtn = pick (browseButtonA, browseButtonB, browseButtonC);
+	auto& fileDisp = pick (fileDisplayA, fileDisplayB, fileDisplayC);
 	auto& in_   = pick (inSliderA,      inSliderB,      inSliderC);
 	auto& out   = pick (outSliderA,     outSliderB,     outSliderC);
 	auto& tilt  = pick (tiltSliderA,    tiltSliderB,    tiltSliderC);
@@ -2500,14 +2501,13 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& chaosDisp  = pick (chaosDisplayA,    chaosDisplayB,    chaosDisplayC);
 	auto& expDisp    = pick (expDisplayA,      expDisplayB,      expDisplayC);
 
-	const bool expanded = (loaderIndex == 0) ? ioExpandedA_ : (loaderIndex == 1) ? ioExpandedB_ :                      ioExpandedC_;
+	const bool expanded = (loaderIndex == 0) ? ioExpandedA_
+	                     : (loaderIndex == 1) ? ioExpandedB_
+	                     :                      ioExpandedC_;
+	const int modeLabelGap = gap * 2;
+	const int comboLabelGap2 = 19;
 	const int visualSliderH = 24;
 	const int visualComboH = 38;
-	const int checkH = 30;
-	const int collapsedTotalGap = gap * 7 + gap * 3; // 7 slider gaps + extra gap before checks + gap between rows
-	const int collapsedSliderH = juce::jmax (20, (area.getHeight() - collapsedTotalGap - checkH * 2) / 8);
-	const int collapsedCheckboxBottom = juce::jlimit (area.getY() + checkH, area.getBottom(),
-	                                                  area.getY() + collapsedSliderH * 8 + collapsedTotalGap + checkH * 2);
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
 		return r.withSizeKeepingCentre (r.getWidth(), juce::jmin (h, r.getHeight()));
@@ -2515,18 +2515,16 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 
 	if (expanded)
 	{
-		// Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS
-		const int modeLabelGap = gap * 2;
-		const int comboLabelGap2 = 19;
-
+		// Expanded IO view: IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, CHAOS.
+		// This mirrors SAT-TR so both compact common views line up exactly.
+		const int checkH = 42;
 		auto contentArea = area;
-		auto checkArea = juce::Rectangle<int> (area.getX(), collapsedCheckboxBottom - checkH, area.getWidth(), checkH);
-		contentArea.setBottom (checkArea.getY());
+		auto checkArea = contentArea.removeFromBottom (checkH);
 		contentArea.removeFromBottom (gap * 2);
 
 		const int layoutOverhead = (gap * 6) + modeLabelGap + comboLabelGap2;
-		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 9);
-		const int expandedVisualSliderH = visualSliderH;
+		const int sliderH = juce::jmax (18, (contentArea.getHeight() - layoutOverhead) / 8);
+		const int expandedVisualSliderH = juce::jlimit (24, 30, sliderH);
 
 		auto sliderRow = contentArea.removeFromTop (sliderH);
 		in_.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), expandedVisualSliderH));
@@ -2558,20 +2556,19 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		mix.setVisible (true);
 		contentArea.removeFromTop (gap);
 
-		// MODE IN / MODE OUT / F/T / SUM BUS combos (2x2 grid)
+		// MODE IN / MODE OUT / F/T / SUM BUS combos (2x2 grid, same as SAT-TR)
+		contentArea.removeFromTop (modeLabelGap);
 		const int modeComboW = (sliderW - gap) / 2;
-		const int modeLabelOffset = 19; // Must match drawModeLabels() translation.
-		const int modeBlockH = modeLabelOffset + visualComboH + comboLabelGap2 + visualComboH;
-		const int modeGapSpace = checkArea.getY() - mix.getBounds().getBottom();
-		const int modeBlockY = mix.getBounds().getBottom() + juce::jmax (0, (modeGapSpace - modeBlockH) / 2);
-		auto modeRow = juce::Rectangle<int> (contentArea.getX(), modeBlockY + modeLabelOffset, contentArea.getWidth(), visualComboH);
-		modeInCmb.setBounds  ({ modeRow.getX(), modeRow.getY(), modeComboW, visualComboH });
-		modeOutCmb.setBounds ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, visualComboH });
+		const int comboSlotH = juce::jlimit (38, 48, sliderH + 14);
+		auto modeRow1 = contentArea.removeFromTop (comboSlotH);
+		modeInCmb.setBounds  (fitControlHeight ({ modeRow1.getX(), modeRow1.getY(), modeComboW, comboSlotH }, visualComboH));
+		modeOutCmb.setBounds (fitControlHeight ({ modeRow1.getX() + modeComboW + gap, modeRow1.getY(), modeComboW, comboSlotH }, visualComboH));
 		modeInCmb.setVisible (true);
 		modeOutCmb.setVisible (true);
-		modeRow.translate (0, visualComboH + comboLabelGap2);
-		filterPosCmb.setBounds ({ modeRow.getX(), modeRow.getY(), modeComboW, visualComboH });
-		sumBusCmb.setBounds    ({ modeRow.getX() + modeComboW + gap, modeRow.getY(), modeComboW, visualComboH });
+		contentArea.removeFromTop (comboLabelGap2);
+		auto modeRow2 = contentArea.removeFromTop (comboSlotH);
+		filterPosCmb.setBounds (fitControlHeight ({ modeRow2.getX(), modeRow2.getY(), modeComboW, comboSlotH }, visualComboH));
+		sumBusCmb.setBounds    (fitControlHeight ({ modeRow2.getX() + modeComboW + gap, modeRow2.getY(), modeComboW, comboSlotH }, visualComboH));
 		filterPosCmb.setVisible (true);
 		sumBusCmb.setVisible (true);
 
@@ -2588,6 +2585,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		chaosDisp.setVisible (false);
 
 		// Hide collapsed-only controls
+		browseBtn.setVisible (false); fileDisp.setVisible (false);
 		hp.setVisible (false);     lp.setVisible (false);
 		start.setVisible (false);  end.setVisible (false);
 		size.setVisible (false);   delay.setVisible (false);
@@ -2600,47 +2598,60 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	else
 	{
 		// Collapsed main view: 8 sliders + two checkbox rows:
+		//   File selector + loaded filename
 		//   INV / NRM
 		//   RVS / EXP
+		auto fileArea = area.removeFromTop (80);
+		browseBtn.setBounds (fileArea.removeFromTop (buttonH));
+		browseBtn.setVisible (true);
+		fileArea.removeFromTop (gap);
+		fileDisp.setBounds (fileArea);
+		fileDisp.setVisible (true);
+		area.removeFromTop (gap);
+
+		const int checkH = 42;
+		const int collapsedTotalGap = gap * 7 + gap * 3; // 7 slider gaps + extra gap before checks + gap between rows
+		const int collapsedSliderH = juce::jmax (20, (area.getHeight() - collapsedTotalGap - checkH * 2) / 8);
 		const int sliderH = collapsedSliderH;
+		const int collapsedVisualSliderH = juce::jlimit (24, 30, sliderH);
 
 		auto sliderRow = area.removeFromTop (sliderH);
-		start.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		start.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		start.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		end.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		end.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		end.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		size.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		size.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		size.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		fred.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		fred.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		fred.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		pos.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		pos.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		pos.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		reso.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		reso.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		reso.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		variation.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		variation.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		variation.setVisible (true);
 		area.removeFromTop (gap);
 
 		sliderRow = area.removeFromTop (sliderH);
-		delay.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), visualSliderH));
+		delay.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		delay.setVisible (true);
 		area.removeFromTop (gap * 2);
 
@@ -3433,13 +3444,12 @@ void CABTRAudioProcessorEditor::setupBar (juce::Slider& s)
 int CABTRAudioProcessorEditor::getCompactTargetWidthForLoaderCount (int loaderCount) noexcept
 {
 	const int safeCount = juce::jlimit (kCompactMinVisibleLoaders, kCompactMaxVisibleLoaders, loaderCount);
-	const int railSlots = kCompactSideRailSlotWidthPx * 2;
-	return safeCount * kCompactLoaderColumnWidthPx + railSlots;
+	return safeCount * kCompactLoaderColumnWidthPx;
 }
 
 int CABTRAudioProcessorEditor::getMaxVisibleLoaderCountForWidth (int width) noexcept
 {
-	if (width >= kCompactMaxVisibleLoaders * kCompactLoaderColumnWidthPx)
+	if (width >= getCompactTargetWidthForLoaderCount (kCompactMaxVisibleLoaders))
 		return 3;
 	if (width >= getCompactTargetWidthForLoaderCount (2))
 		return 2;
