@@ -21,7 +21,7 @@ CAB-TR uses a text-based UI with horizontal bar sliders. Loader tabs switch betw
 - **Empty loaders**: A loader is only operative when it is enabled and has an IR loaded. Empty enabled loaders stay transparent, and their DSP controls remain inactive until a file is loaded.
 - **Combo boxes**: MODE IN, MODE OUT, FILTER/TILT position, and SUM BUS per loader. Click to cycle options.
 - **Loader tabs**: Use the side tabs to switch visible loaders when the window is compact. Wider sizes reveal more loaders at once.
-- **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, RESO, MIX, MODE IN/OUT, F/T, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
+- **Collapsible I/O section**: Click the toggle bar (triangle) between the file display and the sliders to show or hide per-loader controls (IN, OUT, TILT, FILTER, PAN, MIX, MODE IN/OUT, F/T, SUM BUS, `CHSF`, `CHSD`). State persists across sessions.
 - **Bottom global section**: Click the `GLOBAL` tab to switch between loader controls and the global control page.
 - **Browse button**: Opens a built-in file explorer with drive selector, folder navigation, and scrollable file list. Supports WAV, AIFF, FLAC, MP3, OGG.
 - **Filter bar**: Click to open the HP/LP filter configuration prompt with frequency, slope, and enable/disable controls.

@@ -20,8 +20,10 @@ El sistema `SUM BUS` permite enviar cada loader a Stereo, Mid o Side en los punt
 
 - **Barras**: arrastre horizontal. Click derecho para entrada numerica.
 - **ENABLE A/B/C**: activa o desactiva cada loader.
+- **Pestanas de loader**: cambian entre A/B/C en anchuras compactas; al ampliar la ventana se muestran mas loaders a la vez.
+- **GLOBAL**: pestana inferior que alterna entre controles de loader y pagina global.
 - **Browse `...`**: abre el explorador integrado de archivos.
-- **Seccion I/O desplegable**: muestra controles avanzados por loader.
+- **Seccion I/O desplegable**: muestra IN/OUT/TILT/FILTER/PAN/MIX, routing M/S y `CHSF`/`CHSD` sin ocultar la identidad del fichero cargado.
 - **Filtro**: abre el prompt HP/LP con frecuencia, pendiente y on/off.
 - **EXP**: click izquierdo activa/desactiva; click derecho abre el prompt.
 - **VAR**: variacion realtime por loader para decorrelacion y movimiento sutil de pantalla/microfono.
