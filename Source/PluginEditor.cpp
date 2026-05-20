@@ -87,7 +87,8 @@ namespace
 	constexpr int kCompactLoaderTabHeightPx = 52;
 	constexpr int kCompactLoaderTabGapPx = 10;
 	constexpr int kCompactFooterRailSlotHeightPx = 34;
-	constexpr int kCompactFooterRailHeightPx = 22;
+	constexpr int kCompactFooterRailHeightPx = 28;
+	constexpr int kCompactFooterRailWidthPx = 132;
 	constexpr int kCompactFooterRailXInsetPx = 18;
 	constexpr int kCompactFooterPanelWidthPx = 500;
 
@@ -1572,6 +1573,8 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 	addAndMakeVisible (r.fileDisp);
 	r.fileDisp.setText ("No file loaded", juce::dontSendNotification);
 	r.fileDisp.setJustificationType (juce::Justification::centred);
+	r.fileDisp.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Bold")));
+	r.fileDisp.setMinimumHorizontalScale (0.55f);
 	r.fileDisp.setInterceptsMouseClicks (false, false);
 
 	using ST = BarSlider::Type;
@@ -2303,31 +2306,19 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 
 	if (! cachedFooterRailArea_.isEmpty())
 	{
-		const float radius = (float) cachedFooterRailArea_.getHeight() * 0.3f;
-		g.setColour (activeScheme.fg.withAlpha (0.25f));
-		g.fillRoundedRectangle (cachedFooterRailArea_.toFloat(), radius);
-
-		const float triH = (float) cachedFooterRailArea_.getHeight() * 0.78f;
-		const float triW = triH * 1.125f;
-		const float cx = (float) cachedFooterRailArea_.getCentreX();
-		const float cy = (float) cachedFooterRailArea_.getCentreY();
-
-		juce::Path tri;
-		if (footerExpanded_)
-		{
-			tri.addTriangle (cx - triW * 0.5f, cy + triH * 0.35f,
-			                 cx + triW * 0.5f, cy + triH * 0.35f,
-			                 cx,               cy - triH * 0.35f);
-		}
-		else
-		{
-			tri.addTriangle (cx - triW * 0.5f, cy - triH * 0.35f,
-			                 cx + triW * 0.5f, cy - triH * 0.35f,
-			                 cx,               cy + triH * 0.35f);
-		}
-
+		const auto tabBounds = cachedFooterRailArea_.toFloat();
+		const float radius = (float) cachedFooterRailArea_.getHeight() * 0.28f;
+		g.setColour (footerExpanded_ ? activeScheme.text : activeScheme.bg);
+		g.fillRoundedRectangle (tabBounds, radius);
 		g.setColour (activeScheme.text);
-		g.fillPath (tri);
+		g.drawRoundedRectangle (tabBounds.reduced (1.0f), radius, 2.0f);
+
+		g.setColour (footerExpanded_ ? activeScheme.bg : activeScheme.text);
+		g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Bold")));
+		g.drawFittedText ("GLOBAL",
+		                  cachedFooterRailArea_.reduced (8, 0),
+		                  juce::Justification::centred,
+		                  1);
 	}
 
 	if (tooltipVisible)
@@ -2376,9 +2367,13 @@ void CABTRAudioProcessorEditor::resized()
 
 	// Bottom rail toggles between loader view and the global footer view.
 	auto footerRailSlot = bounds.removeFromBottom (kCompactFooterRailSlotHeightPx);
-	cachedFooterRailArea_ = footerRailSlot
-		.reduced (kCompactFooterRailXInsetPx, juce::jmax (0, (footerRailSlot.getHeight() - kCompactFooterRailHeightPx) / 2))
-		.withHeight (kCompactFooterRailHeightPx);
+	const int footerTabW = juce::jmin (kCompactFooterRailWidthPx,
+	                                   juce::jmax (0, footerRailSlot.getWidth() - (kCompactFooterRailXInsetPx * 2)));
+	const int footerTabH = juce::jmin (kCompactFooterRailHeightPx, footerRailSlot.getHeight());
+	cachedFooterRailArea_ = juce::Rectangle<int> (footerRailSlot.getCentreX() - (footerTabW / 2),
+	                                              footerRailSlot.getCentreY() - (footerTabH / 2),
+	                                              footerTabW,
+	                                              footerTabH);
 
 	if (footerExpanded_)
 	{
@@ -2916,6 +2911,10 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	aw->setColour (juce::AlertWindow::backgroundColourId, activeScheme.bg);
 
 	// Use standard prompt width, taller height for file list
+	constexpr int browserMinWidth = 320;
+	const int browserWidth = juce::jlimit (browserMinWidth,
+	                                       TR::kPromptWidth,
+	                                       juce::jmax (browserMinWidth, getWidth() - 24));
 	constexpr int browserHeight = 420;
 
 	// Create file list model and ListBox
@@ -3077,7 +3076,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	constexpr int driveComboH = 28;
 	constexpr int pathLabelH = 24;
 	constexpr int componentGap = 4;
-	const int panelW = TR::kPromptWidth - (margin * 2);
+	const int panelW = browserWidth - (margin * 2);
 
 	auto labelFont = lnf.getAlertWindowMessageFont();
 	labelFont.setHeight (labelFont.getHeight() * 1.20f);
@@ -3124,7 +3123,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 	aw->addButton ("SELECT", 1, juce::KeyPress (juce::KeyPress::returnKey));
 	aw->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-	aw->setSize (TR::kPromptWidth, browserHeight);
+	aw->setSize (browserWidth, browserHeight);
 	finalizePromptButtons (*aw, lnf);
 
 	// Reposition browser panel between top and button row
@@ -3134,7 +3133,7 @@ void CABTRAudioProcessorEditor::openFileExplorer (int loaderIndex)
 		const int bodyBottom = buttonsTop - TR::kPromptBodyBottomPad;
 		const int headerH    = fileListStartY;  // everything above the fixed parent row / list
 		const int listAreaH  = juce::jmax (60, bodyBottom - bodyTop - headerH);
-		const int panelX     = (TR::kPromptWidth - panelW) / 2;
+		const int panelX     = (browserWidth - panelW) / 2;
 
 		*refreshBrowserLayout = [safeParentFolderLabel, safeListBox, safeFileListFrame,
 		                         fileListStartY, panelW, listAreaH, parentRowH]() mutable
