@@ -2479,6 +2479,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	const int buttonH = 30;
 	const int gap = 5;
 	const int toggleBarH = 20;
+	constexpr int toggleToFirstControlGapPx = 18; // Matches simple-plugin compact rhythm at 752 px.
 
 	auto pick = [&] (auto& a, auto& b, auto& c) -> auto& { return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c); };
 
@@ -2501,7 +2502,7 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		cachedToggleBarAreaB_ = toggleBarArea;
 	else
 		cachedToggleBarAreaC_ = toggleBarArea;
-	area.removeFromTop (gap);
+	area.removeFromTop (toggleToFirstControlGapPx);
 
 	const int sliderW = static_cast<int> (area.getWidth() * 0.50f);
 
