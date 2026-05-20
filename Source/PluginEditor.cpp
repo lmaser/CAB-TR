@@ -2506,7 +2506,6 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	                     :                      ioExpandedC_;
 	const int modeLabelGap = gap * 2;
 	const int comboLabelGap2 = 19;
-	const int visualSliderH = 24;
 	const int visualComboH = 38;
 	auto fitControlHeight = [] (juce::Rectangle<int> r, int h)
 	{
