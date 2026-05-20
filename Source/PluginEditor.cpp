@@ -79,10 +79,13 @@ namespace
 	constexpr int kCompactFixedHeightPx = 752;
 	constexpr int kCompactMinVisibleLoaders = 1;
 	constexpr int kCompactMaxVisibleLoaders = 3;
-	constexpr int kCompactSideRailWidthPx = 18;
-	constexpr int kCompactSideRailSlotWidthPx = 32;
-	constexpr int kCompactRailContentGapPx = 2;
-	constexpr int kCompactSideRailYInsetPx = 86;
+	constexpr int kCompactEdgeReserveWidthPx = 18;
+	constexpr int kCompactEdgeReserveSlotPx = 32;
+	constexpr int kCompactEdgeContentGapPx = 2;
+	constexpr int kCompactLoaderTabYInsetPx = 86;
+	constexpr int kCompactLoaderTabWidthPx = 34;
+	constexpr int kCompactLoaderTabHeightPx = 52;
+	constexpr int kCompactLoaderTabGapPx = 10;
 	constexpr int kCompactFooterRailSlotHeightPx = 34;
 	constexpr int kCompactFooterRailHeightPx = 22;
 	constexpr int kCompactFooterRailXInsetPx = 18;
@@ -90,9 +93,8 @@ namespace
 
 	constexpr int getCompactLoaderContentSideInsetPx() noexcept
 	{
-		// Keep the external compact width equal to the simple plugins while
-		// reserving safe space for side-rail overlays inside each loader.
-		return ((kCompactSideRailSlotWidthPx + kCompactSideRailWidthPx) / 2) + kCompactRailContentGapPx;
+		// Match the simple-plugin visual inset while leaving room for edge tabs.
+		return ((kCompactEdgeReserveSlotPx + kCompactEdgeReserveWidthPx) / 2) + kCompactEdgeContentGapPx;
 	}
 
 	juce::Rectangle<int> makeFooterValueArea (const juce::Rectangle<int>& barBounds, int valueWidthPx)
@@ -2264,39 +2266,36 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 	drawToggleBar (cachedToggleBarAreaB_, ioExpandedB_);
 	drawToggleBar (cachedToggleBarAreaC_, ioExpandedC_);
 
-	auto drawSideRail = [&] (const juce::Rectangle<int>& area, bool pointsRight)
+	auto makeLoaderTabLabel = [] (int startIndex, int visibleCount)
 	{
-		if (area.isEmpty()) return;
+		if (visibleCount <= 1)
+			return juce::String (startIndex + 1);
 
-		const float radius = (float) area.getWidth() * 0.55f;
-		g.setColour (activeScheme.fg.withAlpha (0.25f));
-		g.fillRoundedRectangle (area.toFloat(), radius);
-
-		const float triW = (float) area.getWidth() * 0.75f;
-		const float triH = triW * 1.15f;
-		const float cx = (float) area.getCentreX();
-		const float cy = (float) area.getCentreY();
-
-		juce::Path tri;
-		if (pointsRight)
-		{
-			tri.addTriangle (cx - triW * 0.35f, cy - triH * 0.5f,
-			                 cx - triW * 0.35f, cy + triH * 0.5f,
-			                 cx + triW * 0.35f, cy);
-		}
-		else
-		{
-			tri.addTriangle (cx + triW * 0.35f, cy - triH * 0.5f,
-			                 cx + triW * 0.35f, cy + triH * 0.5f,
-			                 cx - triW * 0.35f, cy);
-		}
-
-		g.setColour (activeScheme.text);
-		g.fillPath (tri);
+		return juce::String (startIndex + 1) + "-" + juce::String (startIndex + visibleCount);
 	};
 
-	drawSideRail (cachedLeftLoaderRailArea_, false);
-	drawSideRail (cachedRightLoaderRailArea_, true);
+	for (int i = 0; i < cachedLoaderTabCount_; ++i)
+	{
+		const auto area = cachedLoaderTabAreas_[i];
+		if (area.isEmpty())
+			continue;
+
+		const bool selected = cachedLoaderTabStartIndices_[i] == firstVisibleLoaderIndex_;
+		const auto tabBounds = area.toFloat();
+		const float radius = 8.0f;
+
+		g.setColour (selected ? activeScheme.text : activeScheme.bg);
+		g.fillRoundedRectangle (tabBounds, radius);
+		g.setColour (activeScheme.text);
+		g.drawRoundedRectangle (tabBounds.reduced (1.0f), radius, 2.0f);
+
+		g.setColour (selected ? activeScheme.bg : activeScheme.text);
+		g.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Bold")));
+		g.drawFittedText (makeLoaderTabLabel (cachedLoaderTabStartIndices_[i], visibleLoaderCount_),
+		                  area.reduced (3, 0),
+		                  juce::Justification::centred,
+		                  1);
+	}
 
 	if (! cachedFooterRailArea_.isEmpty())
 	{
@@ -2395,26 +2394,24 @@ void CABTRAudioProcessorEditor::resized()
 		                                         firstVisibleLoaderIndex_);
 
 		auto loaderBounds = bounds;
-		const bool showLeftRail = firstVisibleLoaderIndex_ > 0;
-		const bool showRightRail = firstVisibleLoaderIndex_ + visibleLoaderCount_ < kCompactMaxVisibleLoaders;
-		const auto leftRailSlot = bounds.withWidth (kCompactSideRailSlotWidthPx);
-		const auto rightRailSlot = bounds.withX (bounds.getRight() - kCompactSideRailSlotWidthPx)
-		                                .withWidth (kCompactSideRailSlotWidthPx);
-
-		if (showLeftRail || showRightRail)
+		if (visibleLoaderCount_ < kCompactMaxVisibleLoaders)
 		{
-			auto makeSideRail = [&] (juce::Rectangle<int> slot)
-			{
-				const int y = bounds.getY() + kCompactSideRailYInsetPx;
-				const int h = juce::jmax (0, bounds.getHeight() - kCompactSideRailYInsetPx * 2);
-				return juce::Rectangle<int> { slot.getCentreX() - (kCompactSideRailWidthPx / 2), y,
-				                              kCompactSideRailWidthPx, h };
-			};
+			cachedLoaderTabCount_ = kCompactMaxVisibleLoaders - visibleLoaderCount_ + 1;
+			const int totalTabsH = cachedLoaderTabCount_ * kCompactLoaderTabHeightPx
+			                     + (cachedLoaderTabCount_ - 1) * kCompactLoaderTabGapPx;
+			const int railTop = bounds.getY() + kCompactLoaderTabYInsetPx;
+			const int railH = juce::jmax (0, bounds.getHeight() - kCompactLoaderTabYInsetPx * 2);
+			const int firstY = railTop + juce::jmax (0, (railH - totalTabsH) / 2);
+			const int x = bounds.getRight() - kCompactLoaderTabWidthPx;
 
-			if (showLeftRail)
-				cachedLeftLoaderRailArea_ = makeSideRail (leftRailSlot);
-			if (showRightRail)
-				cachedRightLoaderRailArea_ = makeSideRail (rightRailSlot);
+			for (int i = 0; i < cachedLoaderTabCount_; ++i)
+			{
+				cachedLoaderTabStartIndices_[i] = i;
+				cachedLoaderTabAreas_[i] = { x,
+				                             firstY + i * (kCompactLoaderTabHeightPx + kCompactLoaderTabGapPx),
+				                             kCompactLoaderTabWidthPx,
+				                             kCompactLoaderTabHeightPx };
+			}
 		}
 
 		const int fixedLoadersW = juce::jmin (loaderBounds.getWidth(),
@@ -2609,63 +2606,67 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		area.removeFromTop (gap);
 
 		const int checkH = 42;
-		const int collapsedTotalGap = gap * 7 + gap * 3; // 7 slider gaps + extra gap before checks + gap between rows
-		const int collapsedSliderH = juce::jmax (20, (area.getHeight() - collapsedTotalGap - checkH * 2) / 8);
+		auto contentArea = area;
+		auto rvsExpArea = contentArea.removeFromBottom (checkH);
+		contentArea.removeFromBottom (gap);
+		auto invNormArea = contentArea.removeFromBottom (checkH);
+		contentArea.removeFromBottom (gap * 2);
+
+		const int collapsedTotalGap = gap * 7; // 7 slider gaps between 8 slider rows.
+		const int collapsedSliderH = juce::jmax (20, (contentArea.getHeight() - collapsedTotalGap) / 8);
 		const int sliderH = collapsedSliderH;
 		const int collapsedVisualSliderH = juce::jlimit (24, 30, sliderH);
 
-		auto sliderRow = area.removeFromTop (sliderH);
+		auto sliderRow = contentArea.removeFromTop (sliderH);
 		start.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		start.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		end.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		end.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		size.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		size.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		fred.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		fred.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		pos.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		pos.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		reso.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		reso.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		variation.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		variation.setVisible (true);
-		area.removeFromTop (gap);
+		contentArea.removeFromTop (gap);
 
-		sliderRow = area.removeFromTop (sliderH);
+		sliderRow = contentArea.removeFromTop (sliderH);
 		delay.setBounds (fitControlHeight (sliderRow.removeFromLeft (sliderW), collapsedVisualSliderH));
 		delay.setVisible (true);
-		area.removeFromTop (gap * 2);
 
 		constexpr int valuePadPx = 8;
-		auto checkArea = area.removeFromTop (checkH);
 		const int leftW = sliderW;
-		const int rightX = checkArea.getX() + sliderW + valuePadPx;
-		const int rightW = checkArea.getRight() - rightX;
-		inv.setBounds  (checkArea.getX(), checkArea.getY(), leftW,  checkH);  inv.setVisible (true);
-		norm.setBounds (rightX,          checkArea.getY(), rightW, checkH);  norm.setVisible (true);
-		area.removeFromTop (gap);
+		const int invNormRightX = invNormArea.getX() + sliderW + valuePadPx;
+		const int invNormRightW = invNormArea.getRight() - invNormRightX;
+		inv.setBounds  (invNormArea.getX(), invNormArea.getY(), leftW,  checkH);  inv.setVisible (true);
+		norm.setBounds (invNormRightX,      invNormArea.getY(), invNormRightW, checkH);  norm.setVisible (true);
 
-		checkArea = area.removeFromTop (checkH);
-		rvs.setBounds (checkArea.getX(), checkArea.getY(), leftW,  checkH);  rvs.setVisible (true);
-		exp.setBounds (rightX,           checkArea.getY(), rightW, checkH);  exp.setVisible (true);
+		const int rvsExpRightX = rvsExpArea.getX() + sliderW + valuePadPx;
+		const int rvsExpRightW = rvsExpArea.getRight() - rvsExpRightX;
+		rvs.setBounds (rvsExpArea.getX(), rvsExpArea.getY(), leftW,  checkH);  rvs.setVisible (true);
+		exp.setBounds (rvsExpRightX,      rvsExpArea.getY(), rvsExpRightW, checkH);  exp.setVisible (true);
 		expDisp.setBounds (0, 0, 0, 0);  expDisp.setVisible (false);
 
 		// Hide expanded-only controls
@@ -3262,16 +3263,13 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 			return;
 		}
 
-		if (cachedLeftLoaderRailArea_.contains (p))
+		for (int i = 0; i < cachedLoaderTabCount_; ++i)
 		{
-			setFirstVisibleLoaderIndex (firstVisibleLoaderIndex_ - 1);
-			return;
-		}
-
-		if (cachedRightLoaderRailArea_.contains (p))
-		{
-			setFirstVisibleLoaderIndex (firstVisibleLoaderIndex_ + 1);
-			return;
+			if (cachedLoaderTabAreas_[i].contains (p))
+			{
+				setFirstVisibleLoaderIndex (cachedLoaderTabStartIndices_[i]);
+				return;
+			}
 		}
 	}
 
@@ -3457,8 +3455,12 @@ int CABTRAudioProcessorEditor::getMaxVisibleLoaderCountForWidth (int width) noex
 
 void CABTRAudioProcessorEditor::clearCompactRailAreas() noexcept
 {
-	cachedLeftLoaderRailArea_ = {};
-	cachedRightLoaderRailArea_ = {};
+	cachedLoaderTabCount_ = 0;
+	for (int i = 0; i < 3; ++i)
+	{
+		cachedLoaderTabAreas_[i] = {};
+		cachedLoaderTabStartIndices_[i] = 0;
+	}
 	cachedFooterRailArea_ = {};
 	cachedFooterPanelArea_ = {};
 	cachedFooterTitleArea_ = {};
