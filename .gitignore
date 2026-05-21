@@ -26,6 +26,13 @@ ThirdParty/fftw3/*.f03
 
 # Logs
 *.log
+*.csv
+*.tmp
+*.bak
+*.orig
+*.rej
 
 # IDE
 /.vscode/
+_codex_backups/
+README_ES.md
