@@ -3371,7 +3371,7 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 		return;
 	}
 
-	// CHAOS checkboxes: left-click toggles, right-click opens chaos amount/speed prompt
+	// EXP/CHAOS checkboxes: left-click is handled by the button, right-click opens the advanced prompt.
 	{
 		juce::ToggleButton* enableBtns[]      = { &enableButtonA,  &enableButtonB,  &enableButtonC };
 		juce::ToggleButton* expBtns[]         = { &expButtonA,     &expButtonB,     &expButtonC };
@@ -3390,8 +3390,6 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 			{
 				if (e.mods.isPopupMenu())
 					openExpPrompt (i);
-				else
-					expBtns[i]->setToggleState (! expBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 
@@ -3406,16 +3404,12 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 			{
 				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, true);
-				else
-					chaosFilterBtns[i]->setToggleState (! chaosFilterBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 			if (hitDelay)
 			{
 				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, false);
-				else
-					chaosBtns[i]->setToggleState (! chaosBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 		}
@@ -4802,12 +4796,12 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	};
 
 	// HP section
-	aw->addTextEditor ("hpFreq", juce::String (hpFreq, 2), juce::String());
+	aw->addTextEditor ("hpFreq", juce::String (juce::roundToInt (hpFreq)), juce::String());
 	auto* hpBar = new PromptBar (scheme, freqToNorm (hpFreq), freqToNorm (CABTRAudioProcessor::kFilterHpFreqDefault));
 	aw->addAndMakeVisible (hpBar);
 
 	// LP section
-	aw->addTextEditor ("lpFreq", juce::String (lpFreq, 2), juce::String());
+	aw->addTextEditor ("lpFreq", juce::String (juce::roundToInt (lpFreq)), juce::String());
 	auto* lpBar = new PromptBar (scheme, freqToNorm (lpFreq), freqToNorm (CABTRAudioProcessor::kFilterLpFreqDefault));
 	aw->addAndMakeVisible (lpBar);
 
@@ -4831,7 +4825,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 		return "24dB";
 	};
 
-	const juce::Font slopeFont (juce::FontOptions (34.0f).withStyle ("Bold"));
+	const juce::Font slopeFont (juce::FontOptions (24.0f).withStyle ("Bold"));
 
 	auto* hpSlopeLabel = new juce::Label ("", slopeToText (hpSlope));
 	hpSlopeLabel->setJustificationType (juce::Justification::centredRight);
@@ -4952,7 +4946,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 
 		if (auto* te = aw->getTextEditor (editorId))
 		{
-			te->setText (juce::String (normToFreq (v01), 2), juce::sendNotification);
+			te->setText (juce::String (juce::roundToInt (normToFreq (v01))), juce::sendNotification);
 			te->selectAll();
 		}
 		*syncing = false;
@@ -4971,7 +4965,7 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 		const float otherFreq = otherTe ? juce::jlimit (20.0f, 20000.0f, otherTe->getText().getFloatValue()) : (isHp ? 20000.0f : 20.0f);
 		if (isHp) freq = juce::jmin (freq, otherFreq);
 		else      freq = juce::jmax (freq, otherFreq);
-		te->setText (juce::String (freq, 2), juce::dontSendNotification);
+		te->setText (juce::String (juce::roundToInt (freq)), juce::dontSendNotification);
 		bar->value01 = freqToNorm (freq);
 		bar->repaint();
 		*syncing = false;
@@ -5030,9 +5024,9 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 	auto applyFreqInputFilters = [aw]()
 	{
 		if (auto* hpTe = aw->getTextEditor ("hpFreq"))
-			hpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 8, 2), true);
+			hpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 5, 0), true);
 		if (auto* lpTe = aw->getTextEditor ("lpFreq"))
-			lpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 8, 2), true);
+			lpTe->setInputFilter (new NumericInputFilter (20.0, 20000.0, 5, 0), true);
 	};
 
 	preparePromptTextEditor (*aw, "hpFreq", scheme.bg, scheme.text, scheme.fg, promptFont, false);
@@ -5111,19 +5105,17 @@ void CABTRAudioProcessorEditor::openFilterPrompt (int loaderIndex)
 			const int slopeX = barR - slopeW;
 			slopeLabel->setBounds (slopeX, y, slopeW, rowH);
 
-			constexpr int kSectionGap = 10;
 			const int midL = nameX + nameW;
-			const int midR = slopeX - kSectionGap;
+			const int midR = slopeX;
 			const int midW = midR - midL;
 
 			const auto txt   = te->getText();
 			const int textW  = juce::jmax (1, stringWidth (promptFont, txt));
-			constexpr int kEditorPad = 6;
+			constexpr int kEditorPad = 2;
 			const int desiredEditorW = textW + kEditorPad * 2;
-			const int maxEditorW = juce::jmax (1, midW - hzGap - hzW);
-			const int editorW = juce::jmin (desiredEditorW, maxEditorW);
+			const int editorW = desiredEditorW;
 			const int groupW  = editorW + hzGap + hzW;
-			const int groupX  = juce::jlimit (midL, juce::jmax (midL, midR - groupW), midL + juce::jmax (0, (midW - groupW) / 2));
+			const int groupX  = midL + juce::jmax (0, (midW - groupW) / 2);
 
 			te->setBounds (groupX, y, editorW, rowH);
 			hzLabel->setBounds (groupX + editorW + hzGap, y, hzW, rowH);
@@ -5782,8 +5774,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	aw->addTextEditor ("atk", juce::String (currentAtk, 2), juce::String());
 	aw->addTextEditor ("rel", juce::String (currentRel, 2), juce::String());
 	aw->addTextEditor ("scGain", juce::String (currentScGain, 1), juce::String());
-	aw->addTextEditor ("scHp", juce::String (currentScHp, 2), juce::String());
-	aw->addTextEditor ("scLp", juce::String (currentScLp, 2), juce::String());
+	aw->addTextEditor ("scHp", juce::String (juce::roundToInt (currentScHp)), juce::String());
+	aw->addTextEditor ("scLp", juce::String (juce::roundToInt (currentScLp)), juce::String());
 
 	for (auto* edId : { "thresh", "ratio", "knee", "atk", "rel", "scGain", "scHp", "scLp" })
 		if (auto* te = aw->getTextEditor (edId))
@@ -5849,7 +5841,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		{
 			te->setFont (f);
 			te->applyFontToAllText (f);
-			te->setInputRestrictions (8, "0123456789.");
+			te->setInputRestrictions (5, "0123456789");
 			auto r = te->getBounds();
 			r.setHeight ((int) (f.getHeight() * kPromptEditorHeightScale) + kPromptEditorHeightPadPx);
 			te->setBounds (r);
@@ -5988,8 +5980,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	const EnvPromptNumericSpec atkSpec { false, 3, 2, CABTRAudioProcessor::kExpAtkMin, CABTRAudioProcessor::kExpAtkMax, 2 };
 	const EnvPromptNumericSpec relSpec { false, 4, 2, CABTRAudioProcessor::kExpRelMin, CABTRAudioProcessor::kExpRelMax, 2 };
 	const EnvPromptNumericSpec scGainSpec { true, 3, 1, CABTRAudioProcessor::kExpScGainMin, CABTRAudioProcessor::kExpScGainMax, 1 };
-	const EnvPromptNumericSpec scHpSpec { false, 5, 2, CABTRAudioProcessor::kExpScFreqMin, CABTRAudioProcessor::kExpScFreqMax, 2 };
-	const EnvPromptNumericSpec scLpSpec { false, 5, 2, CABTRAudioProcessor::kExpScFreqMin, CABTRAudioProcessor::kExpScFreqMax, 2 };
+	const EnvPromptNumericSpec scHpSpec { false, 5, 0, CABTRAudioProcessor::kExpScFreqMin, CABTRAudioProcessor::kExpScFreqMax, 0 };
+	const EnvPromptNumericSpec scLpSpec { false, 5, 0, CABTRAudioProcessor::kExpScFreqMin, CABTRAudioProcessor::kExpScFreqMax, 0 };
 
 	auto sanitiseEnvPromptText = [] (juce::String text, const EnvPromptNumericSpec& spec,
 	                                 bool& incompleteOut) -> juce::String
@@ -6228,10 +6220,10 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		const float val = normToFreq (v01);
 		if (auto* te = aw->getTextEditor ("scHp"))
 		{
-			te->setText (juce::String (val, 2), juce::sendNotification);
+			te->setText (juce::String (juce::roundToInt (val)), juce::sendNotification);
 			te->selectAll();
 		}
-		if (scHpApvts) scHpApvts->setValueNotifyingHost (scHpApvts->convertTo0to1 (val));
+		if (scHpApvts) scHpApvts->setValueNotifyingHost (scHpApvts->convertTo0to1 ((float) juce::roundToInt (val)));
 		*syncing = false;
 	};
 
@@ -6245,10 +6237,10 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		const float val = normToFreq (v01);
 		if (auto* te = aw->getTextEditor ("scLp"))
 		{
-			te->setText (juce::String (val, 2), juce::sendNotification);
+			te->setText (juce::String (juce::roundToInt (val)), juce::sendNotification);
 			te->selectAll();
 		}
-		if (scLpApvts) scLpApvts->setValueNotifyingHost (scLpApvts->convertTo0to1 (val));
+		if (scLpApvts) scLpApvts->setValueNotifyingHost (scLpApvts->convertTo0to1 ((float) juce::roundToInt (val)));
 		*syncing = false;
 	};
 
@@ -6311,7 +6303,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 
 		const int barX = contentLeft;
 		const int barW = innerW;
-		const auto scFilterFont = scHpTe->getFont();
+		const auto scValueFont = scHpTe->getFont();
+		const juce::Font scSideFont (juce::FontOptions (24.0f).withStyle ("Bold"));
 		const int scRowH = scHpTe->getHeight();
 		const int scBarH = juce::jmax (10, scRowH / 2);
 		const int scBarGap = juce::jmax (2, scRowH / 6);
@@ -6347,21 +6340,19 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		{
 			if (! te || ! suffix || ! bar) return;
 
+			const int textW = juce::jmax (1, stringWidth (font, te->getText()));
+			editorW = juce::jlimit (24, editorW, textW + 16);
 			const int labelW = stringWidth (suffix->getFont(), suffix->getText()) + 2;
 			const int unitW = (unitLabel != nullptr) ? stringWidth (font, unitLabel->getText()) + 2 : 0;
 			const bool isRatioRow = (te == ratioTe && unitLabel == ratioUnit);
 
 			if (isRatioRow)
 			{
-				const int ratioSeparatorSpan = juce::jmax (unitW + 2 * juce::jmax (spaceW, 8), labelGap + unitW);
-				const int groupW = labelW + ratioSeparatorSpan + editorW;
+				const int ratioGap = juce::jmax (2, spaceW / 2);
+				const int groupW = labelW + ratioGap + unitW + ratioGap + editorW;
 				const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
-				const int suffixRight = blockLeft + labelW;
-				const int teX = blockLeft + labelW + ratioSeparatorSpan;
-				const int ratioTextW = stringWidth (font, te->getText());
-				const int visibleTextLeft = teX + juce::jmax (0, (editorW - ratioTextW) / 2);
-				const int colonCenterX = suffixRight + (visibleTextLeft - suffixRight) / 2;
-				const int colonX = colonCenterX - unitW / 2;
+				const int colonX = blockLeft + labelW + ratioGap;
+				const int teX = colonX + unitW + ratioGap;
 
 				suffix->setBounds (blockLeft, rowY, labelW, rowH);
 
@@ -6375,6 +6366,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			}
 			else
 			{
+				const int maxFittedEditorW = juce::jmax (24, innerW - labelW - labelGap - (unitLabel != nullptr ? unitGapPx + unitW : 0));
+				editorW = juce::jmin (editorW, maxFittedEditorW);
 				const int groupW = labelW + labelGap + editorW + (unitLabel != nullptr ? unitGapPx + unitW : 0);
 				const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
 
@@ -6408,33 +6401,35 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			                                           (int) std::lround ((double) toggleSide * 0.65));
 			const int labelOffset = toggleVisualInsetLeft + toggleVisualSide + tglGap;
 
-			name->setFont (scFilterFont);
-			unit->setFont (scFilterFont);
-			slope->setFont (scFilterFont);
+			name->setFont (scSideFont);
+			unit->setFont (scSideFont);
+			slope->setFont (scSideFont);
 
 			toggle->setBounds (barX, rowY + (scRowH - toggleSide) / 2, toggleSide, toggleSide);
 
 			const int nameX = barX + labelOffset;
-			const int nameW = stringWidth (scFilterFont, "LP") + 2;
+			const int nameW = stringWidth (scSideFont, "LP") + 2;
 			name->setBounds (nameX, rowY, nameW, scRowH);
 
-			const int slopeW = stringWidth (scFilterFont, "24dB") + 4;
+			const int slopeW = stringWidth (scSideFont, "24dB") + 4;
 			const int slopeX = contentRight - slopeW;
 			slope->setBounds (slopeX, rowY, slopeW, scRowH);
 
-			const int midL = nameX + nameW;
-			const int midR = slopeX;
+			const int kNameToValueGap = juce::jmax (spaceW, 4);
+			const int midL = nameX + nameW + kNameToValueGap;
+			const int kSlopeGap = juce::jmax (spaceW, 4);
+			const int midR = slopeX - kSlopeGap;
 			const int midW = midR - midL;
 
-			const int unitW = stringWidth (scFilterFont, "Hz") + 2;
-			const int textW = juce::jmax (1, stringWidth (scFilterFont, te->getText()));
-			constexpr int kEditorPad = 6;
-			constexpr int hzGap = 2;
+			const int unitW = stringWidth (scSideFont, "Hz") + 2;
+			const int textW = juce::jmax (1, stringWidth (scValueFont, te->getText()));
+			constexpr int kEditorPad = 2;
+			constexpr int hzGap = 1;
 			const int desiredEditorW = textW + kEditorPad * 2;
-			const int maxEditorW = juce::jmax (1, midW - hzGap - unitW);
-			const int editorW = juce::jmin (desiredEditorW, maxEditorW);
+			const int editorW = desiredEditorW;
 			const int groupW = editorW + hzGap + unitW;
-			const int groupX = juce::jlimit (midL, juce::jmax (midL, midR - groupW), midL + juce::jmax (0, (midW - groupW) / 2));
+			const int groupX = juce::jmin (midL + juce::jmax (0, (midW - groupW) / 2),
+			                               juce::jmax (midL, midR - groupW));
 
 			te->setBounds (groupX, rowY, editorW, scRowH);
 			unit->setBounds (groupX + editorW + hzGap, rowY, unitW, scRowH);
@@ -6593,12 +6588,12 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 
 		if (! incomplete && parseText.isNotEmpty())
 		{
-			float raw = juce::jlimit (spec.minValue, spec.maxValue, (float) parseText.getDoubleValue());
+			float raw = (float) juce::roundToInt (juce::jlimit (spec.minValue, spec.maxValue, (float) parseText.getDoubleValue()));
 			const float other = parseEnvPromptValue (otherTe, isHp ? scLpSpec : scHpSpec,
 			                                        isHp ? CABTRAudioProcessor::kExpScLpDefault
 			                                             : CABTRAudioProcessor::kExpScHpDefault);
-			raw = isHp ? juce::jmin (raw, other) : juce::jmax (raw, other);
-			te->setText (juce::String (raw, spec.formatDecimals), juce::dontSendNotification);
+			raw = isHp ? juce::jmin (raw, (float) juce::roundToInt (other)) : juce::jmax (raw, (float) juce::roundToInt (other));
+			te->setText (juce::String (juce::roundToInt (raw)), juce::dontSendNotification);
 			if (isHp)
 				textToBarScHp (raw, bar);
 			else
@@ -6698,7 +6693,10 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		for (auto* label : { scFilterLabel })
 			if (label != nullptr)
 				label->setFont (kExpFont);
-		for (auto* label : { scHpNameLabel, scLpNameLabel, scHpUnitLabel, scLpUnitLabel, scHpSlopeLabel, scLpSlopeLabel })
+		for (auto* label : { scHpNameLabel, scLpNameLabel, scHpSlopeLabel, scLpSlopeLabel })
+			if (label != nullptr)
+				label->setFont (juce::Font (juce::FontOptions (24.0f).withStyle ("Bold")));
+		for (auto* label : { scHpUnitLabel, scLpUnitLabel })
 			if (label != nullptr)
 				label->setFont (kExpFilterFont);
 		layoutBody();
@@ -6781,8 +6779,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				const float newKnee   = parseEnvPromptValue (aw->getTextEditor ("knee"),   kneeSpec,   savedKnee);
 				const float newAtk    = parseEnvPromptValue (aw->getTextEditor ("atk"),    atkSpec,    savedAtk);
 				const float newRel    = parseEnvPromptValue (aw->getTextEditor ("rel"),    relSpec,    savedRel);
-				float newScHp         = normToFreq (scHpBar->value);
-				float newScLp         = normToFreq (scLpBar->value);
+				float newScHp         = (float) juce::roundToInt (normToFreq (scHpBar->value));
+				float newScLp         = (float) juce::roundToInt (normToFreq (scLpBar->value));
 				const bool newScHpOn  = scHpToggle->getToggleState();
 				const bool newScLpOn  = scLpToggle->getToggleState();
 				const int newScHpSlope = juce::jlimit (CABTRAudioProcessor::kFilterSlopeMin,
