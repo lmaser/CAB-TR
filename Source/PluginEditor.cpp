@@ -2857,8 +2857,73 @@ void CABTRAudioProcessorEditor::timerCallback()
 
 void CABTRAudioProcessorEditor::sliderValueChanged (juce::Slider* slider)
 {
-	juce::ignoreUnused (slider);
 	legendDirty = true;
+
+	if (slider == nullptr)
+	{
+		repaint();
+		return;
+	}
+
+	auto repaintArea = [this] (juce::Rectangle<int> area)
+	{
+		area = area.expanded (8, 6).getIntersection (getLocalBounds());
+		if (area.isEmpty())
+			repaint();
+		else
+			repaint (area);
+	};
+
+	auto repaintFooterSlider = [&] (juce::Slider& footerSlider, int valueWidthPx)
+	{
+		const auto valueArea = footerExpanded_
+			? makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), footerSlider.getBounds())
+			: makeFooterValueArea (footerSlider.getBounds(), valueWidthPx);
+		repaintArea (footerSlider.getBounds().getUnion (valueArea));
+	};
+
+	for (int loader = 0; loader < 3; ++loader)
+	{
+		auto refs = getLoaderRefs (loader);
+		const int colR = columnRight_[loader];
+
+		if (colR <= 0)
+			continue;
+
+		juce::Slider* loaderSliders[kNumCachedParams] = {
+			&refs.hp, &refs.lp, &refs.in, &refs.out, &refs.tilt,
+			&refs.start, &refs.end, &refs.size, &refs.pan,
+			&refs.fred, &refs.pos, &refs.reso, &refs.variation, &refs.delay, &refs.mix
+		};
+
+		for (auto* s : loaderSliders)
+		{
+			if (slider == s)
+			{
+				repaintArea (s->getBounds().getUnion (getValueAreaFor (s->getBounds(), colR)));
+				return;
+			}
+		}
+	}
+
+	if (slider == &globalMixSlider)
+	{
+		repaintFooterSlider (globalMixSlider, kFooterMixValueWidthPx);
+		return;
+	}
+
+	if (slider == &globalOutputSlider)
+	{
+		repaintFooterSlider (globalOutputSlider, kFooterDbValueWidthPx);
+		return;
+	}
+
+	if (slider == &limThresholdSlider)
+	{
+		repaintFooterSlider (limThresholdSlider, kFooterDbValueWidthPx);
+		return;
+	}
+
 	repaint();
 }
 
