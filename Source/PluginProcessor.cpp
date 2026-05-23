@@ -5341,17 +5341,30 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 			
 			LOG_IR_EVENT ("State loaded: IR_A=" + pathA + ", IR_B=" + pathB + ", IR_C=" + pathC);
 			
-			// Reload IRs if paths exist
-			if (pathA.isNotEmpty())
-				loadImpulseResponse (stateA, pathA);
-			if (pathB.isNotEmpty())
-				loadImpulseResponse (stateB, pathB);
-			if (pathC.isNotEmpty())
-				loadImpulseResponse (stateC, pathC);
+			auto clearIr = [] (IRLoaderState& loaderState)
+			{
+				loaderState.convolution.reset();
+				loaderState.impulseResponse.setSize (0, 0);
+				loaderState.currentFilePath.clear();
+				loaderState.needsUpdate.store (false);
+				loaderState.irSlopeDbPerOct.store (0.0f);
+				loaderState.lastReloadTime = 0;
+			};
+
+			auto restoreIrPath = [this, &clearIr] (IRLoaderState& loaderState, const juce::String& path)
+			{
+				clearIr (loaderState);
+				if (path.isNotEmpty())
+					loadImpulseResponse (loaderState, path);
+			};
+
+			restoreIrPath (stateA, pathA);
+			restoreIrPath (stateB, pathB);
+			restoreIrPath (stateC, pathC);
 			
 			// Update UI file display labels
 			if (auto* editor = dynamic_cast<CABTRAudioProcessorEditor*> (getActiveEditor()))
-				editor->updateFileDisplayLabels (pathA, pathB, pathC);
+				editor->updateFileDisplayLabels (stateA.currentFilePath, stateB.currentFilePath, stateC.currentFilePath);
 		}
 	}
 }
