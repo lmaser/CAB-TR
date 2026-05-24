@@ -2352,7 +2352,7 @@ void CABTRAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 		g.drawRoundedRectangle (tabBounds.reduced (1.0f), radius, 2.0f);
 
 		g.setColour (footerExpanded_ ? activeScheme.bg : activeScheme.text);
-		g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Bold")));
+		g.setFont (juce::Font (juce::FontOptions (17.0f).withStyle ("Bold")));
 		g.drawFittedText ("GLOBAL",
 		                  cachedFooterRailArea_.reduced (8, 0),
 		                  juce::Justification::centred,
