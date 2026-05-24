@@ -89,8 +89,8 @@ Limiter insertion point:
 - **GLOBAL**: Limiter applied to the final output (after output gain and dry/wet mix).
 
 The limiter is a dual-stage transparent peak limiter:
-- **Stage 1 (Leveler)**: 2 ms attack, 10 ms release - catches sustained overs.
-- **Stage 2 (Brickwall)**: Instant attack, 100 ms release - catches transient peaks.
+- **Stage 1 (Leveler)**: catches sustained overs.
+- **Stage 2 (Brickwall)**: catches transient peaks.
 
 Stereo-linked gain reduction ensures consistent imaging.
 
@@ -314,7 +314,7 @@ Export options:
 - Fixed temp buffer allocation causing distortion in hosts with small block sizes (e.g. FL Studio at 96 samples).
 - Cached per-block `std::exp` coefficients in `prepareToPlay` (tilt smoothing, DC blocker, NORM AGC).
 - Aligned tooltip rendering with shared TR-series style (centred `drawFittedText`).
-- Added dual-stage transparent peak limiter with LIM (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with 2 ms/10 ms leveler + instant/100 ms brickwall stages.
+- Added dual-stage transparent peak limiter with LIM (-36 to 0 dB) and LIM MODE (NONE/WET/GLOBAL). Stereo-linked gain reduction with leveler + brickwall stages.
 - Added per-loader `EXP` with `PRE/POST` order around the IR loader plus THRESH, RATIO, KNEE, ATK, and REL controls.
 - Refined prompt UX and delay editing for consistent numeric entry, while keeping compact time readouts in the main UI.
 - Export now follows the full static routing/tone chain more closely, while still excluding dynamic/non-static stages such as `CHAOS`, `VAR`, `EXP`, and `LIMITER`.
