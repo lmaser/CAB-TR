@@ -2091,7 +2091,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			{
 				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), mixBounds);
 				const auto txt = juce::String (gMixPct) + "%";
-				tryDrawLegend (valArea, txt + " MIX", txt + " MX", txt);
+				tryDrawLegend (valArea, txt + " MIX", txt + " MIX", txt);
 			}
 			else
 			{
@@ -2111,7 +2111,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			if (footerExpanded_)
 			{
 				const auto valArea = makeExpandedFooterValueArea (cachedFooterPanelArea_.getRight(), mixBounds);
-				tryDrawLegend (valArea, cachedMixTextFull + " MIX", cachedMixTextShort + " MX", cachedMixIntOnly);
+				tryDrawLegend (valArea, cachedMixTextFull + " MIX", cachedMixTextShort + " MIX", cachedMixIntOnly);
 			}
 			else
 			{
@@ -2254,6 +2254,7 @@ void CABTRAudioProcessorEditor::paint (juce::Graphics& g)
 			if (refs.filterBar.isVisible())
 			{
 				const auto filterValueArea = getValueAreaFor (refs.filterBar.getBounds(), colR);
+				g.setFont (juce::Font (juce::FontOptions (32.0f).withStyle ("Bold")));
 				g.drawText ("FILTER", filterValueArea, juce::Justification::centredLeft);
 			}
 		}
@@ -3908,7 +3909,7 @@ juce::String CABTRAudioProcessorEditor::getMixTextShort() const
 		return juce::String (dB, 1) + " dB";
 	}
 	const int pct = juce::roundToInt (globalMixSlider.getValue() * 100.0);
-	return juce::String (pct) + "% MX";
+	return juce::String (pct) + "% MIX";
 }
 
 juce::Rectangle<int> CABTRAudioProcessorEditor::getValueAreaFor (const juce::Rectangle<int>& barBounds,
@@ -5893,7 +5894,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		}
 	};
 
-	setupField ("thresh", "THRESH", "dB", threshSuffix, threshUnit);
+	setupField ("thresh", "THR", "dB", threshSuffix, threshUnit);
 	setupField ("ratio", "RATIO 1", ":", ratioSuffix, ratioUnit);
 	setupField ("knee", "KNEE", "dB", kneeSuffix, kneeUnit);
 	setupField ("atk", "ATK", "ms", atkSuffix, atkUnit);
