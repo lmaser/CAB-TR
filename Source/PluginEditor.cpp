@@ -3844,7 +3844,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 				{
 					const int pct = juce::roundToInt (val * 100.0);
 					ct.full    = juce::String (pct) + "% " + fmt.label;
-					ct.short_  = juce::String (pct) + "%";
+					ct.short_  = juce::String (pct) + "% " + fmt.label;
 					ct.intOnly = juce::String (pct) + "%";
 					break;
 				}
