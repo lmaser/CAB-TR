@@ -6424,6 +6424,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			const int labelW = stringWidth (suffix->getFont(), suffix->getText()) + 2;
 			const int unitW = (unitLabel != nullptr) ? stringWidth (unitLabel->getFont(), unitLabel->getText()) + 2 : 0;
 			const bool isRatioRow = (te == ratioTe && unitLabel == ratioUnit);
+			const bool isExpTimeRow = (te == atkTe || te == relTe) && unitLabel != nullptr;
 
 			if (isRatioRow)
 			{
@@ -6445,9 +6446,12 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			}
 			else
 			{
-				const int maxFittedEditorW = juce::jmax (24, innerW - labelW - labelGap - (unitLabel != nullptr ? unitGapPx + unitW : 0));
+				const int valuePad = isExpTimeRow ? 4 : 16;
+				const int valueGap = isExpTimeRow ? 1 : unitGapPx;
+				editorW = juce::jlimit (24, editorW, textW + valuePad);
+				const int maxFittedEditorW = juce::jmax (24, innerW - labelW - labelGap - (unitLabel != nullptr ? valueGap + unitW : 0));
 				editorW = juce::jmin (editorW, maxFittedEditorW);
-				const int groupW = labelW + labelGap + editorW + (unitLabel != nullptr ? unitGapPx + unitW : 0);
+				const int groupW = labelW + labelGap + editorW + (unitLabel != nullptr ? valueGap + unitW : 0);
 				const int blockLeft = contentLeft + juce::jmax (0, (innerW - groupW) / 2);
 
 				suffix->setBounds (blockLeft, rowY, labelW, rowH);
@@ -6457,7 +6461,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				if (unitLabel != nullptr)
 				{
 					unitLabel->setJustificationType (juce::Justification::centredLeft);
-					unitLabel->setBounds (teX + editorW + unitGapPx, rowY, unitW, rowH);
+					unitLabel->setBounds (teX + editorW + valueGap, rowY, unitW, rowH);
 				}
 			}
 
