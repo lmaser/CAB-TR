@@ -56,6 +56,19 @@ namespace
 		return juce::String (clampedMs / 1000.0, 2) + " s";
 	}
 
+	juce::String formatExpTimeMsForPromptValue (double ms)
+	{
+		const double safeMs = juce::jmax (0.0, ms);
+
+		if (safeMs >= 1000.0)
+			return juce::String (juce::roundToInt (safeMs));
+		if (safeMs >= 100.0)
+			return juce::String (safeMs, 1);
+		if (safeMs >= 1.0)
+			return juce::String (safeMs, 2);
+		return juce::String (safeMs, 3);
+	}
+
 	juce::String formatFrequencyValue (double hz)
 	{
 		const double clampedHz = juce::jmax (0.0, hz);
@@ -5837,8 +5850,8 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 	aw->addTextEditor ("thresh", juce::String (currentThresh, 1), juce::String());
 	aw->addTextEditor ("ratio", formatExpRatioDisplay (currentRatio), juce::String());
 	aw->addTextEditor ("knee", juce::String (currentKnee, 1), juce::String());
-	aw->addTextEditor ("atk", juce::String (currentAtk, 2), juce::String());
-	aw->addTextEditor ("rel", juce::String (currentRel, 2), juce::String());
+	aw->addTextEditor ("atk", formatExpTimeMsForPromptValue (currentAtk), juce::String());
+	aw->addTextEditor ("rel", formatExpTimeMsForPromptValue (currentRel), juce::String());
 	aw->addTextEditor ("scGain", juce::String (currentScGain, 1), juce::String());
 	aw->addTextEditor ("scHp", juce::String (juce::roundToInt (currentScHp)), juce::String());
 	aw->addTextEditor ("scLp", juce::String (juce::roundToInt (currentScLp)), juce::String());
@@ -6255,7 +6268,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		const float val = atkNormRange.convertFrom0to1 (v01);
 		if (auto* te = aw->getTextEditor ("atk"))
 		{
-			te->setText (juce::String (val, 2), juce::sendNotification);
+			te->setText (formatExpTimeMsForPromptValue (val), juce::sendNotification);
 			te->selectAll();
 		}
 		if (atkApvts) atkApvts->setValueNotifyingHost (atkApvts->convertTo0to1 (val));
@@ -6269,7 +6282,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		const float val = relNormRange.convertFrom0to1 (v01);
 		if (auto* te = aw->getTextEditor ("rel"))
 		{
-			te->setText (juce::String (val, 2), juce::sendNotification);
+			te->setText (formatExpTimeMsForPromptValue (val), juce::sendNotification);
 			te->selectAll();
 		}
 		if (relApvts) relApvts->setValueNotifyingHost (relApvts->convertTo0to1 (val));
@@ -6409,7 +6422,7 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 			const int textW = juce::jmax (1, stringWidth (font, te->getText()));
 			editorW = juce::jlimit (24, editorW, textW + 16);
 			const int labelW = stringWidth (suffix->getFont(), suffix->getText()) + 2;
-			const int unitW = (unitLabel != nullptr) ? stringWidth (font, unitLabel->getText()) + 2 : 0;
+			const int unitW = (unitLabel != nullptr) ? stringWidth (unitLabel->getFont(), unitLabel->getText()) + 2 : 0;
 			const bool isRatioRow = (te == ratioTe && unitLabel == ratioUnit);
 
 			if (isRatioRow)
@@ -6756,6 +6769,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 		syncFonts (atkSuffix, atkUnit, "atk");
 		syncFonts (relSuffix, relUnit, "rel");
 		syncFonts (scGainSuffix, scGainUnit, "scGain");
+		const juce::Font expTimeUnitFont (juce::FontOptions (28.0f).withStyle ("Bold"));
+		if (atkUnit != nullptr) atkUnit->setFont (expTimeUnitFont);
+		if (relUnit != nullptr) relUnit->setFont (expTimeUnitFont);
 		for (auto* label : { scFilterLabel })
 			if (label != nullptr)
 				label->setFont (kExpFont);
