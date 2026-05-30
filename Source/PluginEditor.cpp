@@ -50,10 +50,10 @@ namespace
 	{
 		const double clampedMs = juce::jmax (0.0, ms);
 		if (clampedMs < 100.0)
-			return juce::String (clampedMs, 2) + " ms";
+			return juce::String (clampedMs, 2) + "ms";
 		if (clampedMs < 1000.0)
-			return juce::String (clampedMs, 1) + " ms";
-		return juce::String (clampedMs / 1000.0, 2) + " s";
+			return juce::String (clampedMs, 1) + "ms";
+		return juce::String (clampedMs / 1000.0, 2) + "s";
 	}
 
 	juce::String formatExpTimeMsForPromptValue (double ms)
@@ -3796,7 +3796,7 @@ bool CABTRAudioProcessorEditor::refreshLegendTextCache()
 	struct ParamFmt { int type; const char* label; const char* shortLabel = nullptr; };
 	const ParamFmt fmts[kNumCachedParams] = {
 		{0,"HP"}, {0,"LP"}, {1,"IN"}, {1,"OUT"}, {5,"TILT"}, {2,"START"}, {2,"END"},
-		{3,"SIZE"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {6,"DELAY","DLY"}, {3,"MIX"}
+		{3,"SIZE"}, {4,"PAN"}, {3,"ANGLE"}, {3,"DIST"}, {3,"RESO"}, {3,"VAR"}, {6,"DELAY"}, {3,"MIX"}
 	};
 
 	for (int loader = 0; loader < 3; ++loader)
@@ -4148,10 +4148,10 @@ void CABTRAudioProcessorEditor::openNumericEntryPopupForSlider (juce::Slider& s)
 	else if (isOut)         { suffix = " dB OUTPUT";   suffixShort = " dB OUT"; }
 	else if (isLimThresh)   { suffix = " dB LIM";      suffixShort = " dB LIM"; }
 	else if (isTilt)        { suffix = " dB TILT";     suffixShort = " dB TILT"; }
-	else if (isStart)       { suffix = " ms";          suffixShort = " ms"; }
-	else if (isEnd)         { suffix = " ms";          suffixShort = " ms"; }
+	else if (isStart)       { suffix = "ms";          suffixShort = "ms"; }
+	else if (isEnd)         { suffix = "ms";          suffixShort = "ms"; }
 	else if (isSize)        { suffix = " % SIZE";      suffixShort = " % SIZE"; }
-	else if (isDelay)       { suffix = " ms";          suffixShort = " ms"; }
+	else if (isDelay)       { suffix = "ms";          suffixShort = "ms"; }
 	else if (isPan)         { suffix = " % PAN";       suffixShort = " % PAN"; }
 	else if (isFred)        { suffix = " % ANGLE";    suffixShort = " % ANGLE"; }
 	else if (isPos)         { suffix = " % DIST";     suffixShort = " % DIST"; }
