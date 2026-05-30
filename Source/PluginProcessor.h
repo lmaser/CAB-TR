@@ -532,6 +532,7 @@ public:
 		
 		// Rate-limiting: minimum interval between reloads to avoid overload during slider drag
 		juce::int64 lastReloadTime { 0 };
+		juce::int64 lastChangeTime { 0 };
 		
 		// EMA-smoothed filter frequencies (per-sample smoothing, coeff update every 8 samples)
 		float smoothedHpFreq = 80.0f;
@@ -568,9 +569,9 @@ public:
 		int chaosDelayWritePos = 0;
 		float chaosDelaySmoothedSamples[2] = {};
 		bool chaosDelaySmoothReady[2] = {};
-		float chaosDriveAmtSmoothed = 0.0f;
-		float chaosDriveSpdSmoothed = 0.0f;
-		bool chaosDriveParamSmoothReady = false;
+		float chaosLoaderAmtSmoothed = 0.0f;
+		float chaosLoaderSpdSmoothed = 0.0f;
+		bool chaosLoaderParamSmoothReady = false;
 		float chaosFilterAmtSmoothed = 0.0f;
 		float chaosFilterSpdSmoothed = 0.0f;
 		bool chaosFilterParamSmoothReady = false;
@@ -991,9 +992,9 @@ private:
 	                         bool expScHpOn, bool expScLpOn,
 	                         int expScHpSlope, int expScLpSlope,
 	                         float expScGainDb) noexcept;
-	void applyChaosDriveBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
-	                            bool chaosEnabled, float chaosAmt, float chaosSpd,
-	                            float chaosParamSmoothCoeff) noexcept;
+	void applyChaosLoaderBuffer (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
+	                             bool chaosEnabled, float chaosAmt, float chaosSpd,
+	                             float chaosParamSmoothCoeff) noexcept;
 	void applyLoaderTonePosition (IRLoaderState& state, juce::AudioBuffer<float>& buffer,
 	                              bool applyFiltersStage, bool applyTiltStage, bool filtersFirst,
 	                              float hpFreq, float lpFreq, bool hpOn, bool lpOn,

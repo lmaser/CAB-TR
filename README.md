@@ -275,7 +275,7 @@ Export options:
 - **Convolver**: FFTConvolver (HiFi-LoFi, MIT) - two-stage partitioned convolution. Low-latency head block processed on the audio thread; long tail processed on a background thread.
 - **Zero-latency**: No added latency from convolution - the head partition runs in real time.
 - **IR crossfade**: 50 ms S-curve crossfade when swapping IRs, preventing clicks on parameter changes.
-- **Rate-limited reloads**: Minimum 300 ms between IR rebuilds to prevent CPU spikes during slider automation.
+- **Debounced IR reloads**: IR-affecting loader changes rebuild only after the controls have stayed stable for about `300 ms`, avoiding repeated reloads while dragging.
 - **Filters**: Butterworth IIR (HP/LP), transposed Direct Form II. Coefficients updated every 32 samples for efficient automation.
 - **Fredman comb**: 7-tap circular delay buffer with wet/dry blend.
 - **Variation**: Deterministic per-loader smooth modulation for subtle cab/mic drift. SIZE variation is a realtime all-pass proxy and never triggers an IR reload; high VAR values add a faster instance-seeded layer without increasing the maximum modulation range. The instance seed is persisted in plugin state.

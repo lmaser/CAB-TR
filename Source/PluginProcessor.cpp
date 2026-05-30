@@ -888,18 +888,6 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 #if JUCE_WINDOWS && JUCE_DSP_USE_SHARED_FFTW
 	ensureFFTWLoaded();
 	LOG_IR_EVENT (g_fftwDiag);
-
-	// Verify JUCE can now find it by short name
-	{
-		HMODULE juceCheck = LoadLibraryW (L"libfftw3f.dll");
-		if (juceCheck)
-		{
-			LOG_IR_EVENT ("JUCE LoadLibrary(\"libfftw3f.dll\"): OK");
-			FreeLibrary (juceCheck);
-		}
-		else
-			LOG_IR_EVENT ("JUCE LoadLibrary(\"libfftw3f.dll\"): FAIL(err=" + juce::String ((int) GetLastError()) + ")");
-	}
 #endif
 
 	// Prepare convolution
@@ -911,15 +899,6 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	stateA.convolution.prepare (sampleRate, samplesPerBlock);
 	stateB.convolution.prepare (sampleRate, samplesPerBlock);
 	stateC.convolution.prepare (sampleRate, samplesPerBlock);
-
-	// FFT runtime benchmark - verify FFTW engine is actually active
-	{
-		juce::dsp::FFT fftBench (8); // order=8 -> 256-point
-		std::vector<float> benchBuf (512, 0.0f);
-		benchBuf[0] = 1.0f;
-		for (int i = 0; i < 100; ++i)
-			fftBench.performRealOnlyForwardTransform (benchBuf.data());
-	}
 	stateA.hpFilter.prepare (spec);
 	stateA.hpFilter2.prepare (spec);
 	stateA.lpFilter.prepare (spec);
@@ -1171,7 +1150,7 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 		state->lastFred = 0.0f;
 		std::memset (state->chaosDelayBuffer, 0, sizeof (state->chaosDelayBuffer));
 		state->chaosDelayWritePos = 0;
-		state->chaosDriveParamSmoothReady = false;
+		state->chaosLoaderParamSmoothReady = false;
 		state->chaosFilterParamSmoothReady = false;
 		for (int c = 0; c < 2; ++c)
 		{
@@ -1197,8 +1176,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	// Initialize EMA-smoothed filter frequencies to current parameter values
 	std::atomic<float>* hpPtrs[] = { pHpFreqA, pHpFreqB, pHpFreqC };
 	std::atomic<float>* lpPtrs[] = { pLpFreqA, pLpFreqB, pLpFreqC };
-	std::atomic<float>* chaosDriveAmtPtrs[] = { pChaosAmtA, pChaosAmtB, pChaosAmtC };
-	std::atomic<float>* chaosDriveSpdPtrs[] = { pChaosSpdA, pChaosSpdB, pChaosSpdC };
+	std::atomic<float>* chaosLoaderAmtPtrs[] = { pChaosAmtA, pChaosAmtB, pChaosAmtC };
+	std::atomic<float>* chaosLoaderSpdPtrs[] = { pChaosSpdA, pChaosSpdB, pChaosSpdC };
 	std::atomic<float>* chaosFilterAmtPtrs[] = { pChaosAmtFilterA, pChaosAmtFilterB, pChaosAmtFilterC };
 	std::atomic<float>* chaosFilterSpdPtrs[] = { pChaosSpdFilterA, pChaosSpdFilterB, pChaosSpdFilterC };
 	std::atomic<float>* expScGainPtrs[] = { pExpScGainA, pExpScGainB, pExpScGainC };
@@ -1207,8 +1186,8 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	{
 		states[i]->smoothedHpFreq = hpPtrs[i]->load();
 		states[i]->smoothedLpFreq = lpPtrs[i]->load();
-		states[i]->chaosDriveAmtSmoothed = chaosDriveAmtPtrs[i]->load();
-		states[i]->chaosDriveSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosDriveSpdPtrs[i]->load());
+		states[i]->chaosLoaderAmtSmoothed = chaosLoaderAmtPtrs[i]->load();
+		states[i]->chaosLoaderSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosLoaderSpdPtrs[i]->load());
 		states[i]->chaosFilterAmtSmoothed = chaosFilterAmtPtrs[i]->load();
 		states[i]->chaosFilterSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosFilterSpdPtrs[i]->load());
 		states[i]->expScHpState.reset();
@@ -2504,6 +2483,7 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.currentFilePath = filePath;
 	state.irSampleRate = reader->sampleRate;
 	state.needsUpdate = false;
+	state.lastChangeTime = 0;
 
 	LOG_IR_EVENT ("IR Reload " + juce::String ("ABC"[loaderIdx]) + ": " + 
 	     juce::String (finalLength) + " samples (" +
@@ -4313,7 +4293,7 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 		                     expScGainDb);
 
 	// 1.5. CHAOS D: input decorrelation before the IR/convolution black box.
-	applyChaosDriveBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
+	applyChaosLoaderBuffer (state, buffer, chaosEnabled, chaosAmt, chaosSpd, chaosParamSmoothCoeff);
 
 	// 2. CONVOLUTION (TwoStageFFTConvolver - head on audio thread, tail on background)
 	{
@@ -4519,24 +4499,24 @@ void CABTRAudioProcessor::processLoader (IRLoaderState& state,
 	}
 }
 
-void CABTRAudioProcessor::applyChaosDriveBuffer (IRLoaderState& state,
-                                                 juce::AudioBuffer<float>& buffer,
-                                                 bool chaosEnabled, float chaosAmt, float chaosSpd,
-                                                 float chaosParamSmoothCoeff) noexcept
+void CABTRAudioProcessor::applyChaosLoaderBuffer (IRLoaderState& state,
+                                                  juce::AudioBuffer<float>& buffer,
+                                                  bool chaosEnabled, float chaosAmt, float chaosSpd,
+                                                  float chaosParamSmoothCoeff) noexcept
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
 	const int chCount = juce::jmin (numChannels, 2);
-	const bool chaosDriveActive = chaosEnabled
-		&& (chaosAmt > 0.01f || (state.chaosDriveParamSmoothReady && state.chaosDriveAmtSmoothed > 0.01f));
+	const bool chaosLoaderActive = chaosEnabled
+		&& (chaosAmt > 0.01f || (state.chaosLoaderParamSmoothReady && state.chaosLoaderAmtSmoothed > 0.01f));
 
-	if (! chaosDriveActive || numSamples <= 0 || chCount <= 0)
+	if (! chaosLoaderActive || numSamples <= 0 || chCount <= 0)
 	{
 		state.chaosDelaySmoothedSamples[0] = state.chaosDelaySmoothedSamples[1] = 0.0f;
 		state.chaosDelaySmoothReady[0] = state.chaosDelaySmoothReady[1] = false;
-		state.chaosDriveAmtSmoothed = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmt);
-		state.chaosDriveSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpd);
-		state.chaosDriveParamSmoothReady = false;
+		state.chaosLoaderAmtSmoothed = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmt);
+		state.chaosLoaderSpdSmoothed = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpd);
+		state.chaosLoaderParamSmoothReady = false;
 		return;
 	}
 
@@ -4554,21 +4534,21 @@ void CABTRAudioProcessor::applyChaosDriveBuffer (IRLoaderState& state,
 	{
 		const float targetAmt = juce::jlimit (kChaosAmtMin, kChaosAmtMax, chaosAmt);
 		const float targetSpd = juce::jlimit (kChaosSpdMin, kChaosSpdMax, chaosSpd);
-		if (! state.chaosDriveParamSmoothReady)
+		if (! state.chaosLoaderParamSmoothReady)
 		{
-			state.chaosDriveParamSmoothReady = true;
-			if (state.chaosDriveSpdSmoothed <= 0.0f)
-				state.chaosDriveSpdSmoothed = targetSpd;
+			state.chaosLoaderParamSmoothReady = true;
+			if (state.chaosLoaderSpdSmoothed <= 0.0f)
+				state.chaosLoaderSpdSmoothed = targetSpd;
 		}
 
-		state.chaosDriveAmtSmoothed += (targetAmt - state.chaosDriveAmtSmoothed) * chaosParamSmoothCoeff;
-		const float driveSpdLog = std::log (juce::jmax (kChaosSpdMin, state.chaosDriveSpdSmoothed));
-		const float driveTargetSpdLog = std::log (targetSpd);
-		state.chaosDriveSpdSmoothed = std::exp (driveSpdLog + (driveTargetSpdLog - driveSpdLog) * chaosParamSmoothCoeff);
+		state.chaosLoaderAmtSmoothed += (targetAmt - state.chaosLoaderAmtSmoothed) * chaosParamSmoothCoeff;
+		const float loaderSpdLog = std::log (juce::jmax (kChaosSpdMin, state.chaosLoaderSpdSmoothed));
+		const float loaderTargetSpdLog = std::log (targetSpd);
+		state.chaosLoaderSpdSmoothed = std::exp (loaderSpdLog + (loaderTargetSpdLog - loaderSpdLog) * chaosParamSmoothCoeff);
 
-		const float amountNorm = state.chaosDriveAmtSmoothed * 0.01f; // 0..1
+		const float amountNorm = state.chaosLoaderAmtSmoothed * 0.01f; // 0..1
 		const float maxDelaySamples = amountNorm * maxDelaySec * sr;
-		const float shPeriodSamples = sr / juce::jmax (kChaosSpdMin, state.chaosDriveSpdSmoothed);
+		const float shPeriodSamples = sr / juce::jmax (kChaosSpdMin, state.chaosLoaderSpdSmoothed);
 		const float chaosGainMaxDb = amountNorm * 1.0f; // +/-1dB at 100%
 
 		// L/R-linked micro-delay and gain: decorrelate the loader, not the stereo image.
@@ -5185,13 +5165,13 @@ juce::AudioProcessorEditor* CABTRAudioProcessor::createEditor()
 
 //==============================================================================
 // TIMER CALLBACK: Check for parameter changes and trigger IR reload on message thread
-// This ensures file I/O never happens in audio thread
-// Rate-limited: max 1 reload per 300ms to prevent excessive reloads when dragging sliders
+// This ensures file I/O never happens in audio thread.
+// Debounced: only reload after the IR-affecting parameters have been stable for 300ms.
 //==============================================================================
 void CABTRAudioProcessor::timerCallback()
 {
 	const juce::int64 now = juce::Time::currentTimeMillis();
-	constexpr juce::int64 minReloadIntervalMs = 300; // Max 1 reload per 300ms (rate-limiting)
+	constexpr juce::int64 minReloadIntervalMs = 300;
 	
 	// Helper lambda: check if IR-affecting params changed for a loader
 	auto checkLoader = [&] (IRLoaderState& state, const char* sizeId, const char* invId,
@@ -5218,16 +5198,24 @@ void CABTRAudioProcessor::timerCallback()
 		                     std::abs (end - state.lastEnd.load()) > epsilon ||
 		                     std::abs (reso - state.lastReso.load()) > epsilon;
 		
-		if (changed && (now - state.lastReloadTime >= minReloadIntervalMs))
+		if (changed)
 		{
-			LOG_IR_EVENT ("Loader param change - reloading (size=" + 
-			              juce::String (size, 3) + ", start=" + juce::String (start, 1) + 
-			              "ms, end=" + juce::String (end, 1) + "ms, norm=" + 
+			state.needsUpdate.store (true);
+			state.lastChangeTime = now;
+		}
+
+		if (state.needsUpdate.load() &&
+		    (now - state.lastChangeTime >= minReloadIntervalMs) &&
+		    (now - state.lastReloadTime >= minReloadIntervalMs))
+		{
+			LOG_IR_EVENT ("Loader param change - reloading (size=" +
+			              juce::String (size, 3) + ", start=" + juce::String (start, 1) +
+			              "ms, end=" + juce::String (end, 1) + "ms, norm=" +
 			              juce::String (norm ? "ON" : "OFF") + ", inv=" +
 			              juce::String (inv ? "ON" : "OFF") + ", rvs=" +
 			              juce::String (rvs ? "ON" : "OFF") + ", reso=" +
 			              juce::String (reso * 100.0f, 0) + "%)");
-			
+
 			loadImpulseResponse (state, state.currentFilePath);
 			state.lastReloadTime = now;
 		}
@@ -5348,6 +5336,7 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 				loaderState.currentFilePath.clear();
 				loaderState.needsUpdate.store (false);
 				loaderState.irSlopeDbPerOct.store (0.0f);
+				loaderState.lastChangeTime = 0;
 				loaderState.lastReloadTime = 0;
 			};
 
