@@ -1555,21 +1555,21 @@ CABTRAudioProcessorEditor::LoaderRefs CABTRAudioProcessorEditor::getLoaderRefs (
 	static const char* kLabels[] = { "A", "B", "C" };
 	switch (i)
 	{
-		case 1: return { enableButtonB, browseButtonB, fileDisplayB,
-		                 hpFreqSliderB, lpFreqSliderB, inSliderB, outSliderB, tiltSliderB, startSliderB, endSliderB,
-		                 sizeSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB, resoSliderB, variationSliderB,
-		                 invButtonB, normButtonB, rvsButtonB, expButtonB, chaosButtonB, chaosFilterButtonB, chaosDisplayB, expDisplayB,
-		                 modeInComboB, modeOutComboB, sumBusComboB, filterPosComboB, filterBarB_, mixSliderB };
-		case 2: return { enableButtonC, browseButtonC, fileDisplayC,
-		                 hpFreqSliderC, lpFreqSliderC, inSliderC, outSliderC, tiltSliderC, startSliderC, endSliderC,
-		                 sizeSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC, resoSliderC, variationSliderC,
-		                 invButtonC, normButtonC, rvsButtonC, expButtonC, chaosButtonC, chaosFilterButtonC, chaosDisplayC, expDisplayC,
-		                 modeInComboC, modeOutComboC, sumBusComboC, filterPosComboC, filterBarC_, mixSliderC };
-		default: return { enableButtonA, browseButtonA, fileDisplayA,
-		                  hpFreqSliderA, lpFreqSliderA, inSliderA, outSliderA, tiltSliderA, startSliderA, endSliderA,
-		                  sizeSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA, resoSliderA, variationSliderA,
-		                  invButtonA, normButtonA, rvsButtonA, expButtonA, chaosButtonA, chaosFilterButtonA, chaosDisplayA, expDisplayA,
-		                  modeInComboA, modeOutComboA, sumBusComboA, filterPosComboA, filterBarA_, mixSliderA };
+	case 1: return { enableButtonB, browseButtonB, fileDisplayB,
+	                 hpFreqSliderB, lpFreqSliderB, inSliderB, outSliderB, tiltSliderB, startSliderB, endSliderB,
+	                 sizeSliderB, delaySliderB, panSliderB, fredSliderB, posSliderB, resoSliderB, variationSliderB,
+	                 invButtonB, normButtonB, rvsButtonB, expButtonB, chaosButtonB, chaosFilterButtonB, chaosDisplayB, chaosFilterDisplayB, expDisplayB,
+	                 modeInComboB, modeOutComboB, sumBusComboB, filterPosComboB, filterBarB_, mixSliderB };
+	case 2: return { enableButtonC, browseButtonC, fileDisplayC,
+	                 hpFreqSliderC, lpFreqSliderC, inSliderC, outSliderC, tiltSliderC, startSliderC, endSliderC,
+	                 sizeSliderC, delaySliderC, panSliderC, fredSliderC, posSliderC, resoSliderC, variationSliderC,
+	                 invButtonC, normButtonC, rvsButtonC, expButtonC, chaosButtonC, chaosFilterButtonC, chaosDisplayC, chaosFilterDisplayC, expDisplayC,
+	                 modeInComboC, modeOutComboC, sumBusComboC, filterPosComboC, filterBarC_, mixSliderC };
+	default: return { enableButtonA, browseButtonA, fileDisplayA,
+	                  hpFreqSliderA, lpFreqSliderA, inSliderA, outSliderA, tiltSliderA, startSliderA, endSliderA,
+	                  sizeSliderA, delaySliderA, panSliderA, fredSliderA, posSliderA, resoSliderA, variationSliderA,
+	                  invButtonA, normButtonA, rvsButtonA, expButtonA, chaosButtonA, chaosFilterButtonA, chaosDisplayA, chaosFilterDisplayA, expDisplayA,
+	                  modeInComboA, modeOutComboA, sumBusComboA, filterPosComboA, filterBarA_, mixSliderA };
 	}
 }
 
@@ -1660,15 +1660,24 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		const float savedSpdD = audioProcessor.getValueTreeState().getRawParameterValue (chaosSpdId)->load();
 		const float savedAmtF = audioProcessor.getValueTreeState().getRawParameterValue (ids.chaosAmtFilter)->load();
 		const float savedSpdF = audioProcessor.getValueTreeState().getRawParameterValue (ids.chaosSpdFilter)->load();
-		r.chaos.setTooltip (formatChaosTooltip (savedAmtD, savedSpdD));
-		r.chaosFilter.setTooltip (formatChaosTooltip (savedAmtF, savedSpdF));
+		r.chaos.setTooltip ({});
+		r.chaosFilter.setTooltip ({});
 		r.chaosDisp.setText ("", juce::dontSendNotification);
-		r.chaosDisp.setInterceptsMouseClicks (false, false);
-		r.chaosDisp.setTooltip ({});
+		r.chaosDisp.setInterceptsMouseClicks (true, false);
+		r.chaosDisp.addMouseListener (this, false);
+		r.chaosDisp.setTooltip (formatChaosTooltip (savedAmtD, savedSpdD));
 		r.chaosDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.chaosDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.chaosDisp.setOpaque (false);
 		addAndMakeVisible (r.chaosDisp);
+		r.chaosFilterDisp.setText ("", juce::dontSendNotification);
+		r.chaosFilterDisp.setInterceptsMouseClicks (true, false);
+		r.chaosFilterDisp.addMouseListener (this, false);
+		r.chaosFilterDisp.setTooltip (formatChaosTooltip (savedAmtF, savedSpdF));
+		r.chaosFilterDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+		r.chaosFilterDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
+		r.chaosFilterDisp.setOpaque (false);
+		addAndMakeVisible (r.chaosFilterDisp);
 	}
 
 	{
@@ -1680,10 +1689,11 @@ void CABTRAudioProcessorEditor::setupLoaderUI (int loaderIndex, LoaderRefs r,
 		                                            : CABTRAudioProcessor::kParamExpRatioC;
 		const bool  savedOrder = audioProcessor.getValueTreeState().getRawParameterValue (orderParamId)->load() >= 0.5f;
 		const float savedRatio = audioProcessor.getValueTreeState().getRawParameterValue (ratioParamId)->load();
-		r.exp.setTooltip (formatExpTooltip (savedOrder, savedRatio));
+		r.exp.setTooltip ({});
 		r.expDisp.setText ("", juce::dontSendNotification);
-		r.expDisp.setInterceptsMouseClicks (false, false);
-		r.expDisp.setTooltip ({});
+		r.expDisp.setInterceptsMouseClicks (true, false);
+		r.expDisp.addMouseListener (this, false);
+		r.expDisp.setTooltip (formatExpTooltip (savedOrder, savedRatio));
 		r.expDisp.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 		r.expDisp.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
 		r.expDisp.setOpaque (false);
@@ -2550,7 +2560,18 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 	auto& sumBusCmb  = pick (sumBusComboA,     sumBusComboB,     sumBusComboC);
 	auto& filterPosCmb = pick (filterPosComboA, filterPosComboB, filterPosComboC);
 	auto& chaosDisp  = pick (chaosDisplayA,    chaosDisplayB,    chaosDisplayC);
+	auto& chaosFilterDisp = pick (chaosFilterDisplayA, chaosFilterDisplayB, chaosFilterDisplayC);
 	auto& expDisp    = pick (expDisplayA,      expDisplayB,      expDisplayC);
+
+	auto labelAreaForToggle = [] (const juce::ToggleButton& button)
+	{
+		if (button.getWidth() <= 0 || button.getHeight() <= 0)
+			return juce::Rectangle<int>();
+		const int boxSide = juce::jlimit (14, juce::jmax (14, button.getHeight() - 2),
+		                                  (int) std::lround (button.getHeight() * 0.65));
+		const int labelX = button.getX() + boxSide + 4 + 2;
+		return juce::Rectangle<int> (labelX, button.getY(), juce::jmax (0, button.getRight() - labelX), button.getHeight());
+	};
 
 	const bool expanded = (loaderIndex == 0) ? ioExpandedA_
 	                     : (loaderIndex == 1) ? ioExpandedB_
@@ -2652,8 +2673,10 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		chaos.setBounds (chsdX, checkArea.getY(), chsdW, checkH);
 		chaosFilter.setVisible (true);
 		chaos.setVisible (true);
-		chaosDisp.setBounds (0, 0, 0, 0);
-		chaosDisp.setVisible (false);
+		chaosFilterDisp.setBounds (labelAreaForToggle (chaosFilter));
+		chaosFilterDisp.setVisible (true);
+		chaosDisp.setBounds (labelAreaForToggle (chaos));
+		chaosDisp.setVisible (true);
 
 		// Hide collapsed-only controls
 		hp.setVisible (false);     lp.setVisible (false);
@@ -2740,14 +2763,14 @@ void CABTRAudioProcessorEditor::layoutIRSection (juce::Rectangle<int> area, int 
 		const int rvsExpRightW = rvsExpArea.getRight() - rvsExpRightX;
 		rvs.setBounds (rvsExpArea.getX(), rvsExpArea.getY(), leftW,  checkH);  rvs.setVisible (true);
 		exp.setBounds (rvsExpRightX,      rvsExpArea.getY(), rvsExpRightW, checkH);  exp.setVisible (true);
-		expDisp.setBounds (0, 0, 0, 0);  expDisp.setVisible (false);
+		expDisp.setBounds (labelAreaForToggle (exp));  expDisp.setVisible (true);
 
 		// Hide expanded-only controls
 		in_.setVisible (false);        out.setVisible (false);     tilt.setVisible (false);
 		filterBar.setVisible (false);  pan.setVisible (false);
 		mix.setVisible (false);
 		modeInCmb.setVisible (false);    modeOutCmb.setVisible (false);    sumBusCmb.setVisible (false); filterPosCmb.setVisible (false);
-		chaos.setVisible (false);      chaosFilter.setVisible (false);  chaosDisp.setVisible (false);
+		chaos.setVisible (false);      chaosFilter.setVisible (false);  chaosDisp.setVisible (false); chaosFilterDisp.setVisible (false);
 		hp.setVisible (false);         lp.setVisible (false);
 	}
 }
@@ -2790,7 +2813,7 @@ void CABTRAudioProcessorEditor::updateLoaderEnabledState (int loaderIndex)
 	juce::Component* components[] = {
 		&r.hp, &r.lp, &r.in, &r.out, &r.tilt,
 		&r.start, &r.end, &r.size, &r.pan, &r.fred, &r.pos, &r.reso, &r.variation, &r.delay,
-		&r.inv, &r.norm, &r.rvs, &r.exp, &r.expDisp, &r.chaos, &r.chaosFilter, &r.chaosDisp,
+		&r.inv, &r.norm, &r.rvs, &r.exp, &r.expDisp, &r.chaos, &r.chaosFilter, &r.chaosDisp, &r.chaosFilterDisp,
 		&r.modeIn, &r.modeOut, &r.sumBus, &r.filterPos,
 		&r.filterBar, &r.mix
 	};
@@ -3454,41 +3477,50 @@ void CABTRAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 	{
 		juce::ToggleButton* enableBtns[]      = { &enableButtonA,  &enableButtonB,  &enableButtonC };
 		juce::ToggleButton* expBtns[]         = { &expButtonA,     &expButtonB,     &expButtonC };
+		juce::Label*        expDisps[]        = { &expDisplayA,    &expDisplayB,    &expDisplayC };
 		juce::ToggleButton* chaosBtns[]       = { &chaosButtonA,   &chaosButtonB,   &chaosButtonC };
 		juce::ToggleButton* chaosFilterBtns[] = { &chaosFilterButtonA, &chaosFilterButtonB, &chaosFilterButtonC };
+		juce::Label*        chaosDisps[]      = { &chaosDisplayA,  &chaosDisplayB,  &chaosDisplayC };
+		juce::Label*        chaosFilterDisps[]= { &chaosFilterDisplayA, &chaosFilterDisplayB, &chaosFilterDisplayC };
 
 		for (int i = 0; i < 3; ++i)
 		{
 			if (! enableBtns[i]->getToggleState() || ! loaderHasLoadedIR (i))
 				continue;
 
-			const bool hitExp = expBtns[i]->isVisible()
-				&& expBtns[i]->getBounds().contains (p);
+			const bool hitExp = expDisps[i]->isVisible()
+				&& expDisps[i]->getBounds().contains (p);
 
 			if (hitExp)
 			{
 				if (e.mods.isPopupMenu())
 					openExpPrompt (i);
+				else
+					expBtns[i]->setToggleState (! expBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 
-			const bool hitFilter = chaosFilterBtns[i]->isVisible()
-				&& chaosFilterBtns[i]->getBounds().contains (p);
+			const bool hitFilter = chaosFilterDisps[i]->isVisible()
+				&& chaosFilterDisps[i]->getBounds().contains (p);
 
 			const bool hitDelay = !hitFilter
-				&& chaosBtns[i]->isVisible()
-				&& chaosBtns[i]->getBounds().contains (p);
+				&& chaosDisps[i]->isVisible()
+				&& chaosDisps[i]->getBounds().contains (p);
 
 			if (hitFilter)
 			{
 				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, true);
+				else
+					chaosFilterBtns[i]->setToggleState (! chaosFilterBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 			if (hitDelay)
 			{
 				if (e.mods.isPopupMenu())
 					openChaosPrompt (i, false);
+				else
+					chaosBtns[i]->setToggleState (! chaosBtns[i]->getToggleState(), juce::sendNotificationSync);
 				return;
 			}
 		}
@@ -3665,7 +3697,7 @@ void CABTRAudioProcessorEditor::hideLoaderSection (int loaderIndex)
 		&refs.start, &refs.end, &refs.size, &refs.pan, &refs.fred, &refs.pos, &refs.reso,
 		&refs.variation, &refs.delay,
 		&refs.inv, &refs.norm, &refs.rvs, &refs.exp, &refs.expDisp,
-		&refs.chaos, &refs.chaosFilter, &refs.chaosDisp,
+		&refs.chaos, &refs.chaosFilter, &refs.chaosDisp, &refs.chaosFilterDisp,
 		&refs.modeIn, &refs.modeOut, &refs.sumBus, &refs.filterPos,
 		&refs.filterBar, &refs.mix
 	};
@@ -5664,7 +5696,7 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 		juce::ModalCallbackFunction::create (
 			[safeThis, aw, amtBar, spdBar,
 			 savedAmt = currentAmt, savedSpd = currentSpd,
-			 amtId, spdId, loaderIndex, spdLogMin, spdLogRange] (int result) mutable
+			 amtId, spdId, loaderIndex, isFilter, spdLogMin, spdLogRange] (int result) mutable
 		{
 			std::unique_ptr<juce::AlertWindow> killer (aw);
 
@@ -5690,12 +5722,14 @@ void CABTRAudioProcessorEditor::openChaosPrompt (int loaderIndex, bool isFilter)
 			                                    CABTRAudioProcessor::kChaosSpdMax,
 			                                    std::exp (spdLogMin + juce::jlimit (0.0f, 1.0f, spdBar->value) * spdLogRange));
 			auto tip = formatChaosTooltip (newAmt, newSpd);
-			auto& chaosButton = loaderIndex == 0 ? safeThis->chaosButtonA
-			                  : (loaderIndex == 1 ? safeThis->chaosButtonB : safeThis->chaosButtonC);
-			auto& chaosFilterButton = loaderIndex == 0 ? safeThis->chaosFilterButtonA
-			                        : (loaderIndex == 1 ? safeThis->chaosFilterButtonB : safeThis->chaosFilterButtonC);
-			chaosButton.setTooltip (tip);
-			chaosFilterButton.setTooltip (tip);
+			auto& chaosDisplay = loaderIndex == 0 ? safeThis->chaosDisplayA
+			                   : (loaderIndex == 1 ? safeThis->chaosDisplayB : safeThis->chaosDisplayC);
+			auto& chaosFilterDisplay = loaderIndex == 0 ? safeThis->chaosFilterDisplayA
+			                         : (loaderIndex == 1 ? safeThis->chaosFilterDisplayB : safeThis->chaosFilterDisplayC);
+			if (isFilter)
+				chaosFilterDisplay.setTooltip (tip);
+			else
+				chaosDisplay.setTooltip (tip);
 		}),
 		false);
 }
@@ -6904,9 +6938,9 @@ void CABTRAudioProcessorEditor::openExpPrompt (int loaderIndex)
 				if (auto* p = vts.getParameter (scGainParamId))
 					p->setValueNotifyingHost (p->convertTo0to1 (newScGain));
 
-				auto& button = loaderIndex == 0 ? safeThis->expButtonA
-				             : (loaderIndex == 1 ? safeThis->expButtonB : safeThis->expButtonC);
-				button.setTooltip (formatExpTooltip (*orderState, newRatio));
+				auto& display = loaderIndex == 0 ? safeThis->expDisplayA
+				              : (loaderIndex == 1 ? safeThis->expDisplayB : safeThis->expDisplayC);
+				display.setTooltip (formatExpTooltip (*orderState, newRatio));
 			}
 
 			delete viewport;

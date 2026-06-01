@@ -112,6 +112,24 @@ private:
 		bool allowNumericPopup = true;
 	};
 
+	class PromptToggleButton : public juce::ToggleButton
+	{
+	public:
+		using juce::ToggleButton::ToggleButton;
+
+		void mouseDown (const juce::MouseEvent& e) override
+		{
+			if (! e.mods.isPopupMenu())
+				juce::ToggleButton::mouseDown (e);
+		}
+
+		void mouseUp (const juce::MouseEvent& e) override
+		{
+			if (! e.mods.isPopupMenu())
+				juce::ToggleButton::mouseUp (e);
+		}
+	};
+
 	// ============================================================================
 	//  Filter bar (dual HP/LP marker component, replaces separate sliders)
 	// ============================================================================
@@ -369,7 +387,7 @@ private:
 	{
 		juce::ToggleButton &enableBtn;  BrowseButton &browseBtn;  IRFileLabel &fileDisp;
 		BarSlider &hp, &lp, &in, &out, &tilt, &start, &end, &size, &delay, &pan, &fred, &pos, &reso, &variation;
-		juce::ToggleButton &inv, &norm, &rvs, &exp, &chaos, &chaosFilter;  juce::Label &chaosDisp, &expDisp;
+		juce::ToggleButton &inv, &norm, &rvs, &exp, &chaos, &chaosFilter;  juce::Label &chaosDisp, &chaosFilterDisp, &expDisp;
 		juce::ComboBox &modeIn, &modeOut, &sumBus, &filterPos;
 		FilterBarComponent &filterBar;  BarSlider &mix;
 	};
@@ -436,10 +454,11 @@ private:
 	juce::ToggleButton invButtonA;
 	juce::ToggleButton normButtonA;
 	juce::ToggleButton rvsButtonA;
-	juce::ToggleButton expButtonA;
-	juce::ToggleButton chaosButtonA;
-	juce::ToggleButton chaosFilterButtonA;
+	PromptToggleButton expButtonA;
+	PromptToggleButton chaosButtonA;
+	PromptToggleButton chaosFilterButtonA;
 	juce::Label chaosDisplayA;
+	juce::Label chaosFilterDisplayA;
 	juce::Label expDisplayA;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachA;
@@ -497,10 +516,11 @@ private:
 	juce::ToggleButton invButtonB;
 	juce::ToggleButton normButtonB;
 	juce::ToggleButton rvsButtonB;
-	juce::ToggleButton expButtonB;
-	juce::ToggleButton chaosButtonB;
-	juce::ToggleButton chaosFilterButtonB;
+	PromptToggleButton expButtonB;
+	PromptToggleButton chaosButtonB;
+	PromptToggleButton chaosFilterButtonB;
 	juce::Label chaosDisplayB;
+	juce::Label chaosFilterDisplayB;
 	juce::Label expDisplayB;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachB;
@@ -558,10 +578,11 @@ private:
 	juce::ToggleButton invButtonC;
 	juce::ToggleButton normButtonC;
 	juce::ToggleButton rvsButtonC;
-	juce::ToggleButton expButtonC;
-	juce::ToggleButton chaosButtonC;
-	juce::ToggleButton chaosFilterButtonC;
+	PromptToggleButton expButtonC;
+	PromptToggleButton chaosButtonC;
+	PromptToggleButton chaosFilterButtonC;
 	juce::Label chaosDisplayC;
+	juce::Label chaosFilterDisplayC;
 	juce::Label expDisplayC;
 
 	std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachC;
