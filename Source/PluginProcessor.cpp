@@ -2142,8 +2142,6 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		}
 	}
 
-	// Peak output + clip detection (post output gain)
-	// (removed - profiling disabled for release)
 }
 
 //==============================================================================

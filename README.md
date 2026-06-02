@@ -321,3 +321,4 @@ Export options:
 - Added per-loader `VAR` for subtle realtime cab/mic drift without triggering IR rebuilds.
 - Updated global and per-loader gain faders to a consistent -INF to +24 dB range with 0 dB centered.
 - Optimized global/per-loader dry-wet mix paths and stable delay processing without changing the intended audio behavior.
+- Refined per-loader FILTER and EXP sidechain HP/LP prompts for consistent Hz/kHz entry.
