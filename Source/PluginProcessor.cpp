@@ -5837,7 +5837,9 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 		dryAlignRuntimeActive_.store (dryAlignRequested && (hasA || hasB || hasC), std::memory_order_release);
 		LOG_IR_EVENT ("ALIGN: skipped - need A enabled + at least B or C enabled & loaded");
 		if (dryAlignRuntimeActive_.load (std::memory_order_acquire))
+		{
 			LOG_IR_EVENT ("A+DI: dry alignment active for single-loader/DI blend");
+		}
 		return;
 	}
 	dryAlignRuntimeActive_.store (dryAlignRequested, std::memory_order_release);
@@ -5888,13 +5890,16 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 		if (currentInv)  rawCorr = -rawCorr;
 		const bool needsInvert = rawCorr < 0.0f;
 
-		const float lagMs = static_cast<float> (bestLag) / static_cast<float> (currentSampleRate) * 1000.0f;
-
 		if (auto* p = parameters.getParameter (invId))
 			p->setValueNotifyingHost (needsInvert ? 1.0f : 0.0f);
 
+	#if CABTR_DSP_DEBUG_LOG
+		const float lagMs = static_cast<float> (bestLag) / static_cast<float> (currentSampleRate) * 1000.0f;
 		LOG_IR_EVENT ("ALIGN: lag=" + juce::String (bestLag) +
 		              " (" + juce::String (lagMs, 3) + "ms), inv=" + juce::String (needsInvert ? "ON" : "OFF"));
+	#else
+		juce::ignoreUnused (bestLag);
+	#endif
 	};
 
 	const bool currentInvA = parameters.getRawParameterValue (kParamInvA)->load() > 0.5f;
@@ -6056,13 +6061,17 @@ void CABTRAudioProcessor::timerCallback()
 			const bool loadedA = stateA.currentFilePath.isNotEmpty();
 			const bool loadedB = stateB.currentFilePath.isNotEmpty();
 			const bool loadedC = stateC.currentFilePath.isNotEmpty();
+			const bool dryAlignRequested = isDryAlignModeEnabled();
+			const bool canAlignLoaders = enabledA && loadedA && ((enabledB && loadedB) || (enabledC && loadedC));
+			const bool canAlignDry = dryAlignRequested && ((enabledA && loadedA) || (enabledB && loadedB) || (enabledC && loadedC));
 
-			// Need A + at least one other loader enabled & loaded
-			if (enabledA && loadedA && ((enabledB && loadedB) || (enabledC && loadedC)))
+			if (canAlignLoaders || canAlignDry)
 			{
-				LOG_IR_EVENT ("ALIGN triggered! A_loaded=yes B_loaded=" +
+				LOG_IR_EVENT ("ALIGN triggered! A_loaded=" + juce::String (loadedA ? "yes" : "no") +
+				              " B_loaded=" +
 				              juce::String (loadedB ? "yes" : "no") +
-				              " C_loaded=" + juce::String (loadedC ? "yes" : "no"));
+				              " C_loaded=" + juce::String (loadedC ? "yes" : "no") +
+				              " A+DI=" + juce::String (dryAlignRequested ? "ON" : "OFF"));
 				calculateAutoAlignment();
 				lastAlignTime = now;
 			}

@@ -66,7 +66,7 @@ Notes:
 
 Automatic phase and timing alignment for active loaders. CAB-TR cross-correlates the IR responses, then applies per-loader delay and polarity correction where needed to reduce comb-filtering when blending multiple IRs.
 
-Right-click `ALIGN` to toggle `A+DI` mode. In `A+DI`, the same left-click action also delays the per-loader and global dry/DI paths so dry/wet blends line up with the dominant IR arrival. Switching back to `ALIGN` returns dry paths to their original zero-delay behaviour.
+Right-click the `ALIGN` text to toggle `A+DI` mode. In `A+DI`, the same left-click action also delays the per-loader and global dry/DI paths so dry/wet blends line up with the dominant IR arrival. Switching back to `ALIGN` returns dry paths to their original zero-delay behaviour.
 
 #### MATCH (Adaptive EQ)
 
