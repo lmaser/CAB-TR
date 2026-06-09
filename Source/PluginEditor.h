@@ -432,7 +432,7 @@ private:
 	// ============================================================================
 	//  UI Components - IR Loader A
 	// ============================================================================
-	juce::ToggleButton enableButtonA;
+	PromptToggleButton enableButtonA;
 	BrowseButton browseButtonA;
 	IRFileLabel fileDisplayA;
 
@@ -451,9 +451,9 @@ private:
 	BarSlider resoSliderA;
 	BarSlider variationSliderA;
 
-	juce::ToggleButton invButtonA;
-	juce::ToggleButton normButtonA;
-	juce::ToggleButton rvsButtonA;
+	PromptToggleButton invButtonA;
+	PromptToggleButton normButtonA;
+	PromptToggleButton rvsButtonA;
 	PromptToggleButton expButtonA;
 	PromptToggleButton chaosButtonA;
 	PromptToggleButton chaosFilterButtonA;
@@ -494,7 +494,7 @@ private:
 	// ============================================================================
 	//  UI Components - IR Loader B
 	// ============================================================================
-	juce::ToggleButton enableButtonB;
+	PromptToggleButton enableButtonB;
 	BrowseButton browseButtonB;
 	IRFileLabel fileDisplayB;
 
@@ -513,9 +513,9 @@ private:
 	BarSlider resoSliderB;
 	BarSlider variationSliderB;
 
-	juce::ToggleButton invButtonB;
-	juce::ToggleButton normButtonB;
-	juce::ToggleButton rvsButtonB;
+	PromptToggleButton invButtonB;
+	PromptToggleButton normButtonB;
+	PromptToggleButton rvsButtonB;
 	PromptToggleButton expButtonB;
 	PromptToggleButton chaosButtonB;
 	PromptToggleButton chaosFilterButtonB;
@@ -556,7 +556,7 @@ private:
 	// ============================================================================
 	//  UI Components - IR Loader C
 	// ============================================================================
-	juce::ToggleButton enableButtonC;
+	PromptToggleButton enableButtonC;
 	BrowseButton browseButtonC;
 	IRFileLabel fileDisplayC;
 
@@ -575,9 +575,9 @@ private:
 	BarSlider resoSliderC;
 	BarSlider variationSliderC;
 
-	juce::ToggleButton invButtonC;
-	juce::ToggleButton normButtonC;
-	juce::ToggleButton rvsButtonC;
+	PromptToggleButton invButtonC;
+	PromptToggleButton normButtonC;
+	PromptToggleButton rvsButtonC;
 	PromptToggleButton expButtonC;
 	PromptToggleButton chaosButtonC;
 	PromptToggleButton chaosFilterButtonC;
@@ -657,7 +657,7 @@ private:
 	//  UI Components - Global
 	// ============================================================================
 	juce::ComboBox routeCombo;
-	juce::ToggleButton alignButton;
+	PromptToggleButton alignButton;
 	juce::ComboBox matchCombo;
 	juce::ComboBox trimCombo;
 	juce::ComboBox mixModeCombo;

@@ -66,9 +66,9 @@ Notes:
 
 Automatic phase and timing alignment for active loaders. CAB-TR cross-correlates the IR responses, then applies per-loader delay and polarity correction where needed to reduce comb-filtering when blending multiple IRs.
 
-#### MATCH (Tilt EQ)
+#### MATCH (Adaptive EQ)
 
-Adaptive spectral tilt equalization applied after the routing stage. It analyzes the loaded IR responses via FFT and applies a compensating first-order shelf to reshape the overall balance:
+Adaptive spectral equalization applied after the routing stage. It analyzes the loaded IR responses via FFT over the useful cab range (`100 Hz-8 kHz`) and applies a compensating tilt, limited broad low/high shelves, and one conservative automatic broad bell (`±6 dB`, `Q 0.25-1.0`) to reshape the overall balance without chasing narrow resonances:
 - **None**: No tilt correction.
 - **White** (0 dB/oct): Target flat spectral density.
 - **Pink** (-3 dB/oct): 1/f noise character - natural, balanced.
@@ -151,11 +151,11 @@ Fredman off-axis microphone simulation. Models a secondary mic angled away from 
 
 #### TILT (-6 to +6 dB)
 
-Per-loader spectral tilt. A first-order symmetric shelf filter pivoted at 1 kHz. Positive values boost highs and cut lows; negative values cut highs and boost lows. Independent of the global MATCH tilt.
+Per-loader spectral tilt. A first-order symmetric shelf filter pivoted at 1 kHz. Positive values boost highs and cut lows; negative values cut highs and boost lows. Independent of the global MATCH adaptive EQ.
 
 #### RESO (0-200%)
 
-Per-loader resonance intensity. Scales the IR's resonant character by blending between a smoothed (resonance-free) version and the original. `100%` = original IR, `0%` = fully smoothed, `200%` = exaggerated resonances.
+Per-loader resonance intensity. Scales the IR decay over the audible tail so trailing silence does not dilute the effect. `100%` = original IR, lower values shorten resonance, higher values extend it.
 
 #### VAR / Variation (0-100%)
 
@@ -247,7 +247,7 @@ Renders the combined static output of all active loaders to a single IR file on 
 
 The export path mirrors the static routing and tone-shaping chain as closely as a stereo IR format allows. This includes:
 - loader routing, `MODE IN`, `MODE OUT`, and `SUM BUS`
-- per-loader static processing: gains, tilt, HP/LP, DIST, PAN, DELAY, ANGLE/FRED, and per-loader `MIX`
+- per-loader static processing: gains, tilt, HP/LP, Distance (`DIST`), PAN, DELAY, ANGLE/FRED, and per-loader `MIX`
 - global static processing: input gain, MATCH, NORM, INSERT/SEND mix blend, DC block, output gain, and `INV POL` / `INV STR`
 
 Dynamic or non-static stages are intentionally excluded:
@@ -275,6 +275,7 @@ Export options:
 - **Convolver**: FFTConvolver (HiFi-LoFi, MIT) - two-stage partitioned convolution. Low-latency head block processed on the audio thread; long tail processed on a background thread.
 - **Zero-latency**: No added latency from convolution - the head partition runs in real time.
 - **IR crossfade**: 50 ms S-curve crossfade when swapping IRs, preventing clicks on parameter changes.
+- **DC protection**: wet-only first-order DC blocking after the cabinet chain and polarity stages, matching the static export path.
 - **Debounced IR reloads**: IR-affecting loader changes rebuild only after the controls have stayed stable for about `300 ms`, avoiding repeated reloads while dragging.
 - **Filters**: Butterworth IIR (HP/LP), transposed Direct Form II. Coefficients updated every 32 samples for efficient automation.
 - **Fredman comb**: 7-tap circular delay buffer with wet/dry blend.

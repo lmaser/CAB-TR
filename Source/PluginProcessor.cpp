@@ -261,7 +261,7 @@ namespace
 	}
 
 	// Compute 1st-order symmetric tilt shelf coefficients (bilinear, pivot 1kHz).
-	// Shared by per-loader tilt EQ and global MATCH tilt EQ.
+	// Shared by per-loader tilt EQ and the primary global MATCH tilt stage.
 	inline void computeTiltShelfCoeffs (double sampleRate, float slopeDb,
 	                                    float& outB0, float& outB1, float& outA1) noexcept
 	{
@@ -282,7 +282,128 @@ namespace
 		outB1 = static_cast<float> ((K - g) * norm);
 		outA1 = static_cast<float> ((K * g - 1.0) * norm);
 	}
+
+	inline void computeMatchTiltShelfCoeffs (double sampleRate, float slopeDb,
+	                                         float& outB0, float& outB1, float& outA1) noexcept
+	{
+		if (sampleRate <= 0.0 || std::abs (slopeDb) < 0.1f)
+		{
+			outB0 = 1.0f; outB1 = 0.0f; outA1 = 0.0f;
+			return;
+		}
+
+		const double pivot = 1000.0;
+		const double referenceTopHz = juce::jlimit (pivot, sampleRate * 0.45, 8000.0);
+		const double octavesToReference = std::log2 (referenceTopHz / pivot);
+		const double gainAtReferenceDb = static_cast<double> (slopeDb) * octavesToReference;
+		const double gRef = std::pow (10.0, gainAtReferenceDb / 20.0);
+		const double wc = 2.0 * sampleRate * std::tan (juce::MathConstants<double>::pi * pivot / sampleRate);
+		const double K = wc / (2.0 * sampleRate);
+		const double g = std::sqrt (gRef);
+		const double norm = 1.0 / (1.0 + K * g);
+		outB0 = static_cast<float> ((g + K) * norm);
+		outB1 = static_cast<float> ((K - g) * norm);
+		outA1 = static_cast<float> ((K * g - 1.0) * norm);
+	}
+
+	inline void computeMatchShelfCoeffs (double sampleRate, float frequencyHz, float gainDb, bool highShelf,
+	                                     float& outB0, float& outB1, float& outB2,
+	                                     float& outA1, float& outA2) noexcept
+	{
+		if (sampleRate <= 0.0 || std::abs (gainDb) < 0.05f)
+		{
+			outB0 = 1.0f; outB1 = 0.0f; outB2 = 0.0f; outA1 = 0.0f; outA2 = 0.0f;
+			return;
+		}
+
+		const double nyquist = sampleRate * 0.5;
+		const double freq = juce::jlimit (20.0, nyquist * 0.45, static_cast<double> (frequencyHz));
+		const double A = std::pow (10.0, static_cast<double> (gainDb) / 40.0);
+		const double w0 = juce::MathConstants<double>::twoPi * freq / sampleRate;
+		const double cosw0 = std::cos (w0);
+		const double sinw0 = std::sin (w0);
+		const double alpha = sinw0 * std::sqrt (2.0) / 2.0; // RBJ shelf, S=1
+		const double beta = 2.0 * std::sqrt (A) * alpha;
+
+		double b0, b1, b2, a0, a1, a2;
+		if (highShelf)
+		{
+			b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + beta);
+			b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0);
+			b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - beta);
+			a0 = (A + 1.0) - (A - 1.0) * cosw0 + beta;
+			a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosw0);
+			a2 = (A + 1.0) - (A - 1.0) * cosw0 - beta;
+		}
+		else
+		{
+			b0 = A * ((A + 1.0) - (A - 1.0) * cosw0 + beta);
+			b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosw0);
+			b2 = A * ((A + 1.0) - (A - 1.0) * cosw0 - beta);
+			a0 = (A + 1.0) + (A - 1.0) * cosw0 + beta;
+			a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosw0);
+			a2 = (A + 1.0) + (A - 1.0) * cosw0 - beta;
+		}
+
+		const double invA0 = 1.0 / a0;
+		outB0 = static_cast<float> (b0 * invA0);
+		outB1 = static_cast<float> (b1 * invA0);
+		outB2 = static_cast<float> (b2 * invA0);
+		outA1 = static_cast<float> (a1 * invA0);
+		outA2 = static_cast<float> (a2 * invA0);
+	}
+
+	inline void computeMatchBellCoeffs (double sampleRate, float frequencyHz, float gainDb, float q,
+	                                    float& outB0, float& outB1, float& outB2,
+	                                    float& outA1, float& outA2) noexcept
+	{
+		if (sampleRate <= 0.0 || std::abs (gainDb) < 0.05f)
+		{
+			outB0 = 1.0f; outB1 = 0.0f; outB2 = 0.0f; outA1 = 0.0f; outA2 = 0.0f;
+			return;
+		}
+
+		const double nyquist = sampleRate * 0.5;
+		const double freq = juce::jlimit (40.0, nyquist * 0.45, static_cast<double> (frequencyHz));
+		const double clampedQ = juce::jlimit (0.25, 1.0, static_cast<double> (q));
+		const double A = std::pow (10.0, static_cast<double> (gainDb) / 40.0);
+		const double w0 = juce::MathConstants<double>::twoPi * freq / sampleRate;
+		const double cosw0 = std::cos (w0);
+		const double alpha = std::sin (w0) / (2.0 * clampedQ);
+
+		const double b0 = 1.0 + alpha * A;
+		const double b1 = -2.0 * cosw0;
+		const double b2 = 1.0 - alpha * A;
+		const double a0 = 1.0 + alpha / A;
+		const double a1 = -2.0 * cosw0;
+		const double a2 = 1.0 - alpha / A;
+
+		const double invA0 = 1.0 / a0;
+		outB0 = static_cast<float> (b0 * invA0);
+		outB1 = static_cast<float> (b1 * invA0);
+		outB2 = static_cast<float> (b2 * invA0);
+		outA1 = static_cast<float> (a1 * invA0);
+		outA2 = static_cast<float> (a2 * invA0);
+	}
 }
+
+static float computeCombinedMatchSlope (int route,
+                                        const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                        const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                        const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept;
+static float computeCombinedMatchLowResidual (int route,
+                                              const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                              const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                              const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept;
+static float computeCombinedMatchHighResidual (int route,
+                                               const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                               const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                               const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept;
+static void computeCombinedMatchBell (int route,
+                                      const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                      const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                      const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC,
+                                      float& outFreqHz, float& outGainDb, float& outQ) noexcept;
 
 //==============================================================================
 CABTRAudioProcessor::CABTRAudioProcessor()
@@ -1082,6 +1203,36 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	// Reset tilt EQ state
 	tiltState_[0] = tiltState_[1] = 0.0f;
 	tiltLastProfile_ = -1;
+	tiltLastSlope_ = 0.0f;
+	matchLastLowDb_ = 0.0f;
+	matchLastHighDb_ = 0.0f;
+	matchLastBellFreqHz_ = 1000.0f;
+	matchLastBellGainDb_ = 0.0f;
+	matchLastBellQ_ = 1.0f;
+	matchLowState1_[0] = matchLowState1_[1] = 0.0f;
+	matchLowState2_[0] = matchLowState2_[1] = 0.0f;
+	matchHighState1_[0] = matchHighState1_[1] = 0.0f;
+	matchHighState2_[0] = matchHighState2_[1] = 0.0f;
+	matchBellState1_[0] = matchBellState1_[1] = 0.0f;
+	matchBellState2_[0] = matchBellState2_[1] = 0.0f;
+	tiltB0_ = tiltTargetB0_ = 1.0f;
+	tiltB1_ = tiltTargetB1_ = 0.0f;
+	tiltA1_ = tiltTargetA1_ = 0.0f;
+	matchLowB0_ = matchLowTargetB0_ = 1.0f;
+	matchLowB1_ = matchLowTargetB1_ = 0.0f;
+	matchLowB2_ = matchLowTargetB2_ = 0.0f;
+	matchLowA1_ = matchLowTargetA1_ = 0.0f;
+	matchLowA2_ = matchLowTargetA2_ = 0.0f;
+	matchHighB0_ = matchHighTargetB0_ = 1.0f;
+	matchHighB1_ = matchHighTargetB1_ = 0.0f;
+	matchHighB2_ = matchHighTargetB2_ = 0.0f;
+	matchHighA1_ = matchHighTargetA1_ = 0.0f;
+	matchHighA2_ = matchHighTargetA2_ = 0.0f;
+	matchBellB0_ = matchBellTargetB0_ = 1.0f;
+	matchBellB1_ = matchBellTargetB1_ = 0.0f;
+	matchBellB2_ = matchBellTargetB2_ = 0.0f;
+	matchBellA1_ = matchBellTargetA1_ = 0.0f;
+	matchBellA2_ = matchBellTargetA2_ = 0.0f;
 
 	// Reset wet NORM AGC state
 	normPeakFollower_  = 0.0f;
@@ -1792,9 +1943,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		if (activeC) processOne (stateC, buffer, 2, modeInC, modeOutC, mixC);
 	}
 
-	// MATCH: Adaptive tilt EQ based on IR spectral analysis
-	// Measures the spectral slope of the combined IR (computed at load time),
-	// then applies compensating tilt to match the selected target profile.
+	// MATCH: Adaptive spectral EQ based on IR analysis.
+	// Measures the broad slope/curvature of the combined IR (computed at load
+	// time), then applies compensating tilt plus limited shelves and one bell.
 	// Target slopes: White=0, Pink=-3, Brown=-6, Bright=+3, Bright+=+6 dB/oct
 	{
 		const int matchProfile = loadRelaxedInt (pMatch);
@@ -1803,81 +1954,62 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		{
 			const float targetSlope = kTargetSlopes[juce::jlimit (0, kNumTargetSlopes - 1, matchProfile)];
 
-			// Compute combined IR slope based on routing mode
-			float combinedSlope = 0.0f;
-			if (route == 0) // A->B->C series: slopes add
-			{
-				if (activeA) combinedSlope += stateA.irSlopeDbPerOct.load();
-				if (activeB) combinedSlope += stateB.irSlopeDbPerOct.load();
-				if (activeC) combinedSlope += stateC.irSlopeDbPerOct.load();
-			}
-			else if (route == 1) // A|B|C parallel: weighted average
-			{
-				float totalWeight = 0.0f;
-				if (activeA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
-				if (activeB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
-				if (activeC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
-				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
-			}
-			else if (route == 2) // A->B | C
-			{
-				float seriesSlope = 0.0f;
-				if (activeA) seriesSlope += stateA.irSlopeDbPerOct.load();
-				if (activeB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (activeC)
-					combinedSlope = (seriesSlope + stateC.irSlopeDbPerOct.load()) * 0.5f;
-				else
-					combinedSlope = seriesSlope;
-			}
-			else if (route == 3) // A | B->C
-			{
-				float seriesSlope = 0.0f;
-				if (activeB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (activeC) seriesSlope += stateC.irSlopeDbPerOct.load();
-				if (activeA)
-					combinedSlope = (stateA.irSlopeDbPerOct.load() + seriesSlope) * 0.5f;
-				else
-					combinedSlope = seriesSlope;
-			}
-			else if (route == 4) // (A | B)->C
-			{
-				float parallelSlope = 0.0f;
-				int parallelCount = 0;
-				if (activeA) { parallelSlope += stateA.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (activeB) { parallelSlope += stateB.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (parallelCount > 1)
-					parallelSlope /= static_cast<float> (parallelCount);
-
-				if (activeC)
-					combinedSlope = parallelSlope + stateC.irSlopeDbPerOct.load();
-				else
-					combinedSlope = parallelSlope;
-			}
-			else if (route == 5) // A -> (B | C)
-			{
-				float parallelSlope = 0.0f;
-				int parallelCount = 0;
-				if (activeB) { parallelSlope += stateB.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (activeC) { parallelSlope += stateC.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (parallelCount > 1)
-					parallelSlope /= static_cast<float> (parallelCount);
-
-				if (activeA)
-					combinedSlope = stateA.irSlopeDbPerOct.load() + parallelSlope;
-				else
-					combinedSlope = parallelSlope;
-			}
+			// Estimate combined response from routed branches. SERIES adds slopes;
+			// PARALLEL averages active branch slopes; loader MIX scales each IR
+			// contribution so 0% wet behaves as a flat branch for MATCH purposes.
+			const float combinedSlope = computeCombinedMatchSlope (route,
+			                                                       stateA, activeA, mixA,
+			                                                       stateB, activeB, mixB,
+			                                                       stateC, activeC, mixC);
+			const float combinedLowResidual = computeCombinedMatchLowResidual (route,
+			                                                                  stateA, activeA, mixA,
+			                                                                  stateB, activeB, mixB,
+			                                                                  stateC, activeC, mixC);
+			const float combinedHighResidual = computeCombinedMatchHighResidual (route,
+			                                                                    stateA, activeA, mixA,
+			                                                                    stateB, activeB, mixB,
+			                                                                    stateC, activeC, mixC);
+			float bellFreqHz = 1000.0f;
+			float bellGainDb = 0.0f;
+			float bellQ = 1.0f;
+			computeCombinedMatchBell (route,
+			                          stateA, activeA, mixA,
+			                          stateB, activeB, mixB,
+			                          stateC, activeC, mixC,
+			                          bellFreqHz, bellGainDb, bellQ);
 
 			// Compensating slope: what tilt we need to get from measured -> target
 			const float compensatingSlope = targetSlope - combinedSlope;
+			const float lowCompDb = juce::jlimit (-4.0f, 4.0f, -combinedLowResidual * 0.65f);
+			const float highCompDb = juce::jlimit (-4.0f, 4.0f, -combinedHighResidual * 0.65f);
 
 			// Update target coefficients when profile or slope changes
-			if (matchProfile != tiltLastProfile_ || std::abs (compensatingSlope - tiltLastSlope_) > 0.05f)
+			if (matchProfile != tiltLastProfile_
+				|| std::abs (compensatingSlope - tiltLastSlope_) > 0.05f
+				|| std::abs (lowCompDb - matchLastLowDb_) > 0.05f
+				|| std::abs (highCompDb - matchLastHighDb_) > 0.05f
+				|| std::abs (bellGainDb - matchLastBellGainDb_) > 0.05f
+				|| std::abs (bellFreqHz - matchLastBellFreqHz_) > 5.0f
+				|| std::abs (bellQ - matchLastBellQ_) > 0.02f)
 			{
 				tiltLastProfile_ = matchProfile;
 				tiltLastSlope_ = compensatingSlope;
-				computeTiltShelfCoeffs (getSampleRate(), compensatingSlope,
-				                       tiltTargetB0_, tiltTargetB1_, tiltTargetA1_);
+				matchLastLowDb_ = lowCompDb;
+				matchLastHighDb_ = highCompDb;
+				matchLastBellFreqHz_ = bellFreqHz;
+				matchLastBellGainDb_ = bellGainDb;
+				matchLastBellQ_ = bellQ;
+				computeMatchTiltShelfCoeffs (getSampleRate(), compensatingSlope,
+				                            tiltTargetB0_, tiltTargetB1_, tiltTargetA1_);
+				computeMatchShelfCoeffs (getSampleRate(), 250.0f, lowCompDb, false,
+				                         matchLowTargetB0_, matchLowTargetB1_, matchLowTargetB2_,
+				                         matchLowTargetA1_, matchLowTargetA2_);
+				computeMatchShelfCoeffs (getSampleRate(), 4500.0f, highCompDb, true,
+				                         matchHighTargetB0_, matchHighTargetB1_, matchHighTargetB2_,
+				                         matchHighTargetA1_, matchHighTargetA2_);
+				computeMatchBellCoeffs (getSampleRate(), bellFreqHz, bellGainDb, bellQ,
+				                        matchBellTargetB0_, matchBellTargetB1_, matchBellTargetB2_,
+				                        matchBellTargetA1_, matchBellTargetA2_);
 			}
 
 			// Smooth coefficients towards target (~30ms ramp) to avoid zipper noise
@@ -1889,25 +2021,83 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 				float s = tiltState_[ch];
 				float b0 = tiltB0_, b1 = tiltB1_, a1 = tiltA1_;
 				const float tb0 = tiltTargetB0_, tb1 = tiltTargetB1_, ta1 = tiltTargetA1_;
+				float lowS1 = matchLowState1_[ch], lowS2 = matchLowState2_[ch];
+				float highS1 = matchHighState1_[ch], highS2 = matchHighState2_[ch];
+				float bellS1 = matchBellState1_[ch], bellS2 = matchBellState2_[ch];
+				float lb0 = matchLowB0_, lb1 = matchLowB1_, lb2 = matchLowB2_, la1 = matchLowA1_, la2 = matchLowA2_;
+				float hb0 = matchHighB0_, hb1 = matchHighB1_, hb2 = matchHighB2_, ha1 = matchHighA1_, ha2 = matchHighA2_;
+				float bb0 = matchBellB0_, bb1 = matchBellB1_, bb2 = matchBellB2_, ba1 = matchBellA1_, ba2 = matchBellA2_;
+				const float ltb0 = matchLowTargetB0_, ltb1 = matchLowTargetB1_, ltb2 = matchLowTargetB2_, lta1 = matchLowTargetA1_, lta2 = matchLowTargetA2_;
+				const float htb0 = matchHighTargetB0_, htb1 = matchHighTargetB1_, htb2 = matchHighTargetB2_, hta1 = matchHighTargetA1_, hta2 = matchHighTargetA2_;
+				const float btb0 = matchBellTargetB0_, btb1 = matchBellTargetB1_, btb2 = matchBellTargetB2_, bta1 = matchBellTargetA1_, bta2 = matchBellTargetA2_;
 
 				for (int i = 0; i < numSamples; ++i)
 				{
 					b0 += (tb0 - b0) * smoothCoeff;
 					b1 += (tb1 - b1) * smoothCoeff;
 					a1 += (ta1 - a1) * smoothCoeff;
+					lb0 += (ltb0 - lb0) * smoothCoeff;
+					lb1 += (ltb1 - lb1) * smoothCoeff;
+					lb2 += (ltb2 - lb2) * smoothCoeff;
+					la1 += (lta1 - la1) * smoothCoeff;
+					la2 += (lta2 - la2) * smoothCoeff;
+					hb0 += (htb0 - hb0) * smoothCoeff;
+					hb1 += (htb1 - hb1) * smoothCoeff;
+					hb2 += (htb2 - hb2) * smoothCoeff;
+					ha1 += (hta1 - ha1) * smoothCoeff;
+					ha2 += (hta2 - ha2) * smoothCoeff;
+					bb0 += (btb0 - bb0) * smoothCoeff;
+					bb1 += (btb1 - bb1) * smoothCoeff;
+					bb2 += (btb2 - bb2) * smoothCoeff;
+					ba1 += (bta1 - ba1) * smoothCoeff;
+					ba2 += (bta2 - ba2) * smoothCoeff;
 
 					const float x = data[i];
-					const float y = b0 * x + s;
+					float y = b0 * x + s;
 					s = b1 * x - a1 * y;
+
+					const float lowY = lb0 * y + lowS1;
+					lowS1 = lb1 * y - la1 * lowY + lowS2;
+					lowS2 = lb2 * y - la2 * lowY;
+
+					y = hb0 * lowY + highS1;
+					highS1 = hb1 * lowY - ha1 * y + highS2;
+					highS2 = hb2 * lowY - ha2 * y;
+
+					const float bellY = bb0 * y + bellS1;
+					bellS1 = bb1 * y - ba1 * bellY + bellS2;
+					bellS2 = bb2 * y - ba2 * bellY;
+					y = bellY;
 					data[i] = y;
 				}
 				tiltState_[ch] = s;
+				matchLowState1_[ch] = lowS1;
+				matchLowState2_[ch] = lowS2;
+				matchHighState1_[ch] = highS1;
+				matchHighState2_[ch] = highS2;
+				matchBellState1_[ch] = bellS1;
+				matchBellState2_[ch] = bellS2;
 			}
 			// Store smoothed coefficients for next block
 			const float blendFactor = 1.0f - std::pow (1.0f - smoothCoeff, static_cast<float> (numSamples));
 			tiltB0_ += (tiltTargetB0_ - tiltB0_) * blendFactor;
 			tiltB1_ += (tiltTargetB1_ - tiltB1_) * blendFactor;
 			tiltA1_ += (tiltTargetA1_ - tiltA1_) * blendFactor;
+			matchLowB0_ += (matchLowTargetB0_ - matchLowB0_) * blendFactor;
+			matchLowB1_ += (matchLowTargetB1_ - matchLowB1_) * blendFactor;
+			matchLowB2_ += (matchLowTargetB2_ - matchLowB2_) * blendFactor;
+			matchLowA1_ += (matchLowTargetA1_ - matchLowA1_) * blendFactor;
+			matchLowA2_ += (matchLowTargetA2_ - matchLowA2_) * blendFactor;
+			matchHighB0_ += (matchHighTargetB0_ - matchHighB0_) * blendFactor;
+			matchHighB1_ += (matchHighTargetB1_ - matchHighB1_) * blendFactor;
+			matchHighB2_ += (matchHighTargetB2_ - matchHighB2_) * blendFactor;
+			matchHighA1_ += (matchHighTargetA1_ - matchHighA1_) * blendFactor;
+			matchHighA2_ += (matchHighTargetA2_ - matchHighA2_) * blendFactor;
+			matchBellB0_ += (matchBellTargetB0_ - matchBellB0_) * blendFactor;
+			matchBellB1_ += (matchBellTargetB1_ - matchBellB1_) * blendFactor;
+			matchBellB2_ += (matchBellTargetB2_ - matchBellB2_) * blendFactor;
+			matchBellA1_ += (matchBellTargetA1_ - matchBellA1_) * blendFactor;
+			matchBellA2_ += (matchBellTargetA2_ - matchBellA2_) * blendFactor;
 		}
 		else
 		{
@@ -1915,11 +2105,37 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 			if (tiltLastProfile_ != 0)
 			{
 				tiltState_[0] = tiltState_[1] = 0.0f;
+				matchLowState1_[0] = matchLowState1_[1] = 0.0f;
+				matchLowState2_[0] = matchLowState2_[1] = 0.0f;
+				matchHighState1_[0] = matchHighState1_[1] = 0.0f;
+				matchHighState2_[0] = matchHighState2_[1] = 0.0f;
+				matchBellState1_[0] = matchBellState1_[1] = 0.0f;
+				matchBellState2_[0] = matchBellState2_[1] = 0.0f;
 				tiltLastProfile_ = 0;
 				tiltLastSlope_ = 0.0f;
+				matchLastLowDb_ = 0.0f;
+				matchLastHighDb_ = 0.0f;
+				matchLastBellFreqHz_ = 1000.0f;
+				matchLastBellGainDb_ = 0.0f;
+				matchLastBellQ_ = 1.0f;
 				tiltB0_ = tiltTargetB0_ = 1.0f;
 				tiltB1_ = tiltTargetB1_ = 0.0f;
 				tiltA1_ = tiltTargetA1_ = 0.0f;
+				matchLowB0_ = matchLowTargetB0_ = 1.0f;
+				matchLowB1_ = matchLowTargetB1_ = 0.0f;
+				matchLowB2_ = matchLowTargetB2_ = 0.0f;
+				matchLowA1_ = matchLowTargetA1_ = 0.0f;
+				matchLowA2_ = matchLowTargetA2_ = 0.0f;
+				matchHighB0_ = matchHighTargetB0_ = 1.0f;
+				matchHighB1_ = matchHighTargetB1_ = 0.0f;
+				matchHighB2_ = matchHighTargetB2_ = 0.0f;
+				matchHighA1_ = matchHighTargetA1_ = 0.0f;
+				matchHighA2_ = matchHighTargetA2_ = 0.0f;
+				matchBellB0_ = matchBellTargetB0_ = 1.0f;
+				matchBellB1_ = matchBellTargetB1_ = 0.0f;
+				matchBellB2_ = matchBellTargetB2_ = 0.0f;
+				matchBellA1_ = matchBellTargetA1_ = 0.0f;
+				matchBellA2_ = matchBellTargetA2_ = 0.0f;
 			}
 		}
 	}
@@ -2055,6 +2271,15 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		constexpr float kDnr = 1e-20f;
 		if (std::abs (tiltState_[0]) < kDnr) tiltState_[0] = 0.0f;
 		if (std::abs (tiltState_[1]) < kDnr) tiltState_[1] = 0.0f;
+		for (int ch = 0; ch < 2; ++ch)
+		{
+			if (std::abs (matchLowState1_[ch])  < kDnr) matchLowState1_[ch]  = 0.0f;
+			if (std::abs (matchLowState2_[ch])  < kDnr) matchLowState2_[ch]  = 0.0f;
+			if (std::abs (matchHighState1_[ch]) < kDnr) matchHighState1_[ch] = 0.0f;
+			if (std::abs (matchHighState2_[ch]) < kDnr) matchHighState2_[ch] = 0.0f;
+			if (std::abs (matchBellState1_[ch]) < kDnr) matchBellState1_[ch] = 0.0f;
+			if (std::abs (matchBellState2_[ch]) < kDnr) matchBellState2_[ch] = 0.0f;
+		}
 		if (std::abs (dcBlockX_[0])  < kDnr) dcBlockX_[0]  = 0.0f;
 		if (std::abs (dcBlockX_[1])  < kDnr) dcBlockX_[1]  = 0.0f;
 		if (std::abs (dcBlockY_[0])  < kDnr) dcBlockY_[0]  = 0.0f;
@@ -2145,13 +2370,24 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 }
 
 //==============================================================================
-// Measure spectral slope of an IR in dB/octave via FFT + linear regression
-// Analyses magnitude spectrum from 100 Hz to 10 kHz
-static float computeIRSlopeDbPerOct (const juce::AudioBuffer<float>& ir, double sampleRate)
+struct MatchSpectralProfile
+{
+	float slopeDbPerOct = 0.0f;
+	float lowResidualDb = 0.0f;
+	float highResidualDb = 0.0f;
+	float bellFreqHz = 1000.0f;
+	float bellGainDb = 0.0f;
+	float bellQ = 1.0f;
+};
+
+// Measure the broad spectral shape of an IR via FFT.
+// The slope is fitted over 100 Hz - 8 kHz; residual shelves capture broad
+// low/high curvature left after removing that slope.
+static MatchSpectralProfile computeIRMatchSpectralProfile (const juce::AudioBuffer<float>& ir, double sampleRate)
 {
 	const int numSamples = ir.getNumSamples();
 	if (numSamples < 64 || sampleRate <= 0.0)
-		return 0.0f;
+		return {};
 
 	// FFT order: next power of 2 >= numSamples, capped at 8192 for efficiency
 	const int fftOrder = juce::jmin (13, static_cast<int> (std::ceil (std::log2 (numSamples))));
@@ -2180,7 +2416,7 @@ static float computeIRSlopeDbPerOct (const juce::AudioBuffer<float>& ir, double 
 			const float re = fftData[bin * 2];
 			const float im = fftData[bin * 2 + 1];
 			const float mag = std::sqrt (re * re + im * im);
-			magnitudeDb[static_cast<size_t> (bin)] += (mag > 1e-10f) ? 20.0f * std ::log10 (mag)
+			magnitudeDb[static_cast<size_t> (bin)] += (mag > 1e-10f) ? 20.0f * std::log10 (mag)
 				: -200.0f;
 		}
 	}
@@ -2190,12 +2426,12 @@ static float computeIRSlopeDbPerOct (const juce::AudioBuffer<float>& ir, double 
 	for (auto& v : magnitudeDb)
 		v *= chScale;
 
-	// Linear regression: dB vs log2(freq) over 100 Hz - 10 kHz
+	// Linear regression: dB vs log2(freq) over the most useful cab range.
 	const double freqPerBin = sampleRate / fftSize;
 	const int binLow  = juce::jmax (1, static_cast<int> (std::ceil  (100.0  / freqPerBin)));
-	const int binHigh = juce::jmin (fftSize / 2, static_cast<int> (std::floor (10000.0 / freqPerBin)));
+	const int binHigh = juce::jmin (fftSize / 2, static_cast<int> (std::floor (8000.0 / freqPerBin)));
 	if (binHigh <= binLow + 2)
-		return 0.0f;
+		return {};
 
 	// Weighted linear regression (log2(freq) vs dB)
 	double sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
@@ -2214,14 +2450,277 @@ static float computeIRSlopeDbPerOct (const juce::AudioBuffer<float>& ir, double 
 	}
 
 	if (n < 3)
-		return 0.0f;
+		return {};
 
 	// Slope = (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX)
 	const double denom = n * sumXX - sumX * sumX;
 	if (std::abs (denom) < 1e-12)
+		return {};
+
+	const double slope = (n * sumXY - sumX * sumY) / denom;
+	const double intercept = (sumY - slope * sumX) / static_cast<double> (n);
+
+	auto averageResidual = [&] (double lowHz, double highHz) noexcept
+	{
+		const int lowBin = juce::jmax (1, static_cast<int> (std::ceil (lowHz / freqPerBin)));
+		const int highBin = juce::jmin (fftSize / 2, static_cast<int> (std::floor (highHz / freqPerBin)));
+		double sumResidual = 0.0;
+		int count = 0;
+
+		for (int bin = lowBin; bin <= highBin; ++bin)
+		{
+			const double y = magnitudeDb[static_cast<size_t> (bin)];
+			if (y < -100.0)
+				continue;
+
+			const double x = std::log2 (bin * freqPerBin);
+			sumResidual += y - (intercept + slope * x);
+			++count;
+		}
+
+		return count > 0 ? static_cast<float> (sumResidual / static_cast<double> (count)) : 0.0f;
+	};
+
+	struct ResidualBand
+	{
+		double lowHz = 0.0;
+		double highHz = 0.0;
+		double centerHz = 0.0;
+		float residualDb = 0.0f;
+	};
+
+	ResidualBand residualBands[] =
+	{
+		{ 100.0, 200.0, 0.0, 0.0f },
+		{ 150.0, 300.0, 0.0, 0.0f },
+		{ 250.0, 500.0, 0.0, 0.0f },
+		{ 400.0, 800.0, 0.0, 0.0f },
+		{ 650.0, 1300.0, 0.0, 0.0f },
+		{ 1000.0, 2000.0, 0.0, 0.0f },
+		{ 1600.0, 3200.0, 0.0, 0.0f },
+		{ 2500.0, 5000.0, 0.0, 0.0f },
+		{ 4000.0, 8000.0, 0.0, 0.0f }
+	};
+
+	constexpr int numResidualBands = static_cast<int> (sizeof (residualBands) / sizeof (residualBands[0]));
+	int strongestBand = -1;
+	float strongestAbsResidual = 0.0f;
+	for (int band = 0; band < numResidualBands; ++band)
+	{
+		auto& b = residualBands[band];
+		b.centerHz = std::sqrt (b.lowHz * b.highHz);
+		b.residualDb = averageResidual (b.lowHz, b.highHz);
+		const float absResidual = std::abs (b.residualDb);
+		if (absResidual > strongestAbsResidual)
+		{
+			strongestAbsResidual = absResidual;
+			strongestBand = band;
+		}
+	}
+
+	MatchSpectralProfile profile;
+	profile.slopeDbPerOct = static_cast<float> (slope);
+	profile.lowResidualDb = juce::jlimit (-12.0f, 12.0f, averageResidual (120.0, 350.0));
+	profile.highResidualDb = juce::jlimit (-12.0f, 12.0f, averageResidual (3200.0, 8000.0));
+
+	if (strongestBand >= 0 && strongestAbsResidual >= 1.25f)
+	{
+		const auto& b = residualBands[strongestBand];
+		double leftHz = b.lowHz;
+		double rightHz = b.highHz;
+		const float halfResidual = strongestAbsResidual * 0.5f;
+
+		for (int band = strongestBand - 1; band >= 0; --band)
+		{
+			if (std::abs (residualBands[band].residualDb) >= halfResidual
+				&& residualBands[band].residualDb * b.residualDb > 0.0f)
+				leftHz = residualBands[band].lowHz;
+			else
+				break;
+		}
+
+		for (int band = strongestBand + 1; band < numResidualBands; ++band)
+		{
+			if (std::abs (residualBands[band].residualDb) >= halfResidual
+				&& residualBands[band].residualDb * b.residualDb > 0.0f)
+				rightHz = residualBands[band].highHz;
+			else
+				break;
+		}
+
+		const double bandwidthOct = juce::jmax (0.25, std::log2 (rightHz / juce::jmax (20.0, leftHz)));
+		profile.bellFreqHz = static_cast<float> (juce::jlimit (100.0, 8000.0, b.centerHz));
+		profile.bellGainDb = juce::jlimit (-6.0f, 6.0f, -b.residualDb * 0.60f);
+		profile.bellQ = juce::jlimit (0.25f, 1.0f, static_cast<float> (1.0 / bandwidthOct));
+	}
+
+	return profile;
+}
+
+static float getLoaderMatchValue (float value, bool active, float mix) noexcept
+{
+	if (! active)
 		return 0.0f;
 
-	return static_cast<float> ((n * sumXY - sumX * sumY) / denom);
+	const float wet = juce::jlimit (0.0f, 1.0f, mix);
+	return value * wet;
+}
+
+static void addActiveBranchMatchValue (float& sum, int& count, bool active, float value) noexcept
+{
+	if (active)
+	{
+		sum += value;
+		++count;
+	}
+}
+
+static float averageActiveBranchMatchValues (float sum, int count) noexcept
+{
+	return count > 0 ? sum / static_cast<float> (count) : 0.0f;
+}
+
+static float computeCombinedMatchValue (int route,
+                                        float valueA, bool activeA, float mixA,
+                                        float valueB, bool activeB, float mixB,
+                                        float valueC, bool activeC, float mixC) noexcept
+{
+	const float metricA = getLoaderMatchValue (valueA, activeA, mixA);
+	const float metricB = getLoaderMatchValue (valueB, activeB, mixB);
+	const float metricC = getLoaderMatchValue (valueC, activeC, mixC);
+
+	if (route == 0) // A->B->C
+		return metricA + metricB + metricC;
+
+	if (route == 1) // A|B|C
+	{
+		float sum = 0.0f;
+		int count = 0;
+		addActiveBranchMatchValue (sum, count, activeA, metricA);
+		addActiveBranchMatchValue (sum, count, activeB, metricB);
+		addActiveBranchMatchValue (sum, count, activeC, metricC);
+		return averageActiveBranchMatchValues (sum, count);
+	}
+
+	if (route == 2) // A->B | C
+	{
+		float sum = 0.0f;
+		int count = 0;
+		addActiveBranchMatchValue (sum, count, activeA || activeB, metricA + metricB);
+		addActiveBranchMatchValue (sum, count, activeC, metricC);
+		return averageActiveBranchMatchValues (sum, count);
+	}
+
+	if (route == 3) // A | B->C
+	{
+		float sum = 0.0f;
+		int count = 0;
+		addActiveBranchMatchValue (sum, count, activeA, metricA);
+		addActiveBranchMatchValue (sum, count, activeB || activeC, metricB + metricC);
+		return averageActiveBranchMatchValues (sum, count);
+	}
+
+	if (route == 4) // (A|B)->C
+	{
+		float parallelSum = 0.0f;
+		int parallelCount = 0;
+		addActiveBranchMatchValue (parallelSum, parallelCount, activeA, metricA);
+		addActiveBranchMatchValue (parallelSum, parallelCount, activeB, metricB);
+		return averageActiveBranchMatchValues (parallelSum, parallelCount) + metricC;
+	}
+
+	if (route == 5) // A->(B|C)
+	{
+		float parallelSum = 0.0f;
+		int parallelCount = 0;
+		addActiveBranchMatchValue (parallelSum, parallelCount, activeB, metricB);
+		addActiveBranchMatchValue (parallelSum, parallelCount, activeC, metricC);
+		return metricA + averageActiveBranchMatchValues (parallelSum, parallelCount);
+	}
+
+	return 0.0f;
+}
+
+static float computeCombinedMatchSlope (int route,
+                                        const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                        const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                        const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept
+{
+	return computeCombinedMatchValue (route,
+	                                  stateA.irSlopeDbPerOct.load(), activeA, mixA,
+	                                  stateB.irSlopeDbPerOct.load(), activeB, mixB,
+	                                  stateC.irSlopeDbPerOct.load(), activeC, mixC);
+}
+
+static float computeCombinedMatchLowResidual (int route,
+                                              const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                              const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                              const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept
+{
+	return computeCombinedMatchValue (route,
+	                                  stateA.irLowResidualDb.load(), activeA, mixA,
+	                                  stateB.irLowResidualDb.load(), activeB, mixB,
+	                                  stateC.irLowResidualDb.load(), activeC, mixC);
+}
+
+static float computeCombinedMatchHighResidual (int route,
+                                               const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                               const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                               const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC) noexcept
+{
+	return computeCombinedMatchValue (route,
+	                                  stateA.irHighResidualDb.load(), activeA, mixA,
+	                                  stateB.irHighResidualDb.load(), activeB, mixB,
+	                                  stateC.irHighResidualDb.load(), activeC, mixC);
+}
+
+static void computeCombinedMatchBell (int route,
+                                      const CABTRAudioProcessor::IRLoaderState& stateA, bool activeA, float mixA,
+                                      const CABTRAudioProcessor::IRLoaderState& stateB, bool activeB, float mixB,
+                                      const CABTRAudioProcessor::IRLoaderState& stateC, bool activeC, float mixC,
+                                      float& outFreqHz, float& outGainDb, float& outQ) noexcept
+{
+	outGainDb = juce::jlimit (-6.0f, 6.0f,
+	                          computeCombinedMatchValue (route,
+	                                                     stateA.irBellGainDb.load(), activeA, mixA,
+	                                                     stateB.irBellGainDb.load(), activeB, mixB,
+	                                                     stateC.irBellGainDb.load(), activeC, mixC));
+	outFreqHz = 1000.0f;
+	outQ = 1.0f;
+
+	if (std::abs (outGainDb) < 0.05f)
+		return;
+
+	float weightSum = 0.0f;
+	float logFreqSum = 0.0f;
+	float qSum = 0.0f;
+	auto addBell = [&] (const CABTRAudioProcessor::IRLoaderState& state, bool active, float mix) noexcept
+	{
+		if (! active)
+			return;
+
+		const float wet = juce::jlimit (0.0f, 1.0f, mix);
+		const float gain = state.irBellGainDb.load() * wet;
+		const float weight = std::abs (gain);
+		if (weight < 0.05f)
+			return;
+
+		const float freq = juce::jlimit (100.0f, 8000.0f, state.irBellFreqHz.load());
+		const float q = juce::jlimit (0.25f, 1.0f, state.irBellQ.load());
+		weightSum += weight;
+		logFreqSum += std::log (freq) * weight;
+		qSum += q * weight;
+	};
+
+	addBell (stateA, activeA, mixA);
+	addBell (stateB, activeB, mixB);
+	addBell (stateC, activeC, mixC);
+
+	if (weightSum > 0.0f)
+	{
+		outFreqHz = juce::jlimit (100.0f, 8000.0f, static_cast<float> (std::exp (logFreqSum / weightSum)));
+		outQ = juce::jlimit (0.25f, 1.0f, qSum / weightSum);
+	}
 }
 
 //==============================================================================
@@ -2376,18 +2875,42 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		float peakBefore = 0.0f;
 		for (int ch = 0; ch < numCh; ++ch)
 			peakBefore = juce::jmax (peakBefore, state.impulseResponse.getMagnitude (ch, 0, finalLength));
+
+		int resoReferenceLength = finalLength;
+		if (peakBefore > 0.0001f)
+		{
+			const float tailThreshold = peakBefore * 0.0001f; // -80 dB from IR peak
+			for (int i = finalLength - 1; i >= 0; --i)
+			{
+				bool hasAudibleTail = false;
+				for (int ch = 0; ch < numCh; ++ch)
+				{
+					if (std::abs (state.impulseResponse.getSample (ch, i)) > tailThreshold)
+					{
+						hasAudibleTail = true;
+						break;
+					}
+				}
+
+				if (hasAudibleTail)
+				{
+					resoReferenceLength = juce::jlimit (2, finalLength, i + 1);
+					break;
+				}
+			}
+		}
 		
 		// k maps reso to exponential rate: 0->-4, 1->0, 2->+4
 		// At 0%: tail attenuated ~35dB. At 200%: tail boosted ~35dB (peak-compensated)
 		const float k = (reso - 1.0f) * 4.0f;
-		const float invLen = 1.0f / juce::jmax (1.0f, static_cast<float> (finalLength - 1));
+		const float invLen = 1.0f / juce::jmax (1.0f, static_cast<float> (resoReferenceLength - 1));
 		
 		for (int ch = 0; ch < numCh; ++ch)
 		{
 			float* data = state.impulseResponse.getWritePointer (ch);
 			for (int i = 0; i < finalLength; ++i)
 			{
-				const float t = static_cast<float> (i) * invLen;
+				const float t = juce::jmin (1.0f, static_cast<float> (i) * invLen);
 				data[i] *= std::exp (k * t);
 			}
 		}
@@ -2403,7 +2926,9 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 			state.impulseResponse.applyGain (compensationGain);
 		}
 		
-		LOG_IR_EVENT ("RESO applied: " + juce::String (reso * 100.0f, 0) + "% (k=" + juce::String (k, 2) + ")");
+		LOG_IR_EVENT ("RESO applied: " + juce::String (reso * 100.0f, 0)
+		              + "% (k=" + juce::String (k, 2)
+		              + ", refLen=" + juce::String (resoReferenceLength) + ")");
 	}
 	
 	// Apply INVERT if enabled (multiply all samples by -1)
@@ -2456,9 +2981,20 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 		LOG_IR_EVENT ("REVERSE applied to IR");
 	}
 
-	// Measure spectral slope for adaptive Match tilt EQ
-	state.irSlopeDbPerOct.store (computeIRSlopeDbPerOct (state.impulseResponse, reader->sampleRate));
-	LOG_IR_EVENT ("IR spectral slope: " + juce::String (state.irSlopeDbPerOct.load(), 2) + " dB/oct");
+	// Measure broad spectral profile for adaptive MATCH EQ.
+	const auto matchProfile = computeIRMatchSpectralProfile (state.impulseResponse, reader->sampleRate);
+	state.irSlopeDbPerOct.store (matchProfile.slopeDbPerOct);
+	state.irLowResidualDb.store (matchProfile.lowResidualDb);
+	state.irHighResidualDb.store (matchProfile.highResidualDb);
+	state.irBellFreqHz.store (matchProfile.bellFreqHz);
+	state.irBellGainDb.store (matchProfile.bellGainDb);
+	state.irBellQ.store (matchProfile.bellQ);
+	LOG_IR_EVENT ("IR spectral profile: slope=" + juce::String (matchProfile.slopeDbPerOct, 2)
+	              + " dB/oct low=" + juce::String (matchProfile.lowResidualDb, 2)
+	              + " dB high=" + juce::String (matchProfile.highResidualDb, 2)
+	              + " dB bell=" + juce::String (matchProfile.bellGainDb, 2)
+	              + " dB @" + juce::String (matchProfile.bellFreqHz, 1)
+	              + " Hz Q=" + juce::String (matchProfile.bellQ, 2));
 
 	// Load into convolution engine
 	// NonUniform{256} uses partitioned FFT - handles long IRs efficiently
@@ -2477,6 +3013,14 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.lastStart.store (startMs);
 	state.lastEnd.store (endMs);
 	state.lastReso.store (reso);
+
+	state.pendingSize = size;
+	state.pendingInv = invert;
+	state.pendingNorm = normalize;
+	state.pendingRvs = reverse;
+	state.pendingStart = startMs;
+	state.pendingEnd = endMs;
+	state.pendingReso = reso;
 
 	state.currentFilePath = filePath;
 	state.irSampleRate = reader->sampleRate;
@@ -3252,7 +3796,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		globalDryIrBuffer.applyGain (inputGain);
 	}
 
-	// MATCH tilt EQ (offline)
+	// MATCH spectral EQ (offline)
 	{
 		const int matchProfile = static_cast<int> (pMatch->load());
 		LOG_IR_EVENT ("MATCH: matchProfile=" + juce::String (matchProfile));
@@ -3260,76 +3804,39 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		{
 			const float targetSlope = kTargetSlopes[juce::jlimit (0, kNumTargetSlopes - 1, matchProfile)];
 
-			// Compute combined IR slope (same logic as processBlock)
-			float combinedSlope = 0.0f;
-			if (route == 0)
-			{
-				if (hasA) combinedSlope += stateA.irSlopeDbPerOct.load();
-				if (hasB) combinedSlope += stateB.irSlopeDbPerOct.load();
-				if (hasC) combinedSlope += stateC.irSlopeDbPerOct.load();
-			}
-			else if (route == 1)
-			{
-				float totalWeight = 0.0f;
-				if (hasA) { combinedSlope += stateA.irSlopeDbPerOct.load() * mixA; totalWeight += mixA; }
-				if (hasB) { combinedSlope += stateB.irSlopeDbPerOct.load() * mixB; totalWeight += mixB; }
-				if (hasC) { combinedSlope += stateC.irSlopeDbPerOct.load() * mixC; totalWeight += mixC; }
-				if (totalWeight > 0.0f) combinedSlope /= totalWeight;
-			}
-			else if (route == 2)
-			{
-				float seriesSlope = 0.0f;
-				if (hasA) seriesSlope += stateA.irSlopeDbPerOct.load();
-				if (hasB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (hasC)
-					combinedSlope = (seriesSlope + stateC.irSlopeDbPerOct.load()) * 0.5f;
-				else
-					combinedSlope = seriesSlope;
-			}
-			else if (route == 3)
-			{
-				float seriesSlope = 0.0f;
-				if (hasB) seriesSlope += stateB.irSlopeDbPerOct.load();
-				if (hasC) seriesSlope += stateC.irSlopeDbPerOct.load();
-				if (hasA)
-					combinedSlope = (stateA.irSlopeDbPerOct.load() + seriesSlope) * 0.5f;
-				else
-					combinedSlope = seriesSlope;
-			}
-			else if (route == 4)
-			{
-				float parallelSlope = 0.0f;
-				int parallelCount = 0;
-				if (hasA) { parallelSlope += stateA.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (hasB) { parallelSlope += stateB.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (parallelCount > 1)
-					parallelSlope /= static_cast<float> (parallelCount);
-
-				if (hasC)
-					combinedSlope = parallelSlope + stateC.irSlopeDbPerOct.load();
-				else
-					combinedSlope = parallelSlope;
-			}
-			else if (route == 5)
-			{
-				float parallelSlope = 0.0f;
-				int parallelCount = 0;
-				if (hasB) { parallelSlope += stateB.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (hasC) { parallelSlope += stateC.irSlopeDbPerOct.load(); ++parallelCount; }
-				if (parallelCount > 1)
-					parallelSlope /= static_cast<float> (parallelCount);
-
-				if (hasA)
-					combinedSlope = stateA.irSlopeDbPerOct.load() + parallelSlope;
-				else
-					combinedSlope = parallelSlope;
-			}
+			const float combinedSlope = computeCombinedMatchSlope (route,
+			                                                       stateA, hasA, mixA,
+			                                                       stateB, hasB, mixB,
+			                                                       stateC, hasC, mixC);
+			const float combinedLowResidual = computeCombinedMatchLowResidual (route,
+			                                                                  stateA, hasA, mixA,
+			                                                                  stateB, hasB, mixB,
+			                                                                  stateC, hasC, mixC);
+			const float combinedHighResidual = computeCombinedMatchHighResidual (route,
+			                                                                    stateA, hasA, mixA,
+			                                                                    stateB, hasB, mixB,
+			                                                                    stateC, hasC, mixC);
+			float bellFreqHz = 1000.0f;
+			float bellGainDb = 0.0f;
+			float bellQ = 1.0f;
+			computeCombinedMatchBell (route,
+			                          stateA, hasA, mixA,
+			                          stateB, hasB, mixB,
+			                          stateC, hasC, mixC,
+			                          bellFreqHz, bellGainDb, bellQ);
 
 			const float compensatingSlope = targetSlope - combinedSlope;
+			const float lowCompDb = juce::jlimit (-4.0f, 4.0f, -combinedLowResidual * 0.65f);
+			const float highCompDb = juce::jlimit (-4.0f, 4.0f, -combinedHighResidual * 0.65f);
 
 			LOG_IR_EVENT ("MATCH: target=" + juce::String (targetSlope, 3)
 			             + " combined=" + juce::String (combinedSlope, 3)
 			             + " compensating=" + juce::String (compensatingSlope, 3)
+			             + " lowComp=" + juce::String (lowCompDb, 3)
+			             + " highComp=" + juce::String (highCompDb, 3)
+			             + " bell=" + juce::String (bellGainDb, 3)
+			             + "@" + juce::String (bellFreqHz, 1)
+			             + "Hz Q=" + juce::String (bellQ, 3)
 			             + " slopeA=" + juce::String (stateA.irSlopeDbPerOct.load(), 3)
 			             + " slopeB=" + juce::String (stateB.irSlopeDbPerOct.load(), 3)
 			             + " slopeC=" + juce::String (stateC.irSlopeDbPerOct.load(), 3)
@@ -3339,7 +3846,7 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			if (std::abs (compensatingSlope) >= 0.1f)
 			{
 				float b0, b1, a1;
-				computeTiltShelfCoeffs (workingSR, compensatingSlope, b0, b1, a1);
+				computeMatchTiltShelfCoeffs (workingSR, compensatingSlope, b0, b1, a1);
 
 				LOG_IR_EVENT ("MATCH: APPLYING tilt - b0=" + juce::String (b0, 6)
 				             + " b1=" + juce::String (b1, 6)
@@ -3361,6 +3868,60 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 			else
 			{
 				LOG_IR_EVENT ("MATCH: SKIPPED - |compensatingSlope| < 0.1");
+			}
+
+			if (std::abs (lowCompDb) >= 0.05f || std::abs (highCompDb) >= 0.05f)
+			{
+				float lb0, lb1, lb2, la1, la2;
+				float hb0, hb1, hb2, ha1, ha2;
+				computeMatchShelfCoeffs (workingSR, 250.0f, lowCompDb, false, lb0, lb1, lb2, la1, la2);
+				computeMatchShelfCoeffs (workingSR, 4500.0f, highCompDb, true, hb0, hb1, hb2, ha1, ha2);
+
+				LOG_IR_EVENT ("MATCH: APPLYING residual shelves low=" + juce::String (lowCompDb, 3)
+				             + " high=" + juce::String (highCompDb, 3));
+
+				for (int ch = 0; ch < result.getNumChannels(); ++ch)
+				{
+					auto* data = result.getWritePointer (ch);
+					float lowS1 = 0.0f, lowS2 = 0.0f;
+					float highS1 = 0.0f, highS2 = 0.0f;
+					for (int i = 0; i < numSamples; ++i)
+					{
+						const float x = data[i];
+						const float lowY = lb0 * x + lowS1;
+						lowS1 = lb1 * x - la1 * lowY + lowS2;
+						lowS2 = lb2 * x - la2 * lowY;
+
+						const float y = hb0 * lowY + highS1;
+						highS1 = hb1 * lowY - ha1 * y + highS2;
+						highS2 = hb2 * lowY - ha2 * y;
+						data[i] = y;
+					}
+				}
+			}
+
+			if (std::abs (bellGainDb) >= 0.05f)
+			{
+				float bb0, bb1, bb2, ba1, ba2;
+				computeMatchBellCoeffs (workingSR, bellFreqHz, bellGainDb, bellQ, bb0, bb1, bb2, ba1, ba2);
+
+				LOG_IR_EVENT ("MATCH: APPLYING bell " + juce::String (bellGainDb, 3)
+				             + " dB @" + juce::String (bellFreqHz, 1)
+				             + " Hz Q=" + juce::String (bellQ, 3));
+
+				for (int ch = 0; ch < result.getNumChannels(); ++ch)
+				{
+					auto* data = result.getWritePointer (ch);
+					float s1 = 0.0f, s2 = 0.0f;
+					for (int i = 0; i < numSamples; ++i)
+					{
+						const float x = data[i];
+						const float y = bb0 * x + s1;
+						s1 = bb1 * x - ba1 * y + s2;
+						s2 = bb2 * x - ba2 * y;
+						data[i] = y;
+					}
+				}
 			}
 		}
 	}
@@ -5198,8 +5759,32 @@ void CABTRAudioProcessor::timerCallback()
 		
 		if (changed)
 		{
-			state.needsUpdate.store (true);
-			state.lastChangeTime = now;
+			const bool pendingChanged = ! state.needsUpdate.load() ||
+			                            std::abs (size - state.pendingSize) > epsilon ||
+			                            inv != state.pendingInv ||
+			                            norm != state.pendingNorm ||
+			                            rvs != state.pendingRvs ||
+			                            std::abs (start - state.pendingStart) > epsilon ||
+			                            std::abs (end - state.pendingEnd) > epsilon ||
+			                            std::abs (reso - state.pendingReso) > epsilon;
+
+			if (pendingChanged)
+			{
+				state.pendingSize = size;
+				state.pendingInv = inv;
+				state.pendingNorm = norm;
+				state.pendingRvs = rvs;
+				state.pendingStart = start;
+				state.pendingEnd = end;
+				state.pendingReso = reso;
+				state.needsUpdate.store (true);
+				state.lastChangeTime = now;
+			}
+		}
+		else if (state.needsUpdate.load())
+		{
+			state.needsUpdate.store (false);
+			state.lastChangeTime = 0;
 		}
 
 		if (state.needsUpdate.load() &&
@@ -5282,6 +5867,17 @@ bool CABTRAudioProcessor::getUiIoExpanded (int loaderIndex) const noexcept
 	return false;
 }
 
+void CABTRAudioProcessor::setUiFirstVisibleLoaderIndex (int loaderIndex)
+{
+	parameters.state.setProperty (UiStateKeys::firstVisibleLoader,
+	                              juce::jlimit (0, 2, loaderIndex), nullptr);
+}
+
+int CABTRAudioProcessor::getUiFirstVisibleLoaderIndex() const noexcept
+{
+	return juce::jlimit (0, 2, static_cast<int> (parameters.state.getProperty (UiStateKeys::firstVisibleLoader, 0)));
+}
+
 //==============================================================================
 void CABTRAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
@@ -5334,6 +5930,18 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 				loaderState.currentFilePath.clear();
 				loaderState.needsUpdate.store (false);
 				loaderState.irSlopeDbPerOct.store (0.0f);
+				loaderState.irLowResidualDb.store (0.0f);
+				loaderState.irHighResidualDb.store (0.0f);
+				loaderState.irBellFreqHz.store (1000.0f);
+				loaderState.irBellGainDb.store (0.0f);
+				loaderState.irBellQ.store (1.0f);
+				loaderState.pendingSize = loaderState.lastSize.load();
+				loaderState.pendingInv = loaderState.lastInv.load();
+				loaderState.pendingNorm = loaderState.lastNorm.load();
+				loaderState.pendingRvs = loaderState.lastRvs.load();
+				loaderState.pendingStart = loaderState.lastStart.load();
+				loaderState.pendingEnd = loaderState.lastEnd.load();
+				loaderState.pendingReso = loaderState.lastReso.load();
 				loaderState.lastChangeTime = 0;
 				loaderState.lastReloadTime = 0;
 			};

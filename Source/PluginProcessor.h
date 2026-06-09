@@ -209,10 +209,13 @@ public:
 		static constexpr const char* ioExpandedA = "uiIoExpandedA";
 		static constexpr const char* ioExpandedB = "uiIoExpandedB";
 		static constexpr const char* ioExpandedC = "uiIoExpandedC";
+		static constexpr const char* firstVisibleLoader = "uiFirstVisibleLoader";
 	};
 
 	void  setUiIoExpanded (int loaderIndex, bool expanded);
 	bool  getUiIoExpanded (int loaderIndex) const noexcept;
+	void  setUiFirstVisibleLoaderIndex (int loaderIndex);
+	int   getUiFirstVisibleLoaderIndex() const noexcept;
 
 	// ============================================================================
 	//  Parameter Ranges & Defaults - Filters
@@ -529,6 +532,14 @@ public:
 		std::atomic<float> lastStart { 0.0f };
 		std::atomic<float> lastEnd { 10000.0f };
 		std::atomic<float> lastReso { 1.0f };
+
+		float pendingSize { 1.0f };
+		bool pendingInv { false };
+		bool pendingNorm { false };
+		bool pendingRvs { false };
+		float pendingStart { 0.0f };
+		float pendingEnd { 10000.0f };
+		float pendingReso { 1.0f };
 		
 		// Rate-limiting: minimum interval between reloads to avoid overload during slider drag
 		juce::int64 lastReloadTime { 0 };
@@ -630,8 +641,13 @@ public:
 		VariationLaneState variationDistanceFast;
 		float variationSizeAllpassState[2] = {};
 
-		// Spectral slope of this IR (dB/octave), measured over 100Hz-10kHz
+		// Spectral profile of this IR, measured once when the IR is loaded.
 		std::atomic<float> irSlopeDbPerOct { 0.0f };
+		std::atomic<float> irLowResidualDb { 0.0f };
+		std::atomic<float> irHighResidualDb { 0.0f };
+		std::atomic<float> irBellFreqHz { 1000.0f };
+		std::atomic<float> irBellGainDb { 0.0f };
+		std::atomic<float> irBellQ { 1.0f };
 
 		// Per-loader tilt EQ state (1st-order shelf, pivot 1kHz)
 		float tiltB0 = 1.0f, tiltB1 = 0.0f, tiltA1 = 0.0f;
@@ -833,6 +849,20 @@ private:
 	float tiltLastSlope_   = 0.0f;  // last applied compensating slope
 	float tiltB0_ = 1.0f, tiltB1_ = 0.0f, tiltA1_ = 0.0f;        // current (smoothed)
 	float tiltTargetB0_ = 1.0f, tiltTargetB1_ = 0.0f, tiltTargetA1_ = 0.0f; // target
+	float matchLastLowDb_  = 0.0f;
+	float matchLastHighDb_ = 0.0f;
+	float matchLastBellFreqHz_ = 1000.0f;
+	float matchLastBellGainDb_ = 0.0f;
+	float matchLastBellQ_ = 1.0f;
+	float matchLowState1_[2] = { 0.0f, 0.0f }, matchLowState2_[2] = { 0.0f, 0.0f };
+	float matchHighState1_[2] = { 0.0f, 0.0f }, matchHighState2_[2] = { 0.0f, 0.0f };
+	float matchBellState1_[2] = { 0.0f, 0.0f }, matchBellState2_[2] = { 0.0f, 0.0f };
+	float matchLowB0_ = 1.0f, matchLowB1_ = 0.0f, matchLowB2_ = 0.0f, matchLowA1_ = 0.0f, matchLowA2_ = 0.0f;
+	float matchLowTargetB0_ = 1.0f, matchLowTargetB1_ = 0.0f, matchLowTargetB2_ = 0.0f, matchLowTargetA1_ = 0.0f, matchLowTargetA2_ = 0.0f;
+	float matchHighB0_ = 1.0f, matchHighB1_ = 0.0f, matchHighB2_ = 0.0f, matchHighA1_ = 0.0f, matchHighA2_ = 0.0f;
+	float matchHighTargetB0_ = 1.0f, matchHighTargetB1_ = 0.0f, matchHighTargetB2_ = 0.0f, matchHighTargetA1_ = 0.0f, matchHighTargetA2_ = 0.0f;
+	float matchBellB0_ = 1.0f, matchBellB1_ = 0.0f, matchBellB2_ = 0.0f, matchBellA1_ = 0.0f, matchBellA2_ = 0.0f;
+	float matchBellTargetB0_ = 1.0f, matchBellTargetB1_ = 0.0f, matchBellTargetB2_ = 0.0f, matchBellTargetA1_ = 0.0f, matchBellTargetA2_ = 0.0f;
 
 	// Wet NORM AGC state (peak follower + gain smoothing) - kept for TRIM
 	float normPeakFollower_  = 0.0f;
