@@ -5828,9 +5828,118 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	const bool hasB = enabledB && ! stateB.currentFilePath.isEmpty() && stateB.impulseResponse.getNumSamples() > 0;
 	const bool hasC = enabledC && ! stateC.currentFilePath.isEmpty() && stateC.impulseResponse.getNumSamples() > 0;
 	const bool dryAlignRequested = isDryAlignModeEnabled();
-	if (hasA) stateA.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateA.impulseResponse));
-	if (hasB) stateB.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateB.impulseResponse));
-	if (hasC) stateC.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateC.impulseResponse));
+
+	auto applyStaticToneToProbe = [&] (juce::AudioBuffer<float>& probe, int loaderIndex)
+	{
+		if (probe.getNumSamples() <= 0 || currentSampleRate <= 0.0)
+			return;
+
+		auto pick = [&] (std::atomic<float>* a, std::atomic<float>* b, std::atomic<float>* c)
+			-> std::atomic<float>*
+		{
+			return loaderIndex == 0 ? a : (loaderIndex == 1 ? b : c);
+		};
+
+		const float hpFreq = pick (pHpFreqA, pHpFreqB, pHpFreqC)->load();
+		const float lpFreq = pick (pLpFreqA, pLpFreqB, pLpFreqC)->load();
+		const bool hpOn = pick (pHpOnA, pHpOnB, pHpOnC)->load() > 0.5f;
+		const bool lpOn = pick (pLpOnA, pLpOnB, pLpOnC)->load() > 0.5f;
+		const int hpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+			static_cast<int> (std::lround (pick (pHpSlopeA, pHpSlopeB, pHpSlopeC)->load())));
+		const int lpSlope = juce::jlimit (kFilterSlopeMin, kFilterSlopeMax,
+			static_cast<int> (std::lround (pick (pLpSlopeA, pLpSlopeB, pLpSlopeC)->load())));
+		const float tiltDb = pick (pTiltA, pTiltB, pTiltC)->load();
+		const int filterPos = static_cast<int> (pick (pFilterPosA, pFilterPosB, pFilterPosC)->load());
+		const bool filterPre = (filterPos == 1 || filterPos == 2);
+		const bool tiltPre = (filterPos == 1 || filterPos == 3);
+		const float sr = static_cast<float> (currentSampleRate);
+		const float maxFreq = sr * 0.49f;
+
+		auto applyTilt = [&]()
+		{
+			if (std::abs (tiltDb) <= 0.05f)
+				return;
+
+			float b0 = 1.0f, b1 = 0.0f, a1 = 0.0f;
+			computeTiltShelfCoeffs (currentSampleRate, tiltDb, b0, b1, a1);
+			for (int ch = 0; ch < probe.getNumChannels(); ++ch)
+			{
+				float state = 0.0f;
+				auto* data = probe.getWritePointer (ch);
+				for (int n = 0; n < probe.getNumSamples(); ++n)
+				{
+					const float x = data[n];
+					const float y = b0 * x + state;
+					state = b1 * x - a1 * y;
+					data[n] = y;
+				}
+			}
+		};
+
+		auto applyBiquad = [&] (const BiquadCoefficients& coeffs)
+		{
+			for (int ch = 0; ch < probe.getNumChannels(); ++ch)
+			{
+				float z1 = 0.0f;
+				float z2 = 0.0f;
+				auto* data = probe.getWritePointer (ch);
+				for (int n = 0; n < probe.getNumSamples(); ++n)
+				{
+					const float x = data[n];
+					const float y = coeffs.b0 * x + z1;
+					z1 = coeffs.b1 * x - coeffs.a1 * y + z2;
+					z2 = coeffs.b2 * x - coeffs.a2 * y;
+					data[n] = y;
+				}
+			}
+		};
+
+		auto applyFilters = [&]()
+		{
+			if (hpOn && hpFreq >= 21.0f)
+			{
+				const float clampedHp = juce::jlimit (20.0f, maxFreq, hpFreq);
+				applyBiquad (makeDetectorHighPassForSlope (clampedHp, sr, hpSlope, false));
+				if (hpSlope == 2)
+					applyBiquad (makeDetectorHighPassForSlope (clampedHp, sr, hpSlope, true));
+			}
+
+			if (lpOn && lpFreq <= 19900.0f)
+			{
+				const float clampedLp = juce::jlimit (20.0f, maxFreq, lpFreq);
+				applyBiquad (makeDetectorLowPassForSlope (clampedLp, sr, lpSlope, false));
+				if (lpSlope == 2)
+					applyBiquad (makeDetectorLowPassForSlope (clampedLp, sr, lpSlope, true));
+			}
+		};
+
+		if (filterPre) applyFilters();
+		if (tiltPre) applyTilt();
+		if (! tiltPre) applyTilt();
+		if (! filterPre) applyFilters();
+	};
+
+	juce::AudioBuffer<float> alignIrA;
+	juce::AudioBuffer<float> alignIrB;
+	juce::AudioBuffer<float> alignIrC;
+	if (hasA)
+	{
+		alignIrA.makeCopyOf (stateA.impulseResponse, true);
+		applyStaticToneToProbe (alignIrA, 0);
+		stateA.irDryAnchorSamples.store (computeIRDominantAnchorSamples (alignIrA));
+	}
+	if (hasB)
+	{
+		alignIrB.makeCopyOf (stateB.impulseResponse, true);
+		applyStaticToneToProbe (alignIrB, 1);
+		stateB.irDryAnchorSamples.store (computeIRDominantAnchorSamples (alignIrB));
+	}
+	if (hasC)
+	{
+		alignIrC.makeCopyOf (stateC.impulseResponse, true);
+		applyStaticToneToProbe (alignIrC, 2);
+		stateC.irDryAnchorSamples.store (computeIRDominantAnchorSamples (alignIrC));
+	}
 
 	if (! hasA || (! hasB && ! hasC))
 	{
@@ -5844,7 +5953,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	}
 	dryAlignRuntimeActive_.store (dryAlignRequested, std::memory_order_release);
 
-	const auto& irA = stateA.impulseResponse;
+	const auto& irA = alignIrA;
 	const float* dataA = irA.getReadPointer (0);
 	const int lenA = irA.getNumSamples();
 
@@ -5920,7 +6029,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 
 	if (hasB)
 	{
-		auto [bestLagB, corrB] = xcorr (stateB.impulseResponse);
+		auto [bestLagB, corrB] = xcorr (alignIrB);
 		lagB = bestLagB;
 		const bool currentInvB = parameters.getRawParameterValue (kParamInvB)->load() > 0.5f;
 		resolvePolarity (kParamInvB, lagB, corrB, currentInvB, currentInvA);
@@ -5928,7 +6037,7 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 
 	if (hasC)
 	{
-		auto [bestLagC, corrC] = xcorr (stateC.impulseResponse);
+		auto [bestLagC, corrC] = xcorr (alignIrC);
 		lagC = bestLagC;
 		const bool currentInvC = parameters.getRawParameterValue (kParamInvC)->load() > 0.5f;
 		resolvePolarity (kParamInvC, lagC, corrC, currentInvC, currentInvA);
