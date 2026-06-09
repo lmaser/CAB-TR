@@ -1814,7 +1814,13 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 
 	addAndMakeVisible (alignButton);
 	alignButton.setButtonText ("ALIGN");
+	alignButton.setRightClickTextOnly (true);
 	alignButton.addListener (this);
+	alignButton.onRightClick = [this]()
+	{
+		audioProcessor.setDryAlignModeEnabled (! audioProcessor.isDryAlignModeEnabled());
+		updateAlignModeUi();
+	};
 
 	addAndMakeVisible (matchCombo);
 	matchCombo.addItem ("None", 1);
@@ -1922,6 +1928,7 @@ CABTRAudioProcessorEditor::CABTRAudioProcessorEditor (CABTRAudioProcessor& p)
 		params, CABTRAudioProcessor::kParamInvPol, invPolCombo);
 	invStrAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
 		params, CABTRAudioProcessor::kParamInvStr, invStrCombo);
+	updateAlignModeUi();
 
 	// Initialize per-loader collapse state from processor
 	ioExpandedA_ = audioProcessor.getUiIoExpanded (0);
@@ -3608,6 +3615,14 @@ void CABTRAudioProcessorEditor::setupBar (juce::Slider& s)
 	s.setColour (juce::Slider::trackColourId, juce::Colours::transparentBlack);
 	s.setColour (juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
 	s.setColour (juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+}
+
+void CABTRAudioProcessorEditor::updateAlignModeUi()
+{
+	const bool dryAlign = audioProcessor.isDryAlignModeEnabled();
+	alignButton.setButtonText (dryAlign ? "A+DI" : "ALIGN");
+	alignButton.setTooltip ({});
+	alignButton.repaint();
 }
 
 int CABTRAudioProcessorEditor::getCompactTargetWidthForLoaderCount (int loaderCount) noexcept

@@ -1040,17 +1040,33 @@ void CABTRAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 	stateA.delayLine.prepare (spec);
 	stateB.delayLine.prepare (spec);
 	stateC.delayLine.prepare (spec);
+	stateA.dryDelayLine.prepare (spec);
+	stateB.dryDelayLine.prepare (spec);
+	stateC.dryDelayLine.prepare (spec);
+	globalDryDelayLine.prepare (spec);
 	stateA.delayLine.reset();
 	stateB.delayLine.reset();
 	stateC.delayLine.reset();
+	stateA.dryDelayLine.reset();
+	stateB.dryDelayLine.reset();
+	stateC.dryDelayLine.reset();
+	globalDryDelayLine.reset();
 	
 	// Prepare delay smoothing (50ms ramp)
 	stateA.smoothedDelay.reset (sampleRate, 0.05); // 50ms ramp
 	stateB.smoothedDelay.reset (sampleRate, 0.05);
 	stateC.smoothedDelay.reset (sampleRate, 0.05);
+	stateA.smoothedDryDelay.reset (sampleRate, 0.05);
+	stateB.smoothedDryDelay.reset (sampleRate, 0.05);
+	stateC.smoothedDryDelay.reset (sampleRate, 0.05);
+	smoothedGlobalDryDelay.reset (sampleRate, 0.05);
 	stateA.smoothedDelay.setCurrentAndTargetValue (0.0f);
 	stateB.smoothedDelay.setCurrentAndTargetValue (0.0f);
 	stateC.smoothedDelay.setCurrentAndTargetValue (0.0f);
+	stateA.smoothedDryDelay.setCurrentAndTargetValue (0.0f);
+	stateB.smoothedDryDelay.setCurrentAndTargetValue (0.0f);
+	stateC.smoothedDryDelay.setCurrentAndTargetValue (0.0f);
+	smoothedGlobalDryDelay.setCurrentAndTargetValue (0.0f);
 	
 	// Prepare temp buffers (pre-allocated for audio thread)
 	// Use generous size to handle hosts that send variable/larger blocks
@@ -1355,6 +1371,10 @@ void CABTRAudioProcessor::releaseResources()
 	stateA.delayLine.reset();
 	stateB.delayLine.reset();
 	stateC.delayLine.reset();
+	stateA.dryDelayLine.reset();
+	stateB.dryDelayLine.reset();
+	stateC.dryDelayLine.reset();
+	globalDryDelayLine.reset();
 	
 
 }
@@ -1528,6 +1548,9 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 	const float mixA = loadRelaxed (pMixA);
 	const float mixB = loadRelaxed (pMixB);
 	const float mixC = loadRelaxed (pMixC);
+	const float delayA = loadRelaxed (pDelayA);
+	const float delayB = loadRelaxed (pDelayB);
+	const float delayC = loadRelaxed (pDelayC);
 	const bool wetPathAudible = std::abs (globalWetEnd) > kMixBypassEps
 	                         || std::abs (lastGlobalWetMix_) > kMixBypassEps;
 	const bool wetHasActiveLoader =
@@ -1593,10 +1616,74 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
 	// Capture dry signal AFTER input gain, but BEFORE any loader processing
 	// Used for global MIX: dry is unaffected by convolution, filters, mode, etc.
+	const bool dryAlignMode = dryAlignRuntimeActive_.load (std::memory_order_acquire);
+	auto loaderDryAlignSamples = [&] (const IRLoaderState& state, bool active, float loaderMix, float delayMs) noexcept
+	{
+		if (! dryAlignMode || ! active || loaderMix <= kMixBypassEps)
+			return 0.0f;
+
+		const float delaySamples = delayMs * 0.001f * static_cast<float> (currentSampleRate);
+		return juce::jmax (0.0f, state.irDryAnchorSamples.load() + delaySamples);
+	};
+
+	const float dryAlignSamplesA = loaderDryAlignSamples (stateA, activeA, mixA, delayA);
+	const float dryAlignSamplesB = loaderDryAlignSamples (stateB, activeB, mixB, delayB);
+	const float dryAlignSamplesC = loaderDryAlignSamples (stateC, activeC, mixC, delayC);
+
+	auto averageDryAlignBranches = [] (float a, bool hasA, float b, bool hasB, float c, bool hasC) noexcept
+	{
+		float sum = 0.0f;
+		int count = 0;
+		if (hasA) { sum += a; ++count; }
+		if (hasB) { sum += b; ++count; }
+		if (hasC) { sum += c; ++count; }
+		return count > 0 ? sum / static_cast<float> (count) : 0.0f;
+	};
+
+	const bool hasDryAlignA = dryAlignMode && activeA && mixA > kMixBypassEps;
+	const bool hasDryAlignB = dryAlignMode && activeB && mixB > kMixBypassEps;
+	const bool hasDryAlignC = dryAlignMode && activeC && mixC > kMixBypassEps;
+	float globalDryAlignSamples = 0.0f;
+	if (route == 0) // A->B->C
+		globalDryAlignSamples = dryAlignSamplesA + dryAlignSamplesB + dryAlignSamplesC;
+	else if (route == 1) // A|B|C
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                 dryAlignSamplesB, hasDryAlignB,
+		                                                 dryAlignSamplesC, hasDryAlignC);
+	else if (route == 2) // A->B | C
+	{
+		const float series = dryAlignSamplesA + dryAlignSamplesB;
+		globalDryAlignSamples = averageDryAlignBranches (series, hasDryAlignA || hasDryAlignB,
+		                                                 0.0f, false,
+		                                                 dryAlignSamplesC, hasDryAlignC);
+	}
+	else if (route == 3) // A | B->C
+	{
+		const float series = dryAlignSamplesB + dryAlignSamplesC;
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                 series, hasDryAlignB || hasDryAlignC,
+		                                                 0.0f, false);
+	}
+	else if (route == 4) // (A|B)->C
+	{
+		const float parallel = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                dryAlignSamplesB, hasDryAlignB,
+		                                                0.0f, false);
+		globalDryAlignSamples = parallel + dryAlignSamplesC;
+	}
+	else if (route == 5) // A->(B|C)
+	{
+		const float parallel = averageDryAlignBranches (dryAlignSamplesB, hasDryAlignB,
+		                                                dryAlignSamplesC, hasDryAlignC,
+		                                                0.0f, false);
+		globalDryAlignSamples = dryAlignSamplesA + parallel;
+	}
+
 	if (needsGlobalDry)
 	{
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
 			globalDryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+		applyGlobalDryAlignDelay (globalDryBuffer, globalDryAlignSamples);
 	}
 
 	// Helper lambdas
@@ -1619,7 +1706,11 @@ void CABTRAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 		                         || std::abs (wetEnd - 1.0f) > kMixBypassEps;
 
 		if (needsLoaderMix)
+		{
 			saveDry (buf);
+			const float dryDelaySamples = loaderIndex == 0 ? dryAlignSamplesA : (loaderIndex == 1 ? dryAlignSamplesB : dryAlignSamplesC);
+			applyDryAlignDelay (loaderDryBuffer, dryDelaySamples, loaderIndex);
+		}
 
 		applyMidSideInputMode (buf, modeIn, numSamples);
 		processLoader (state, buf, loaderIndex);
@@ -2380,6 +2471,31 @@ struct MatchSpectralProfile
 	float bellQ = 1.0f;
 };
 
+static float computeIRDominantAnchorSamples (const juce::AudioBuffer<float>& ir) noexcept
+{
+	const int numSamples = ir.getNumSamples();
+	const int numChannels = ir.getNumChannels();
+	if (numSamples <= 0 || numChannels <= 0)
+		return 0.0f;
+
+	float best = 0.0f;
+	int bestIndex = 0;
+	for (int i = 0; i < numSamples; ++i)
+	{
+		float samplePeak = 0.0f;
+		for (int ch = 0; ch < numChannels; ++ch)
+			samplePeak = juce::jmax (samplePeak, std::abs (ir.getSample (ch, i)));
+
+		if (samplePeak > best)
+		{
+			best = samplePeak;
+			bestIndex = i;
+		}
+	}
+
+	return static_cast<float> (bestIndex);
+}
+
 // Measure the broad spectral shape of an IR via FFT.
 // The slope is fitted over 100 Hz - 8 kHz; residual shelves capture broad
 // low/high curvature left after removing that slope.
@@ -2989,12 +3105,15 @@ void CABTRAudioProcessor::loadImpulseResponse (IRLoaderState& state, const juce:
 	state.irBellFreqHz.store (matchProfile.bellFreqHz);
 	state.irBellGainDb.store (matchProfile.bellGainDb);
 	state.irBellQ.store (matchProfile.bellQ);
+	state.irDryAnchorSamples.store (computeIRDominantAnchorSamples (state.impulseResponse));
 	LOG_IR_EVENT ("IR spectral profile: slope=" + juce::String (matchProfile.slopeDbPerOct, 2)
 	              + " dB/oct low=" + juce::String (matchProfile.lowResidualDb, 2)
 	              + " dB high=" + juce::String (matchProfile.highResidualDb, 2)
 	              + " dB bell=" + juce::String (matchProfile.bellGainDb, 2)
 	              + " dB @" + juce::String (matchProfile.bellFreqHz, 1)
-	              + " Hz Q=" + juce::String (matchProfile.bellQ, 2));
+	              + " Hz Q=" + juce::String (matchProfile.bellQ, 2)
+	              + " dryAnchor=" + juce::String (state.irDryAnchorSamples.load(), 1)
+	              + " samples");
 
 	// Load into convolution engine
 	// NonUniform{256} uses partitioned FFT - handles long IRs efficiently
@@ -3100,6 +3219,33 @@ static juce::AudioBuffer<float> fftConvolve (const juce::AudioBuffer<float>& sig
 	return result;
 }
 
+static void applyOfflineDelaySamples (juce::AudioBuffer<float>& buffer, double sampleRate, float targetDelaySamples)
+{
+	if (targetDelaySamples <= 0.001f || sampleRate <= 0.0 || buffer.getNumSamples() <= 0)
+		return;
+
+	juce::dsp::ProcessSpec spec;
+	spec.sampleRate = sampleRate;
+	spec.maximumBlockSize = static_cast<juce::uint32> (buffer.getNumSamples());
+	spec.numChannels = static_cast<juce::uint32> (buffer.getNumChannels());
+
+	juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delayLine { 192000 };
+	delayLine.prepare (spec);
+	delayLine.reset();
+	delayLine.setDelay (juce::jlimit (0.0f, 191998.0f, targetDelaySamples));
+
+	for (int i = 0; i < buffer.getNumSamples(); ++i)
+	{
+		for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+		{
+			auto* data = buffer.getWritePointer (ch);
+			const float x = data[i];
+			delayLine.pushSample (ch, x);
+			data[i] = delayLine.popSample (ch);
+		}
+	}
+}
+
 // Double-precision radix-2 Cooley-Tukey FFT (in-place)
 // Used exclusively for MPT export where float32 precision is insufficient.
 // N must be a power of 2.  When inverse=true, output is scaled by 1/N.
@@ -3182,6 +3328,9 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const int filterPosA = static_cast<int> (pFilterPosA->load());
 	const int filterPosB = static_cast<int> (pFilterPosB->load());
 	const int filterPosC = static_cast<int> (pFilterPosC->load());
+	const float delayA = pDelayA->load();
+	const float delayB = pDelayB->load();
+	const float delayC = pDelayC->load();
 
 	// Need at least one enabled loader with an IR
 	const bool hasA = enableA && stateA.impulseResponse.getNumSamples() > 0;
@@ -3212,6 +3361,55 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 	const int irLenA = hasA ? stateA.impulseResponse.getNumSamples() : 0;
 	const int irLenB = hasB ? stateB.impulseResponse.getNumSamples() : 0;
 	const int irLenC = hasC ? stateC.impulseResponse.getNumSamples() : 0;
+	const bool dryAlignMode = dryAlignRuntimeActive_.load (std::memory_order_acquire);
+	auto loaderDryAlignSamples = [&] (const IRLoaderState& state, bool active, float loaderMix, float delayMs) noexcept
+	{
+		if (! dryAlignMode || ! active || loaderMix <= 1.0e-4f)
+			return 0.0f;
+
+		const float delaySamples = delayMs * 0.001f * static_cast<float> (workingSR);
+		return juce::jmax (0.0f, state.irDryAnchorSamples.load() + delaySamples);
+	};
+	const float dryAlignSamplesA = loaderDryAlignSamples (stateA, hasA, mixA, delayA);
+	const float dryAlignSamplesB = loaderDryAlignSamples (stateB, hasB, mixB, delayB);
+	const float dryAlignSamplesC = loaderDryAlignSamples (stateC, hasC, mixC, delayC);
+
+	auto averageDryAlignBranches = [] (float a, bool hasA_, float b, bool hasB_, float c, bool hasC_) noexcept
+	{
+		float sum = 0.0f;
+		int count = 0;
+		if (hasA_) { sum += a; ++count; }
+		if (hasB_) { sum += b; ++count; }
+		if (hasC_) { sum += c; ++count; }
+		return count > 0 ? sum / static_cast<float> (count) : 0.0f;
+	};
+
+	const bool hasDryAlignA = dryAlignMode && hasA && mixA > 1.0e-4f;
+	const bool hasDryAlignB = dryAlignMode && hasB && mixB > 1.0e-4f;
+	const bool hasDryAlignC = dryAlignMode && hasC && mixC > 1.0e-4f;
+	float globalDryAlignSamples = 0.0f;
+	if (route == 0)
+		globalDryAlignSamples = dryAlignSamplesA + dryAlignSamplesB + dryAlignSamplesC;
+	else if (route == 1)
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                 dryAlignSamplesB, hasDryAlignB,
+		                                                 dryAlignSamplesC, hasDryAlignC);
+	else if (route == 2)
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA + dryAlignSamplesB, hasDryAlignA || hasDryAlignB,
+		                                                 0.0f, false,
+		                                                 dryAlignSamplesC, hasDryAlignC);
+	else if (route == 3)
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                 dryAlignSamplesB + dryAlignSamplesC, hasDryAlignB || hasDryAlignC,
+		                                                 0.0f, false);
+	else if (route == 4)
+		globalDryAlignSamples = averageDryAlignBranches (dryAlignSamplesA, hasDryAlignA,
+		                                                 dryAlignSamplesB, hasDryAlignB,
+		                                                 0.0f, false) + dryAlignSamplesC;
+	else if (route == 5)
+		globalDryAlignSamples = dryAlignSamplesA + averageDryAlignBranches (dryAlignSamplesB, hasDryAlignB,
+		                                                                    dryAlignSamplesC, hasDryAlignC,
+		                                                                    0.0f, false);
 
 	// Determine working length based on routing
 	int workingLen = 0;
@@ -3430,7 +3628,9 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		const int filterPos = loaderIndex == 0 ? filterPosA : (loaderIndex == 1 ? filterPosB : filterPosC);
 		applyOfflinePreTone (wetPath, loaderIndex, filterPos);
 		convolveExistingPath (wetPath, state.impulseResponse);
-		offlineProcessLoaderEffects (wetPath, dryPath, loaderIndex, workingSR, modeOut, filterPos, loaderMix);
+		const float dryAlignSamples = loaderIndex == 0 ? dryAlignSamplesA : (loaderIndex == 1 ? dryAlignSamplesB : dryAlignSamplesC);
+		offlineProcessLoaderEffects (wetPath, dryPath, loaderIndex, workingSR, modeOut, filterPos, loaderMix,
+		                             dryAlignSamples);
 		return wetPath;
 	};
 
@@ -3795,6 +3995,8 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 		result.applyGain (inputGain);
 		globalDryIrBuffer.applyGain (inputGain);
 	}
+	if (globalDryAlignSamples > 0.001f)
+		applyOfflineDelaySamples (globalDryIrBuffer, workingSR, globalDryAlignSamples);
 
 	// MATCH spectral EQ (offline)
 	{
@@ -4242,9 +4444,10 @@ bool CABTRAudioProcessor::exportCombinedIR (double targetSampleRate,
 // - EXP is signal-dynamic and cannot be represented faithfully in a static IR
 //==============================================================================
 void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
-                                                        const juce::AudioBuffer<float>& dryBuffer,
-                                                        int loaderIndex, double sampleRate,
-                                                        int modeOut, int filterPos, float loaderMix)
+                                                       const juce::AudioBuffer<float>& dryBuffer,
+                                                       int loaderIndex, double sampleRate,
+                                                       int modeOut, int filterPos, float loaderMix,
+                                                       float dryAlignSamples)
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
@@ -4466,10 +4669,18 @@ void CABTRAudioProcessor::offlineProcessLoaderEffects (juce::AudioBuffer<float>&
 	{
 		const float wet = loaderMix;
 		const float dry = 1.0f - loaderMix;
+		juce::AudioBuffer<float> alignedDry;
+		const juce::AudioBuffer<float>* dryToUse = &dryBuffer;
+		if (dryAlignSamples > 0.001f)
+		{
+			alignedDry.makeCopyOf (dryBuffer, true);
+			applyOfflineDelaySamples (alignedDry, sampleRate, dryAlignSamples);
+			dryToUse = &alignedDry;
+		}
 		for (int ch = 0; ch < numChannels; ++ch)
 		{
 			auto* wetData = buffer.getWritePointer (ch);
-			const auto* dryData = dryBuffer.getReadPointer (ch);
+			const auto* dryData = dryToUse->getReadPointer (ch);
 			juce::FloatVectorOperations::multiply (wetData, wet, numSamples);
 			juce::FloatVectorOperations::addWithMultiply (wetData, dryData, dry, numSamples);
 		}
@@ -5510,21 +5721,16 @@ void CABTRAudioProcessor::applyMidSideOutputMode (juce::AudioBuffer<float>& buf,
 // Handles any delay length correctly (even > buffer size)
 // Used for phase alignment between loaders
 //==============================================================================
-void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex)
+void CABTRAudioProcessor::applyDelaySamples (juce::AudioBuffer<float>& buffer, float targetDelaySamples,
+                                             juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd>& delayLine,
+                                             juce::SmoothedValue<float>& smoother)
 {
 	const int numSamples = buffer.getNumSamples();
 	const int numChannels = buffer.getNumChannels();
-	
-	// Convert ms to samples
-	const float targetDelaySamples = juce::jmax (0.0f, delayMs * 0.001f * static_cast<float> (currentSampleRate));
-	
-	// Select delay line and smoother for this loader
-	auto& delayLine = loaderIndex == 0 ? stateA.delayLine : (loaderIndex == 1 ? stateB.delayLine : stateC.delayLine);
-	auto& smoother  = loaderIndex == 0 ? stateA.smoothedDelay : (loaderIndex == 1 ? stateB.smoothedDelay : stateC.smoothedDelay);
 	auto* const* writeChannels = buffer.getArrayOfWritePointers();
 	
 	// Set target delay with smoothing (prevents clicks when changing delay)
-	smoother.setTargetValue (targetDelaySamples);
+	smoother.setTargetValue (juce::jlimit (0.0f, 191998.0f, targetDelaySamples));
 
 	// Keep the buffer continuously fed and fade the first 0..2 samples into dry.
 	// This preserves the intentional "rewind" glide while avoiding a hard switch
@@ -5591,6 +5797,26 @@ void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float de
 	}
 }
 
+void CABTRAudioProcessor::applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex)
+{
+	const float targetDelaySamples = juce::jmax (0.0f, delayMs * 0.001f * static_cast<float> (currentSampleRate));
+	auto& delayLine = loaderIndex == 0 ? stateA.delayLine : (loaderIndex == 1 ? stateB.delayLine : stateC.delayLine);
+	auto& smoother  = loaderIndex == 0 ? stateA.smoothedDelay : (loaderIndex == 1 ? stateB.smoothedDelay : stateC.smoothedDelay);
+	applyDelaySamples (buffer, targetDelaySamples, delayLine, smoother);
+}
+
+void CABTRAudioProcessor::applyDryAlignDelay (juce::AudioBuffer<float>& buffer, float targetDelaySamples, int loaderIndex)
+{
+	auto& delayLine = loaderIndex == 0 ? stateA.dryDelayLine : (loaderIndex == 1 ? stateB.dryDelayLine : stateC.dryDelayLine);
+	auto& smoother  = loaderIndex == 0 ? stateA.smoothedDryDelay : (loaderIndex == 1 ? stateB.smoothedDryDelay : stateC.smoothedDryDelay);
+	applyDelaySamples (buffer, targetDelaySamples, delayLine, smoother);
+}
+
+void CABTRAudioProcessor::applyGlobalDryAlignDelay (juce::AudioBuffer<float>& buffer, float targetDelaySamples)
+{
+	applyDelaySamples (buffer, targetDelaySamples, globalDryDelayLine, smoothedGlobalDryDelay);
+}
+
 void CABTRAudioProcessor::calculateAutoAlignment()
 {
 	// Only consider loaders that are both loaded AND enabled
@@ -5601,12 +5827,20 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	const bool hasA = enabledA && ! stateA.currentFilePath.isEmpty() && stateA.impulseResponse.getNumSamples() > 0;
 	const bool hasB = enabledB && ! stateB.currentFilePath.isEmpty() && stateB.impulseResponse.getNumSamples() > 0;
 	const bool hasC = enabledC && ! stateC.currentFilePath.isEmpty() && stateC.impulseResponse.getNumSamples() > 0;
+	const bool dryAlignRequested = isDryAlignModeEnabled();
+	if (hasA) stateA.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateA.impulseResponse));
+	if (hasB) stateB.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateB.impulseResponse));
+	if (hasC) stateC.irDryAnchorSamples.store (computeIRDominantAnchorSamples (stateC.impulseResponse));
 
 	if (! hasA || (! hasB && ! hasC))
 	{
+		dryAlignRuntimeActive_.store (dryAlignRequested && (hasA || hasB || hasC), std::memory_order_release);
 		LOG_IR_EVENT ("ALIGN: skipped - need A enabled + at least B or C enabled & loaded");
+		if (dryAlignRuntimeActive_.load (std::memory_order_acquire))
+			LOG_IR_EVENT ("A+DI: dry alignment active for single-loader/DI blend");
 		return;
 	}
+	dryAlignRuntimeActive_.store (dryAlignRequested, std::memory_order_release);
 
 	const auto& irA = stateA.impulseResponse;
 	const float* dataA = irA.getReadPointer (0);
@@ -5639,27 +5873,22 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 		return { bestLag, bestCorr };
 	};
 
-	// Helper: apply alignment result to a loader
-	auto applyAlignment = [&] (const char* delayId, const char* invId,
-	                            int bestLag, float bestCorr, bool currentInv, bool currentInvA)
+	auto setDelayMs = [&] (const char* delayId, int delaySamples)
 	{
-		// Compensate for current INV states to find raw correlation
+		const float delayMs = static_cast<float> (juce::jmax (0, delaySamples))
+		                    / static_cast<float> (currentSampleRate) * 1000.0f;
+		if (auto* p = parameters.getParameter (delayId))
+			p->setValueNotifyingHost (p->convertTo0to1 (juce::jmin (delayMs, kDelayMax)));
+	};
+
+	auto resolvePolarity = [&] (const char* invId, int bestLag, float bestCorr, bool currentInv, bool currentInvA)
+	{
 		float rawCorr = bestCorr;
 		if (currentInvA) rawCorr = -rawCorr;
 		if (currentInv)  rawCorr = -rawCorr;
-		const bool needsInvert = (rawCorr < 0.0f);
+		const bool needsInvert = rawCorr < 0.0f;
 
-		const float lagMs = static_cast<float> (std::abs (bestLag)) / static_cast<float> (currentSampleRate) * 1000.0f;
-		const float clampedMs = juce::jmin (lagMs, kDelayMax);
-
-		// Apply delay: positive lag means X needs delay, negative means A needs it
-		// Since A is reference and may be shared, we only apply delay to the non-A loader.
-		// If bestLag < 0, X is ahead of A - we add delay to X by abs(bestLag).
-		// If bestLag > 0, A is ahead of X - we add delay to X.
-		// Actually the convention: positive lag = B needs to be delayed, negative = A needs delay.
-		// For multi-loader: we apply delay only to B/C. If A needs delay, we apply to A separately.
-		if (auto* p = parameters.getParameter (delayId))
-			p->setValueNotifyingHost (p->convertTo0to1 (bestLag > 0 ? clampedMs : 0.0f));
+		const float lagMs = static_cast<float> (bestLag) / static_cast<float> (currentSampleRate) * 1000.0f;
 
 		if (auto* p = parameters.getParameter (invId))
 			p->setValueNotifyingHost (needsInvert ? 1.0f : 0.0f);
@@ -5681,34 +5910,41 @@ void CABTRAudioProcessor::calculateAutoAlignment()
 	if (auto* p = parameters.getParameter (kParamInvA))
 		p->setValueNotifyingHost (0.0f);
 
-	// For multi-loader alignment: A is reference. We compute delays for B and C.
-	// We track the largest negative lag (A ahead -> need delay on A's side).
-	int aDelaySamples = 0; // positive = A needs this many samples of delay
+	int lagB = 0;
+	int lagC = 0;
 
 	if (hasB)
 	{
-		auto [lagB, corrB] = xcorr (stateB.impulseResponse);
+		auto [bestLagB, corrB] = xcorr (stateB.impulseResponse);
+		lagB = bestLagB;
 		const bool currentInvB = parameters.getRawParameterValue (kParamInvB)->load() > 0.5f;
-		applyAlignment (kParamDelayB, kParamInvB, lagB, corrB, currentInvB, currentInvA);
-		if (lagB < 0) aDelaySamples = juce::jmax (aDelaySamples, -lagB);
+		resolvePolarity (kParamInvB, lagB, corrB, currentInvB, currentInvA);
 	}
 
 	if (hasC)
 	{
-		auto [lagC, corrC] = xcorr (stateC.impulseResponse);
+		auto [bestLagC, corrC] = xcorr (stateC.impulseResponse);
+		lagC = bestLagC;
 		const bool currentInvC = parameters.getRawParameterValue (kParamInvC)->load() > 0.5f;
-		applyAlignment (kParamDelayC, kParamInvC, lagC, corrC, currentInvC, currentInvA);
-		if (lagC < 0) aDelaySamples = juce::jmax (aDelaySamples, -lagC);
+		resolvePolarity (kParamInvC, lagC, corrC, currentInvC, currentInvA);
 	}
 
-	// If A needs delay (was ahead of one or more loaders), apply it
-	if (aDelaySamples > 0)
-	{
-		const float aMsDelay = static_cast<float> (aDelaySamples) / static_cast<float> (currentSampleRate) * 1000.0f;
-		if (auto* p = parameters.getParameter (kParamDelayA))
-			p->setValueNotifyingHost (p->convertTo0to1 (juce::jmin (aMsDelay, kDelayMax)));
-		LOG_IR_EVENT ("ALIGN A: delay=" + juce::String (aMsDelay, 3) + "ms (A was ahead)");
-	}
+	// With xcorr as implemented, lagX = arrivalX - arrivalA.
+	// Delay every active branch to the latest arrival so no branch needs negative delay.
+	const int latestArrival = juce::jmax (0, juce::jmax (hasB ? lagB : 0, hasC ? lagC : 0));
+	const int delayA = latestArrival;
+	const int delayB = hasB ? latestArrival - lagB : 0;
+	const int delayC = hasC ? latestArrival - lagC : 0;
+	setDelayMs (kParamDelayA, delayA);
+	if (hasB) setDelayMs (kParamDelayB, delayB);
+	if (hasC) setDelayMs (kParamDelayC, delayC);
+	LOG_IR_EVENT ("ALIGN delays: A=" + juce::String (delayA)
+	              + " B=" + juce::String (delayB)
+	              + " C=" + juce::String (delayC)
+	              + " samples"
+	              + " | dryAnchor A=" + juce::String (stateA.irDryAnchorSamples.load(), 1)
+	              + " B=" + juce::String (stateB.irDryAnchorSamples.load(), 1)
+	              + " C=" + juce::String (stateC.irDryAnchorSamples.load(), 1));
 }
 
 //==============================================================================
@@ -5878,6 +6114,19 @@ int CABTRAudioProcessor::getUiFirstVisibleLoaderIndex() const noexcept
 	return juce::jlimit (0, 2, static_cast<int> (parameters.state.getProperty (UiStateKeys::firstVisibleLoader, 0)));
 }
 
+void CABTRAudioProcessor::setDryAlignModeEnabled (bool enabled)
+{
+	dryAlignModeEnabled_.store (enabled, std::memory_order_release);
+	if (! enabled)
+		dryAlignRuntimeActive_.store (false, std::memory_order_release);
+	parameters.state.setProperty (UiStateKeys::dryAlignMode, enabled, nullptr);
+}
+
+bool CABTRAudioProcessor::isDryAlignModeEnabled() const noexcept
+{
+	return dryAlignModeEnabled_.load (std::memory_order_acquire);
+}
+
 //==============================================================================
 void CABTRAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
@@ -5907,6 +6156,9 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 		{
 			// Restore APVTS parameters
 			parameters.replaceState (state);
+			const bool restoredDryAlignMode = (bool) parameters.state.getProperty (UiStateKeys::dryAlignMode, false);
+			dryAlignModeEnabled_.store (restoredDryAlignMode, std::memory_order_release);
+			dryAlignRuntimeActive_.store (restoredDryAlignMode, std::memory_order_release);
 
 			const juce::String variationSeedString = state.getProperty (kVariationInstanceSeedProperty, {}).toString();
 			variationInstanceSeed_ = variationSeedString.isNotEmpty()
@@ -5935,6 +6187,7 @@ void CABTRAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 				loaderState.irBellFreqHz.store (1000.0f);
 				loaderState.irBellGainDb.store (0.0f);
 				loaderState.irBellQ.store (1.0f);
+				loaderState.irDryAnchorSamples.store (0.0f);
 				loaderState.pendingSize = loaderState.lastSize.load();
 				loaderState.pendingInv = loaderState.lastInv.load();
 				loaderState.pendingNorm = loaderState.lastNorm.load();

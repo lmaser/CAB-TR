@@ -210,12 +210,15 @@ public:
 		static constexpr const char* ioExpandedB = "uiIoExpandedB";
 		static constexpr const char* ioExpandedC = "uiIoExpandedC";
 		static constexpr const char* firstVisibleLoader = "uiFirstVisibleLoader";
+		static constexpr const char* dryAlignMode = "uiDryAlignMode";
 	};
 
 	void  setUiIoExpanded (int loaderIndex, bool expanded);
 	bool  getUiIoExpanded (int loaderIndex) const noexcept;
 	void  setUiFirstVisibleLoaderIndex (int loaderIndex);
 	int   getUiFirstVisibleLoaderIndex() const noexcept;
+	void  setDryAlignModeEnabled (bool enabled);
+	bool  isDryAlignModeEnabled() const noexcept;
 
 	// ============================================================================
 	//  Parameter Ranges & Defaults - Filters
@@ -523,6 +526,8 @@ public:
 		// Delay line for phase alignment (max 1 second)
 		juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delayLine { 192000 };
 		juce::SmoothedValue<float> smoothedDelay { 0.0f }; // Delay smoothing for click-free glide
+		juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> dryDelayLine { 192000 };
+		juce::SmoothedValue<float> smoothedDryDelay { 0.0f };
 		
 		// Cache last parameter values to detect changes and reload IR
 		std::atomic<float> lastSize { 1.0f };
@@ -648,6 +653,7 @@ public:
 		std::atomic<float> irBellFreqHz { 1000.0f };
 		std::atomic<float> irBellGainDb { 0.0f };
 		std::atomic<float> irBellQ { 1.0f };
+		std::atomic<float> irDryAnchorSamples { 0.0f };
 
 		// Per-loader tilt EQ state (1st-order shelf, pivot 1kHz)
 		float tiltB0 = 1.0f, tiltB1 = 0.0f, tiltA1 = 0.0f;
@@ -988,9 +994,13 @@ private:
 	juce::AudioBuffer<float> tempBufferC;
 	juce::AudioBuffer<float> globalDryBuffer;  // For global dry/wet MIX
 	juce::AudioBuffer<float> loaderDryBuffer;  // For per-loader dry/wet MIX
+	juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> globalDryDelayLine { 192000 };
+	juce::SmoothedValue<float> smoothedGlobalDryDelay { 0.0f };
 	
 	// Debug / rate-limiting
 	juce::int64 lastAlignTime = 0;
+	std::atomic<bool> dryAlignModeEnabled_ { false };
+	std::atomic<bool> dryAlignRuntimeActive_ { false };
 
 	// Pre-computed coefficients (set once in prepareToPlay, avoids per-block std::exp)
 	float cachedTiltSmoothCoeff_  = 0.0f;  // 1 - exp(-1/(sr*0.03))
@@ -1038,12 +1048,18 @@ private:
 	                              float sizeOffset) noexcept;
 	void resetVariationStateForLoader (IRLoaderState& state, int loaderSeedIndex) noexcept;
 	void resetAllVariationStates() noexcept;
+	void applyDelaySamples (juce::AudioBuffer<float>& buffer, float targetDelaySamples,
+	                        juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd>& delayLine,
+	                        juce::SmoothedValue<float>& smoother);
 	void applyDelay (juce::AudioBuffer<float>& buffer, float delayMs, int loaderIndex);
+	void applyDryAlignDelay (juce::AudioBuffer<float>& buffer, float targetDelaySamples, int loaderIndex);
+	void applyGlobalDryAlignDelay (juce::AudioBuffer<float>& buffer, float targetDelaySamples);
 	void calculateAutoAlignment();
 	void offlineProcessLoaderEffects (juce::AudioBuffer<float>& buffer,
 	                                  const juce::AudioBuffer<float>& dryBuffer,
 	                                  int loaderIndex, double sampleRate,
-	                                  int modeOut, int filterPos, float loaderMix);
+	                                  int modeOut, int filterPos, float loaderMix,
+	                                  float dryAlignSamples);
 
 	// Shared M/S encoding helper (used by processBlock + offline export)
 	static void applyMidSideInputMode (juce::AudioBuffer<float>& buf, int modeVal, int numSamples);

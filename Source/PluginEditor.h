@@ -75,6 +75,7 @@ private:
 	juce::Rectangle<int> getExportIconArea() const;
 	void updateExportIconCache();
 	void setupBar (juce::Slider& s);
+	void updateAlignModeUi();
 
 	CABTRAudioProcessor& audioProcessor;
 
@@ -121,12 +122,31 @@ private:
 		{
 			if (! e.mods.isPopupMenu())
 				juce::ToggleButton::mouseDown (e);
+			else if (onRightClick != nullptr && (! rightClickTextOnly || isPointInTextArea (e.position)))
+				onRightClick();
 		}
 
 		void mouseUp (const juce::MouseEvent& e) override
 		{
 			if (! e.mods.isPopupMenu())
 				juce::ToggleButton::mouseUp (e);
+		}
+
+		void setRightClickTextOnly (bool shouldUseTextOnly) noexcept { rightClickTextOnly = shouldUseTextOnly; }
+
+		std::function<void()> onRightClick;
+
+	private:
+		bool rightClickTextOnly = false;
+
+		bool isPointInTextArea (juce::Point<float> p) const noexcept
+		{
+			const auto local = getLocalBounds().toFloat().reduced (1.0f);
+			const float side = juce::jlimit (14.0f,
+			                                 juce::jmax (14.0f, local.getHeight() - 2.0f),
+			                                 std::round (local.getHeight() * 0.65f));
+			const float textX = local.getX() + 2.0f + side + 2.0f;
+			return p.x >= textX;
 		}
 	};
 
